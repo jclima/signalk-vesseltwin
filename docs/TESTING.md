@@ -14,7 +14,8 @@ Needs Docker and Node >= 22. Run everything from the repository root.
   under `pairing.userCode`. The status line (SignalK admin UI, Server > Plugin Config) only says
   "Pairing in progress" and points to that route, because it is broadcast to every client.
 - These routes sit behind the server's admin login. `node dev/setup-signalk.mjs` creates a throwaway
-  admin, saves a bearer token to `.signalk-dev/token` (gitignored) and enables the plugin.
+  admin, saves a bearer token to `.signalk-dev/token` (gitignored, mode 0600; the script never prints
+  it) and enables the plugin.
 - Handy shell helpers used below:
 
 ```sh
@@ -23,6 +24,30 @@ st()   { curl -s -H "authorization: Bearer $T" localhost:3100/plugins/signalk-ve
 fault(){ curl -s -X POST localhost:3001/__mock/fault -H 'content-type: application/json' -d "$1"; echo; }
 mlog() { curl -s localhost:3001/__mock/log; echo; }   # method, path, status, time; never codes or credentials
 ```
+
+### Testing with SignalK security disabled
+
+The stock `signalk/signalk-server` image starts the server through `startup.sh`, which always passes
+`--securityenabled`, so security cannot be switched off in the admin UI or settings of that image. To
+see the plugin behave on a server with security off (for example to check the README security note),
+override the entrypoint in a compose override file. **For local testing only; never do this on a real
+boat.**
+
+```yaml
+# dev/docker-compose.nosecurity.yml
+services:
+  signalk:
+    entrypoint: ['/home/node/signalk/node_modules/signalk-server/bin/signalk-server']
+```
+
+```sh
+docker compose -f dev/docker-compose.yml -f dev/docker-compose.nosecurity.yml up -d --build
+```
+
+Use a fresh volume (`down -v` first). `node dev/setup-signalk.mjs` does not apply here (there is no
+login): enable the plugin and set `apiBaseUrl` to `http://localhost:3001` in the admin UI, then drive
+it with `SK_NO_AUTH=1 node dev/pair.mjs` and plain `curl` without the `authorization` header. Delete the
+override file afterwards.
 
 ### Triggering a status check on demand
 
@@ -96,7 +121,9 @@ Details worth checking:
   tombstone); a restart probes once more.
 - **Origin binding**: change the plugin's `apiBaseUrl` to a different local origin (for example
   `http://127.0.0.1:3001`, which the relay does not serve) while a credential exists: the state is
-  `reauth_required` and the mock log shows no request at all.
+  `reauth_required` and the mock log shows no request at all. The status line says `The VesselTwin
+API address changed since pairing. Pair again, or restore the previous address. ...` (no URL, and
+  not the generic 401 copy). Restore the URL and restart the plugin to reconnect.
 - **Pairing failures**, via `/__mock/fault` on `pairing/start` or `/__mock/approve` with
   `{"deny":true}`, are shown in state `pairing_failed` (`pairing.reason` in `/status`):
 
