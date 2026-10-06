@@ -20,30 +20,38 @@ Connecting requires a VesselTwin account ([sign up at vesseltwin.io](https://ves
 account yet.
 
 The plugin has no page or button of its own. Pairing is started with a request to the plugin's
-endpoint, and the code is shown in the plugin's status line.
+endpoint, and an admin reads the code from the plugin's `status` endpoint. **Pair as an admin, with
+SignalK security enabled** (see below).
 
 1. Enable the plugin under Server > Plugin Config in the SignalK admin UI.
 2. Start pairing with `POST /plugins/signalk-vesseltwin/pair` (an admin request; the SignalK admin
    login applies). From a checkout of this repository, `node dev/pair.mjs --no-approve` does this
    for you.
-3. The plugin shows a short code such as `ABCD-EFGH` and a web address in its status line (Server >
-   Plugin Config, the plugin's entry) and in the `GET /plugins/signalk-vesseltwin/status` response,
-   in `pairing.userCode`.
+3. The plugin's status line (Server > Plugin Config, the plugin's entry) says "Pairing in progress".
+   As an admin, open `GET /plugins/signalk-vesseltwin/status`: `pairing.userCode` is a short code such
+   as `ABCD-EFGH` and `pairing.verificationUrl` is the web address to open. The code is not in the
+   status line on purpose: SignalK shows the status line to every client, including read-only and
+   anonymous ones.
 4. Open that address, sign in to VesselTwin, enter the code, choose your boat, and approve.
 5. The plugin picks up the approval within a few seconds and then checks the connection. The status
    line shows `Paired with ...` once that works.
 
 The code expires after 10 minutes. If it does, start pairing again.
 
-The plugin's endpoints rely on the SignalK server's own access control. Keep SignalK security
-enabled and do not give anonymous or read-only users access to the plugin's `status` and `pair`
-endpoints, because the pairing code is visible there while pairing is pending.
+The plugin's endpoints (`status`, `pair`, `unpair`) rely on the SignalK server's own access control.
+With SignalK security enabled they are admin-only by default in SignalK 2.x, and the plugin also
+refuses browser requests whose `Origin` does not match the server. **Pairing requires SignalK
+security to be enabled.** With security off, any device on your network, or a web page that tricks a
+browser on that network, could start or complete pairing against your server. The plugin does not
+check this for you, so enable security before you pair.
 
 Other things the status line can tell you: the connection is paused, VesselTwin cannot be reached
 right now (the plugin keeps trying), the plugin version is not supported (update the plugin), or the
 pairing is no longer valid (pair again; this replaces the stored connection). When VesselTwin rejects
 the stored connection, the plugin removes the secret from its data folder and keeps only a marker, so
-it does not try the old credential again after a restart.
+it does not try the old credential again after a restart. An unexpected rejection that does not come
+from VesselTwin itself (for example from a proxy) also stops the checks, but leaves the stored
+connection in place.
 
 **Unpair** (`POST /plugins/signalk-vesseltwin/unpair`) only removes the stored connection on this
 server. Also revoke the connection in VesselTwin so it stops working there; the plugin cannot do that
@@ -55,8 +63,9 @@ for you.
   does not read those paths.
 - **Pairing** sends only: the plugin name and version, the contract version, the fixed device label
   "SignalK server", the requested scope, and optionally your SignalK server's own random install
-  UUID. The UUID is sent only if the server's own id is a SignalK UUID (a server identifier, not a
-  vessel identity); an MMSI-based id or anything else is left out. Nothing else is sent before you
+  UUID, which is the vessel's SignalK self id (`urn:mrn:signalk:uuid:...`). A random UUID like this
+  does not identify you or the boat by itself. It is sent only if the self id is a UUID (bare or
+  with that prefix); an MMSI-based id or anything else is left out. Nothing else is sent before you
   approve.
 - **Status check**: after pairing, on start and about once an hour, the plugin makes an authenticated
   request that asks VesselTwin whether the connection is still valid and which plugin versions it

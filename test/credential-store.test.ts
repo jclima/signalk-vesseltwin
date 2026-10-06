@@ -1,7 +1,8 @@
 import { mkdtemp, readdir, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { promises as fsp } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CredentialStore, isTombstone } from '../src/credential-store';
 
 let dir: string;
@@ -103,5 +104,65 @@ describe('CredentialStore', () => {
     const back = await new CredentialStore(dir).read();
     expect(back).toEqual({ reauthRequired: true, vesselLabel: null, apiOrigin: null });
     expect(JSON.stringify(back)).not.toContain('vti_');
+  });
+
+  it('clear() also removes stray temp files left by a crash, and nothing else', async () => {
+    const s = new CredentialStore(dir);
+    await s.write(cred);
+    const { writeFile } = fsp;
+    await writeFile(path.join(dir, '.credential.json.abc123.tmp'), 'vti_secret');
+    await writeFile(path.join(dir, '.credential.json.0f0f.tmp'), 'x');
+    await writeFile(path.join(dir, 'other.txt'), 'keep');
+    await s.clear();
+    expect(await readdir(dir)).toEqual(['other.txt']);
+  });
+
+  it('clear() on a missing directory is a no-op', async () => {
+    await expect(new CredentialStore(path.join(dir, 'nope')).clear()).resolves.toBeUndefined();
+  });
+
+  describe('failed writes leave no temp file', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('rename fails after the secret was written', async () => {
+      vi.spyOn(fsp, 'rename').mockRejectedValueOnce(new Error('EXDEV'));
+      await expect(new CredentialStore(dir).write(cred)).rejects.toThrow('EXDEV');
+      expect(await readdir(dir)).toEqual([]);
+    });
+
+    it('writing or syncing the temp file fails', async () => {
+      const realOpen = fsp.open.bind(fsp);
+      vi.spyOn(fsp, 'open').mockImplementationOnce(async (...a: Parameters<typeof fsp.open>) => {
+        const fh = await realOpen(...a);
+        vi.spyOn(fh, 'sync').mockRejectedValueOnce(new Error('EIO'));
+        return fh;
+      });
+      await expect(new CredentialStore(dir).write(cred)).rejects.toThrow('EIO');
+      expect(await readdir(dir)).toEqual([]);
+    });
+
+    it('a directory fsync failure does not fail the write', async () => {
+      const realOpen = fsp.open.bind(fsp);
+      vi.spyOn(fsp, 'open').mockImplementation(async (...a: Parameters<typeof fsp.open>) => {
+        if (a[1] === 'r') throw new Error('EISDIR');
+        return realOpen(...a);
+      });
+      const s = new CredentialStore(dir);
+      await s.write(cred);
+      expect(await s.read()).toEqual(cred);
+    });
+
+    it('fsyncs the directory after the rename', async () => {
+      const realOpen = fsp.open.bind(fsp);
+      const opened: unknown[] = [];
+      vi.spyOn(fsp, 'open').mockImplementation(async (...a: Parameters<typeof fsp.open>) => {
+        opened.push(a[0]);
+        return realOpen(...a);
+      });
+      await new CredentialStore(dir).write(cred);
+      expect(opened.at(-1)).toBe(dir);
+    });
   });
 });

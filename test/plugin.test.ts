@@ -195,6 +195,11 @@ function harness(opts: { dir?: string } = {}) {
     until(async () => (await call('GET /status')).body.state === state);
   const ok = () => new Response(JSON.stringify(tokenBody), { status: 200 });
   const files = () => readdirSync(dir);
+  /** Wait for in-flight temp-file writes to settle, then assert the directory listing. */
+  const untilFiles = async (expected: string[]) => {
+    await until(() => JSON.stringify(readdirSync(dir)) === JSON.stringify(expected));
+    expect(readdirSync(dir)).toEqual(expected);
+  };
   const statusCalls = () => calls.filter((u) => u.endsWith('/v1/integrations/status')).length;
   return {
     app,
@@ -203,6 +208,7 @@ function harness(opts: { dir?: string } = {}) {
     tick,
     until,
     untilState,
+    untilFiles,
     calls,
     held,
     ok,
@@ -250,8 +256,12 @@ describe('pairing lifecycle', () => {
     expect(h.app.statuses.at(-1)).toBe(
       'Paired with Sea Hag. Data upload is not available in this version.',
     );
-    expect(h.app.statuses).toContain('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
-    expect(h.app.statuses.at(-1)).not.toContain('AAAA-AAAA');
+    expect(h.app.statuses).toContain(COPY.pairingInProgress);
+    // The status line is broadcast to anonymous clients: it never carries the code or the URL.
+    for (const line of h.app.statuses) {
+      expect(line).not.toContain('AAAA-AAAA');
+      expect(line).not.toContain('vesseltwin.io/connect');
+    }
     expect(h.app.statuses.join('\n')).not.toContain(FAKE_CRED);
     h.plugin.stop();
   });
@@ -283,7 +293,7 @@ describe('pairing lifecycle', () => {
       expect(mid.pairing).toBeNull();
       expect(String(mid.message)).not.toContain('AAAA-AAAA');
       expect(String(mid.message)).not.toContain(FAKE_CRED);
-      expect(h.files()).toEqual([]);
+      await h.untilFiles([]);
       release();
       await h.untilState('connected');
       expect((await h.call('GET /status')).body).toMatchObject({ paired: true });
@@ -306,15 +316,14 @@ describe('pairing lifecycle', () => {
     expect(String(un.body.message)).toMatch(/revoke the connection in VesselTwin/);
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect((await h.call('GET /status')).body).toMatchObject({
       state: 'not_paired',
       paired: false,
       pairing: null,
     });
-    expect(h.app.statuses.at(-1)).toBe(
-      'Not paired. Start pairing with VesselTwin (see the plugin README).',
-    );
+    // The revoke reminder stays in the status line after an unpair.
+    expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     expect(h.statusCalls()).toBe(0);
     h.plugin.stop();
   });
@@ -344,7 +353,7 @@ describe('pairing lifecycle', () => {
     h.plugin.stop();
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
   });
 
   it('a stale run cannot disturb a restarted one; duplicate /pair is a no-op; stop() cancels it', async () => {
@@ -372,7 +381,7 @@ describe('pairing lifecycle', () => {
     h.plugin.stop();
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
   });
 
   it('refuses /pair when already paired, with no pairing requests', async () => {
@@ -446,7 +455,7 @@ describe('label and token handling', () => {
         },
       ),
     );
-    await h.tick();
+    await h.untilState('connected');
     const line = h.app.statuses.at(-1) ?? '';
     expect(line).toMatch(/^Paired with Sea Hag x+\. /);
     expect(line).not.toContain('SIGNALK VESSEL NAME');
@@ -465,7 +474,7 @@ describe('label and token handling', () => {
     h.held[0]?.resolve(
       new Response(JSON.stringify({ ...tokenBody, vesselLabel: null }), { status: 200 }),
     );
-    await h.tick();
+    await h.untilState('connected');
     expect(h.app.statuses.at(-1)).toBe(
       'Paired with VesselTwin. Data upload is not available in this version.',
     );
@@ -482,7 +491,7 @@ describe('label and token handling', () => {
       new Response(JSON.stringify({ ...tokenBody, credential: 'vti_short' }), { status: 200 }),
     );
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect(h.app.statuses.at(-1)).toMatch(/^ERR /);
     h.plugin.stop();
   });
@@ -626,7 +635,7 @@ describe('state machine', () => {
 
     await h.call('POST /pair');
     await h.tick();
-    expect(h.app.statuses.at(-1)).toBe('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
+    expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
     await h.tick(5_000);
     h.held[0]?.resolve(h.ok());
     await h.untilState('connected');
@@ -642,7 +651,11 @@ describe('state machine', () => {
     expect(h.app.statuses.at(-1)).toBe(
       `ERR Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
     );
-    expect(h.files()).toEqual(['credential.json']);
+    // The tombstone write (temp file, rename, dir fsync) is async: wait for it to settle.
+    await h.untilFiles(['credential.json']);
+    await h.until(async () =>
+      (await readFile(join(h.dir, 'credential.json'), 'utf8')).includes('reauthRequired'),
+    );
     // The dead credential is replaced by a secret-free tombstone (same 0600 file).
     const tomb = JSON.parse(await readFile(join(h.dir, 'credential.json'), 'utf8')) as object;
     expect(Object.keys(tomb).sort()).toEqual([
@@ -678,6 +691,9 @@ describe('state machine', () => {
     await h.tick();
     expect(h.statusCalls()).toBe(3);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
+    await h.until(async () =>
+      (await readFile(join(h.dir, 'credential.json'), 'utf8')).includes('cid-2'),
+    );
     expect(JSON.parse(await readFile(join(h.dir, 'credential.json'), 'utf8'))).toMatchObject({
       credentialId: 'cid-2',
     });
@@ -703,7 +719,7 @@ describe('state machine', () => {
     expect(h.calls.filter((u) => u.endsWith('/pairing/start'))).toHaveLength(1);
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     h.plugin.stop();
   });
 
@@ -1092,7 +1108,7 @@ describe('tombstone after a 401', () => {
     h2.plugin.start({});
     await h2.tick();
     expect((await h2.call('POST /unpair')).status).toBe(200);
-    expect(h2.files()).toEqual([]);
+    await h2.untilFiles([]);
     expect((await h2.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
     h2.plugin.stop();
   });
@@ -1123,9 +1139,9 @@ describe('unpair, cleanup and route hardening', () => {
     expect((await h.call('POST /unpair')).status).toBe(200);
     await h.tick(2 * MIN);
     expect(h.statusCalls()).toBe(0);
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
-    expect(h.app.statuses.at(-1)).toBe(COPY.notPaired);
+    expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     h.plugin.stop();
   });
 
@@ -1255,5 +1271,151 @@ describe('unpair, cleanup and route hardening', () => {
     for (const text of [...Object.values(FAILURE_COPY), ...Object.values(COPY)]) {
       expect(text).not.toMatch(/plugin page/i);
     }
+  });
+});
+
+function gate() {
+  let open!: () => void;
+  const p = new Promise<void>((r) => {
+    open = r;
+  });
+  return { p, open };
+}
+
+describe('lifecycle races and the status line', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('never puts the pairing code or URL in a status line, only in the admin /status body', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick();
+    expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
+    expect(COPY.pairingInProgress).toContain('/plugins/signalk-vesseltwin/status');
+    expect((await h.call('GET /status')).body.pairing).toMatchObject({ userCode: 'AAAA-AAAA' });
+    for (const line of h.app.statuses) expect(line).not.toMatch(/AAAA|connect/);
+    h.plugin.stop();
+  });
+
+  it('POST /pair is refused until the stored credential has loaded, with zero network calls', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const g = gate();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
+    const read = CredentialStore.prototype.read;
+    vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      await g.p;
+      return read.call(this);
+    });
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.tick();
+    const early = await h.call('POST /pair');
+    expect(early.status).toBe(503);
+    expect(early.body).toEqual({ error: COPY.starting });
+    expect(h.calls).toHaveLength(0);
+    g.open();
+    await h.untilState('connected');
+    // Loaded and paired: now it is the normal refusal, still without a pairing/start call.
+    expect((await h.call('POST /pair')).status).toBe(409);
+    expect(h.calls.some((u) => u.endsWith('/pairing/start'))).toBe(false);
+    h.plugin.stop();
+  });
+
+  it('a pairing write that outlives stop() cannot leave file and monitor out of step', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000); // token poll in flight
+
+    const writeGate = gate();
+    const clearGate = gate();
+    const readGate = gate();
+    let clearCalled = false;
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
+    const { write, clear, read } = CredentialStore.prototype;
+    vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(async function (
+      this: CredentialStore,
+      c,
+    ) {
+      await writeGate.p;
+      return write.call(this, c);
+    });
+    vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      clearCalled = true;
+      await clearGate.p;
+      return clear.call(this);
+    });
+    vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      await readGate.p;
+      return read.call(this);
+    });
+
+    h.held[0]?.resolve(h.ok()); // approval arrives; the credential write is now pending
+    await h.tick();
+    h.plugin.stop();
+    h.plugin.start({}); // the next lifecycle begins while the old write is pending
+    await h.tick();
+    writeGate.open(); // file lands, the stale run then tries to clear it
+    await h.until(() => clearCalled);
+    readGate.open(); // a load that did not wait for the stale run would now see the file
+    await h.tick();
+    clearGate.open();
+    await h.until(() => h.files().length === 0);
+    await h.tick(2 * MIN);
+
+    await h.untilFiles([]);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      paired: false,
+    });
+    expect(h.statusCalls()).toBe(0); // no monitor on a credential that was deleted
+    h.plugin.stop();
+  });
+
+  it('an unrecognised 401 stops probing but keeps the credential file untouched', async () => {
+    for (const body of [{}, { code: 'something_else' }]) {
+      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      await seed(dir);
+      const before = await readFile(join(dir, 'credential.json'), 'utf8');
+      const h = harness({ dir });
+      h.statusReplies.push(reply(401, body));
+      h.plugin.start({});
+      await h.tick();
+      expect(h.statusCalls()).toBe(1);
+      expect((await h.call('GET /status')).body).toMatchObject({
+        state: 'reauth_required',
+        paired: false,
+      });
+      await h.tick(3 * 60 * MIN);
+      expect(h.statusCalls()).toBe(1); // stopped
+      expect(await readFile(join(dir, 'credential.json'), 'utf8')).toBe(before);
+      await h.untilFiles(['credential.json']);
+      h.plugin.stop();
+    }
+  });
+
+  it('keeps the revoke reminder after unpair until the next start or pairing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('connected');
+    await h.call('POST /unpair');
+    expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
+    h.plugin.stop();
+    h.plugin.start({});
+    await h.until(() => h.app.statuses.at(-1) === COPY.notPaired);
+    h.plugin.stop();
   });
 });

@@ -65,7 +65,7 @@ All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the a
   "updateRecommended": false,
   "clockSkewWarning": false,
   "lastCheckedAt": null,
-  "message": "Enter code ABCD-EFGH at http://localhost:3001/connect"
+  "message": "Pairing in progress. Open /plugins/signalk-vesseltwin/status as an admin for the code."
 }
 ```
 

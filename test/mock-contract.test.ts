@@ -116,7 +116,7 @@ describe('mock status vs the plugin status parser', () => {
       retryAfterMs: 120_000,
     });
     expect(await probe({ status: 403 })).toMatchObject({ kind: 'paused', reason: 'plan' });
-    expect(await probe({ status: 401 })).toEqual({ kind: 'reauth_required' });
+    expect(await probe({ status: 401 })).toEqual({ kind: 'reauth_required', tombstone: true });
     expect(await probe({ status: 426, minContract: 2 })).toMatchObject({
       kind: 'update_required',
       stop: true,

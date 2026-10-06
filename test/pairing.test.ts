@@ -390,6 +390,10 @@ describe('start response validation', () => {
     ['not a url', { verificationUrl: 'vesseltwin.io/connect' }],
     ['file url', { verificationUrl: 'file:///etc/passwd' }],
     ['url too long', { verificationUrl: `https://vesseltwin.io/${'a'.repeat(300)}` }],
+    ['tab in url', { verificationUrl: 'https://vesseltwin.io/con\tnect' }],
+    ['newline in url', { verificationUrl: 'https://vesseltwin.io/\nconnect' }],
+    ['bidi override in url', { verificationUrl: 'https://vesseltwin.io/\u202econnect' }],
+    ['zero-width char in url', { verificationUrl: 'https://vesseltwin.io/co\u200bnnect' }],
     ['empty user code', { userCode: '' }],
     ['long user code', { userCode: 'A'.repeat(33) }],
     ['control chars in code', { userCode: 'AB\nCD' }],
@@ -410,6 +414,17 @@ describe('start response validation', () => {
   ])('accepts %s', async (verificationUrl) => {
     const r = await drive({ verificationUrl }, [], 1);
     expect(r.codes).toHaveLength(1);
+  });
+});
+
+describe('verification URL normalization', () => {
+  it.each([
+    ['HTTPS://VesselTwin.IO/connect', 'https://vesseltwin.io/connect'],
+    ['https://vesseltwin.io', 'https://vesseltwin.io/'],
+    ['https://vesseltwin.io:443/a/../connect', 'https://vesseltwin.io/connect'],
+  ])('passes %s on as %s', async (given, normalized) => {
+    const r = await drive({ verificationUrl: given }, [], 1);
+    expect(r.codes).toEqual([expect.objectContaining({ verificationUrl: normalized })]);
   });
 });
 

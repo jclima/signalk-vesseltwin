@@ -27,6 +27,7 @@ export function isTombstone(v: StoredCredential | Tombstone): v is Tombstone {
 }
 
 const FILE = 'credential.json';
+const TMP_RE = /^\.credential\.json\.[0-9a-f]+\.tmp$/;
 
 /**
  * Holds the paired credential in a 0600 file inside the plugin data dir.
@@ -86,27 +87,56 @@ export class CredentialStore {
     });
   }
 
-  /** Atomic: write a 0600 temp file, fsync, rename over the target. */
+  /**
+   * Atomic: write a 0600 temp file, fsync, rename over the target, fsync the directory. The temp
+   * file may hold the secret, so it is removed on any failure.
+   */
   private async writeAtomic(c: StoredCredential | Tombstone): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     const tmp = path.join(this.dir, `.${FILE}.${randomBytes(6).toString('hex')}.tmp`);
-    const fh = await fs.open(tmp, 'wx', 0o600);
     try {
-      await fh.writeFile(JSON.stringify(c));
-      await fh.sync();
-    } finally {
-      await fh.close();
-    }
-    try {
+      const fh = await fs.open(tmp, 'wx', 0o600);
+      try {
+        await fh.writeFile(JSON.stringify(c));
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
       await fs.rename(tmp, this.file);
     } catch (err) {
-      await fs.rm(tmp, { force: true });
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
       throw err;
     }
     await fs.chmod(this.file, 0o600);
+    await this.syncDir();
   }
 
+  /** Makes the rename durable. Best effort: some platforms cannot open or fsync a directory. */
+  private async syncDir(): Promise<void> {
+    try {
+      const dh = await fs.open(this.dir, 'r');
+      try {
+        await dh.sync();
+      } finally {
+        await dh.close();
+      }
+    } catch {
+      // not supported here (e.g. Windows); the rename itself already happened
+    }
+  }
+
+  /** Removes the credential file and any stray temp files a crash may have left behind. */
   async clear(): Promise<void> {
     await fs.rm(this.file, { force: true });
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(this.dir);
+    } catch {
+      return; // no directory, nothing to clean
+    }
+    for (const n of names) {
+      if (TMP_RE.test(n)) await fs.rm(path.join(this.dir, n), { force: true });
+    }
+    await this.syncDir();
   }
 }

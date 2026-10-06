@@ -75,7 +75,10 @@ list of permitted paths; never add anything location-like.
 - Never log an Authorization header, a credential, a device code, or a user code. Every string that may
   be logged goes through `redact`/`redactError`; wrap errors in `HttpError` (it redacts) and never
   forward raw fetch errors.
-- Show the user code only in the status line and the `/status` response while pairing is pending.
+- Show the user code only in the admin-only `/status` response while pairing is pending. The status
+  line is broadcast to read-only and anonymous clients and never carries the code or the URL.
+- The credential is bound to `apiOrigin`: it is only ever sent to that origin. Never send it elsewhere.
+- Keep the same-origin (`Origin`) check (`guarded`) on every plugin route.
 - Credentials are write-scoped. Treat any change to storage, logging or redaction as security-sensitive.
 
 **Transport.** HTTPS only, except `http://localhost`, `127.0.0.1`, `[::1]` for development. Every
