@@ -195,6 +195,11 @@ function harness(opts: { dir?: string } = {}) {
     until(async () => (await call('GET /status')).body.state === state);
   const ok = () => new Response(JSON.stringify(tokenBody), { status: 200 });
   const files = () => readdirSync(dir);
+  /** Wait for in-flight temp-file writes to settle, then assert the directory listing. */
+  const untilFiles = async (expected: string[]) => {
+    await until(() => JSON.stringify(readdirSync(dir)) === JSON.stringify(expected));
+    expect(readdirSync(dir)).toEqual(expected);
+  };
   const statusCalls = () => calls.filter((u) => u.endsWith('/v1/integrations/status')).length;
   return {
     app,
@@ -203,6 +208,7 @@ function harness(opts: { dir?: string } = {}) {
     tick,
     until,
     untilState,
+    untilFiles,
     calls,
     held,
     ok,
@@ -287,7 +293,7 @@ describe('pairing lifecycle', () => {
       expect(mid.pairing).toBeNull();
       expect(String(mid.message)).not.toContain('AAAA-AAAA');
       expect(String(mid.message)).not.toContain(FAKE_CRED);
-      expect(h.files()).toEqual([]);
+      await h.untilFiles([]);
       release();
       await h.untilState('connected');
       expect((await h.call('GET /status')).body).toMatchObject({ paired: true });
@@ -310,7 +316,7 @@ describe('pairing lifecycle', () => {
     expect(String(un.body.message)).toMatch(/revoke the connection in VesselTwin/);
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect((await h.call('GET /status')).body).toMatchObject({
       state: 'not_paired',
       paired: false,
@@ -347,7 +353,7 @@ describe('pairing lifecycle', () => {
     h.plugin.stop();
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
   });
 
   it('a stale run cannot disturb a restarted one; duplicate /pair is a no-op; stop() cancels it', async () => {
@@ -375,7 +381,7 @@ describe('pairing lifecycle', () => {
     h.plugin.stop();
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
   });
 
   it('refuses /pair when already paired, with no pairing requests', async () => {
@@ -485,7 +491,7 @@ describe('label and token handling', () => {
       new Response(JSON.stringify({ ...tokenBody, credential: 'vti_short' }), { status: 200 }),
     );
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect(h.app.statuses.at(-1)).toMatch(/^ERR /);
     h.plugin.stop();
   });
@@ -645,7 +651,11 @@ describe('state machine', () => {
     expect(h.app.statuses.at(-1)).toBe(
       `ERR Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
     );
-    expect(h.files()).toEqual(['credential.json']);
+    // The tombstone write (temp file, rename, dir fsync) is async: wait for it to settle.
+    await h.untilFiles(['credential.json']);
+    await h.until(async () =>
+      (await readFile(join(h.dir, 'credential.json'), 'utf8')).includes('reauthRequired'),
+    );
     // The dead credential is replaced by a secret-free tombstone (same 0600 file).
     const tomb = JSON.parse(await readFile(join(h.dir, 'credential.json'), 'utf8')) as object;
     expect(Object.keys(tomb).sort()).toEqual([
@@ -681,6 +691,9 @@ describe('state machine', () => {
     await h.tick();
     expect(h.statusCalls()).toBe(3);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
+    await h.until(async () =>
+      (await readFile(join(h.dir, 'credential.json'), 'utf8')).includes('cid-2'),
+    );
     expect(JSON.parse(await readFile(join(h.dir, 'credential.json'), 'utf8'))).toMatchObject({
       credentialId: 'cid-2',
     });
@@ -706,7 +719,7 @@ describe('state machine', () => {
     expect(h.calls.filter((u) => u.endsWith('/pairing/start'))).toHaveLength(1);
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     h.plugin.stop();
   });
 
@@ -1095,7 +1108,7 @@ describe('tombstone after a 401', () => {
     h2.plugin.start({});
     await h2.tick();
     expect((await h2.call('POST /unpair')).status).toBe(200);
-    expect(h2.files()).toEqual([]);
+    await h2.untilFiles([]);
     expect((await h2.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
     h2.plugin.stop();
   });
@@ -1126,7 +1139,7 @@ describe('unpair, cleanup and route hardening', () => {
     expect((await h.call('POST /unpair')).status).toBe(200);
     await h.tick(2 * MIN);
     expect(h.statusCalls()).toBe(0);
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
     expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     h.plugin.stop();
@@ -1361,7 +1374,7 @@ describe('lifecycle races and the status line', () => {
     await h.until(() => h.files().length === 0);
     await h.tick(2 * MIN);
 
-    expect(h.files()).toEqual([]);
+    await h.untilFiles([]);
     expect((await h.call('GET /status')).body).toMatchObject({
       state: 'not_paired',
       paired: false,
@@ -1387,7 +1400,7 @@ describe('lifecycle races and the status line', () => {
       await h.tick(3 * 60 * MIN);
       expect(h.statusCalls()).toBe(1); // stopped
       expect(await readFile(join(dir, 'credential.json'), 'utf8')).toBe(before);
-      expect(h.files()).toEqual(['credential.json']);
+      await h.untilFiles(['credential.json']);
       h.plugin.stop();
     }
   });
