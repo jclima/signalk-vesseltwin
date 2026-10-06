@@ -417,3 +417,70 @@ describe('config error', () => {
     h.plugin.stop();
   });
 });
+
+describe('pairing failure copy', () => {
+  async function run(startReply: () => Response) {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const plugin = createPlugin(app, { fetch: () => Promise.resolve(startReply()) });
+    const routes: Record<string, RouteFn> = {};
+    plugin.registerWithRouter({
+      get: () => undefined,
+      post: (p, h) => {
+        routes[p] = h;
+      },
+    });
+    plugin.start({});
+    await vi.advanceTimersByTimeAsync(0);
+    await realPause(40);
+    const res: ResponseLike = { status: () => res, json: () => undefined };
+    await routes['/pair']?.({}, res);
+    await vi.advanceTimersByTimeAsync(0);
+    await realPause(40);
+    plugin.stop();
+    return app.statuses.at(-1) ?? '';
+  }
+  const j = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status });
+
+  it('contract unsupported asks for a plugin update', async () => {
+    expect(await run(j(400, { code: 'integration_contract_unsupported' }))).toBe(
+      'ERR This plugin version is not supported by VesselTwin. Update the plugin.',
+    );
+  });
+  it('other 400s say pairing could not start, without raw codes', async () => {
+    const m = await run(j(400, { code: 'integration_scope_invalid' }));
+    expect(m).toMatch(/could not start pairing/);
+    expect(m).not.toMatch(/integration_/);
+  });
+  it('503 says try again later', async () => {
+    expect(await run(j(503, { code: 'integration_feature_unavailable' }))).toBe(
+      'ERR VesselTwin is not available right now. Try again later.',
+    );
+  });
+  it('a network failure says try again later and leaks nothing', async () => {
+    const m = await run(() => {
+      throw new Error('boom');
+    });
+    expect(m).toBe('ERR VesselTwin is not available right now. Try again later.');
+  });
+});
+
+describe('expired and denied copy', () => {
+  it('expired hints the integration may not be enabled yet; denied is neutral', async () => {
+    for (const [error, re] of [
+      ['expired_token', /may not be enabled for your account yet/],
+      ['access_denied', /declined in VesselTwin/],
+    ] as const) {
+      const h = harness();
+      h.plugin.start({});
+      await h.tick();
+      await h.call('POST /pair');
+      await h.tick(5_000);
+      h.held[0]?.resolve(new Response(JSON.stringify({ error }), { status: 400 }));
+      await h.tick();
+      expect(h.app.statuses.at(-1)).toMatch(re);
+      expect(h.app.statuses.at(-1)).not.toMatch(/expired_token|access_denied/);
+      h.plugin.stop();
+    }
+  });
+});

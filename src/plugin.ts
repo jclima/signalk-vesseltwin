@@ -60,6 +60,19 @@ function cleanLabel(v: string | null | undefined): string | null {
   return t ? t.slice(0, 80) : null;
 }
 
+/** Neutral copy per failed pairing outcome. Never shows raw server codes. */
+const FAILURE_COPY = {
+  expired:
+    'The pairing code expired. Start pairing again from the plugin page. If this keeps happening, VesselTwin integrations may not be enabled for your account yet.',
+  denied:
+    'Pairing was declined in VesselTwin. Start again from the plugin page if that was a mistake.',
+  unavailable: 'VesselTwin is not available right now. Try again later.',
+  busy: 'VesselTwin is busy. Try pairing again in a few minutes.',
+  update_required: 'This plugin version is not supported by VesselTwin. Update the plugin.',
+  rejected:
+    'VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.',
+} as const;
+
 export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let options: PluginOptions = parseOptions({});
   let store: CredentialStore | null = null;
@@ -144,18 +157,16 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         vesselLabel = cleanLabel(out.token.vesselLabel);
         justUnpaired = false;
         paired = true;
-      } else if (out.kind === 'busy') {
-        app.setPluginError('VesselTwin is busy. Try pairing again in a few minutes.');
-        return;
       } else if (out.kind !== 'cancelled') {
-        app.setPluginError(`Pairing ${out.kind}. Try again from the plugin page.`);
+        app.setPluginError(FAILURE_COPY[out.kind]);
         return;
       }
       report();
     } catch (err) {
       if (abort === ctl) {
         pairing = null;
-        app.setPluginError(`Pairing failed: ${redactError(err)}`);
+        app.debug(`pairing failed: ${redactError(err)}`);
+        app.setPluginError(FAILURE_COPY.unavailable);
       }
     } finally {
       if (abort === ctl) abort = null;

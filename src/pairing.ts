@@ -14,6 +14,8 @@ export type PairingOutcome =
   | { kind: 'denied' }
   | { kind: 'unavailable'; retryAfterMs: number | null }
   | { kind: 'busy'; retryAfterMs: number | null }
+  | { kind: 'update_required' }
+  | { kind: 'rejected' }
   | { kind: 'cancelled' };
 
 export interface PairingParams {
@@ -32,6 +34,17 @@ export interface PairingParams {
 
 /** `vti_` + 32 random bytes base64url, as issued by the platform. */
 export const CREDENTIAL_RE = /^vti_[A-Za-z0-9_-]{43}$/;
+
+const HINT_RE =
+  /^(?:urn:mrn:signalk:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The SignalK self id is only a de-duplication hint. Send it only when it is a UUID (bare or as
+ * `urn:mrn:signalk:uuid:`); an MMSI urn or anything else is omitted.
+ */
+export function cleanSelfUuid(v: unknown): string | undefined {
+  return typeof v === 'string' && v.length <= 100 && HINT_RE.test(v) ? v : undefined;
+}
 
 const SLOW_DOWN_STEP_S = 5;
 const DEFAULT_INTERVAL_S = 5;
@@ -92,6 +105,7 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
   const now = p.now ?? Date.now;
   const sleep = p.sleep ?? defaultSleep;
 
+  const selfUuid = cleanSelfUuid(p.signalkSelfUuid);
   const ro = p.signal ? { signal: p.signal } : {};
   const start = await p.http.post(
     '/v1/integrations/pairing/start',
@@ -102,10 +116,16 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
       contractVersion: CONTRACT_VERSION,
       deviceLabel: p.deviceLabel,
       requestedScopes: p.scopes,
-      ...(p.signalkSelfUuid ? { providerHints: { signalkSelfUuid: p.signalkSelfUuid } } : {}),
+      ...(selfUuid ? { providerHints: { signalkSelfUuid: selfUuid } } : {}),
     },
     ro,
   );
+  if (start.status === 400) {
+    const code = isObject(start.json) && typeof start.json.code === 'string' ? start.json.code : '';
+    return code === 'integration_contract_unsupported'
+      ? { kind: 'update_required' }
+      : { kind: 'rejected' };
+  }
   if (start.status === 503) {
     return { kind: 'unavailable', retryAfterMs: retryAfterMs(start.headers, now()) };
   }

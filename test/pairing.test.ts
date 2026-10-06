@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpClient } from '../src/http';
-import { runPairing } from '../src/pairing';
+import { cleanSelfUuid, runPairing } from '../src/pairing';
 
 const startBody = {
   deviceCode: 'dc_abcdefghijklmnopqrstuvwxyz',
@@ -221,5 +221,76 @@ describe('runPairing', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(await p).toEqual({ kind: 'cancelled' });
     expect(seen[0]).toBeTruthy();
+  });
+
+  it.each([
+    [
+      'contract unsupported',
+      { code: 'integration_contract_unsupported', message: 'x' },
+      'update_required',
+    ],
+    ['scope invalid', { code: 'integration_scope_invalid', message: 'x' }, 'rejected'],
+    ['validation failed, no code', { message: 'Validation failed', errors: [] }, 'rejected'],
+    ['contract required', { code: 'integration_contract_required' }, 'rejected'],
+    ['empty body', null, 'rejected'],
+  ])('start 400 (%s) maps to %s', async (_n, body, kind) => {
+    const { http, calls } = setup([], json(400, body));
+    expect(await runPairing(base(http))).toEqual({ kind });
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    ['feature code, no Retry-After', { code: 'integration_feature_unavailable' }, {}, null],
+    [
+      'feature code, Retry-After',
+      { code: 'integration_feature_unavailable' },
+      { 'retry-after': '30' },
+      30_000,
+    ],
+    ['no code, no Retry-After', {}, {}, null],
+    ['no code, Retry-After', { message: 'Please try again.' }, { 'retry-after': '7' }, 7_000],
+  ])('start 503 (%s) maps to unavailable', async (_n, body, headers, ms) => {
+    const { http } = setup([], json(503, body, headers));
+    expect(await runPairing(base(http))).toEqual({ kind: 'unavailable', retryAfterMs: ms });
+  });
+
+  it('start 5xx other than 503 and 4xx other than 400/429 throw a redacted HttpError', async () => {
+    for (const status of [401, 403, 404, 500]) {
+      const { http } = setup([], json(status, {}));
+      await expect(runPairing(base(http))).rejects.toThrow('pairing/start failed');
+    }
+  });
+});
+
+describe('signalkSelfUuid hint', () => {
+  const U = '123e4567-e89b-12d3-a456-426614174000';
+  const hintOf = async (v: unknown) => {
+    const { http, calls } = setup([], json(503, {}));
+    await runPairing({ ...base(http), signalkSelfUuid: v as string });
+    return (calls[0]?.body as { providerHints?: unknown }).providerHints;
+  };
+
+  it.each([`urn:mrn:signalk:uuid:${U}`, U, U.toUpperCase()])('sends %s', async (v) => {
+    expect(await hintOf(v)).toEqual({ signalkSelfUuid: v });
+  });
+
+  it.each([
+    'urn:mrn:imo:mmsi:123456789',
+    'urn:mrn:signalk:uuid:not-a-uuid',
+    `urn:mrn:signalk:uuid:${U}-extra`,
+    `${U}\n`,
+    `urn:mrn:signalk:uuid:${U}${' '.repeat(100)}`,
+    '123456789',
+    '',
+    undefined,
+    42,
+    null,
+  ])('omits %j', async (v) => {
+    expect(await hintOf(v)).toBeUndefined();
+  });
+
+  it('cleanSelfUuid enforces the 100 character cap', () => {
+    expect(cleanSelfUuid(`urn:mrn:signalk:uuid:${U}`)?.length).toBeLessThanOrEqual(100);
+    expect(cleanSelfUuid(`${U}${'a'.repeat(70)}`)).toBeUndefined();
   });
 });
