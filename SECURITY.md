@@ -4,9 +4,10 @@
 
 Please report privately, not in public issues.
 
-<!-- TODO(JC): fill in the private reporting address before the repo goes public, and enable GitHub private vulnerability reporting. -->
+The preferred channel is GitHub private vulnerability reporting (the "Report a vulnerability" button
+under the repository's Security tab). You can also email **security@vesseltwin.io**.
 
-Contact: **TODO: security contact address**
+We aim to acknowledge reports within 5 business days.
 
 The plugin handles a write-scoped credential. Reports about credential storage, logging of secrets,
 or sending of data outside the documented allowlist are treated as high priority.
