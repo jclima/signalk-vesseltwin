@@ -13,13 +13,14 @@ Needs Docker and Node >= 22.
 pnpm build
 docker compose -f dev/docker-compose.yml up -d --build
 node dev/setup-signalk.mjs      # creates a throwaway dev admin, enables the plugin, sets apiBaseUrl
-node dev/pair.mjs               # starts pairing, approves it on the mock, waits for "PAIRED"
+node dev/pair.mjs               # starts pairing, approves it on the mock, waits for the first status check
 docker compose -f dev/docker-compose.yml down -v
 ```
 
 - SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).
+- The compose project is named `vesseltwin-dev`; set `COMPOSE_PROJECT_NAME` to run a second copy.
 - Rebuild the plugin with `pnpm build` and run `docker compose -f dev/docker-compose.yml restart signalk`
   to pick up code changes.
 
@@ -43,6 +44,38 @@ Routes under `/v1/integrations`:
 Contract header: pairing routes do not require it (the platform checks `contractVersion` in the body).
 `status` and `credential/rotate` tolerate a missing or old header, as the platform does; the mock
 records the header and whether `User-Agent` was present in its log.
+
+## Plugin routes the scripts use
+
+All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the admin token:
+
+- `POST /pair` starts pairing (202). `GET /status` returns:
+
+```json
+{
+  "state": "pairing",
+  "paired": false,
+  "vesselLabel": null,
+  "apiOrigin": "http://localhost:3001",
+  "pairing": {
+    "userCode": "ABCD-EFGH",
+    "verificationUrl": "http://localhost:3001/connect",
+    "expiresAt": "2026-01-01T00:10:00.000Z"
+  },
+  "updateRecommended": false,
+  "clockSkewWarning": false,
+  "lastCheckedAt": null,
+  "message": "Enter code ABCD-EFGH at http://localhost:3001/connect"
+}
+```
+
+- `pairing` is set only in state `pairing` (and is `{ "reason": ... }` in `pairing_failed`), otherwise
+  `null`. Other states: `not_paired`, `checking`, `connected`, `paused`, `offline`,
+  `update_required`, `reauth_required`, `config_error`.
+- `POST /unpair` deletes the local credential (see [docs/TESTING.md](../docs/TESTING.md)).
+
+`dev/pair.mjs` prints the status JSON (secret-looking keys masked) and exits 0 once pairing finished
+and the first status check returned a state other than `checking`.
 
 Env for the mock (compose passes these through): `MOCK_POLL_INTERVAL_S` (5),
 `MOCK_AUTO_APPROVE_AFTER_POLLS` (0 = manual approve).
@@ -88,6 +121,9 @@ f '{"route":"pairing/token","status":429,"retryAfter":10,"once":true}'    # thro
 f '{"route":"status","status":200,"minContract":2}'                       # window moved up, plugin should recommend update
 f '{"route":"clear"}'
 ```
+
+The plugin checks status once on start and then about hourly, so to trigger a probe right after
+injecting a fault, restart the plugin (see docs/TESTING.md).
 
 The mock holds everything in memory; restarting it forgets paired credentials (the plugin's stored
 credential then gets a 401 from `status`, which is a handy re-pair test).

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CONTRACT_VERSION } from '../src/contract';
 import { HttpClient } from '../src/http';
 import { runPairing } from '../src/pairing';
+import { checkStatus } from '../src/status';
 
 /** Local copy of the platform's device-facing status response fields (all required, no extras). */
 interface StatusResponse {
@@ -60,6 +61,71 @@ async function boot(options: { autoApproveAfterPolls?: number } = {}) {
   };
   return { base, post };
 }
+
+function plugClient(base: string): HttpClient {
+  return new HttpClient({
+    baseUrl: base,
+    fetch: (u, i) => fetch(u, i),
+    userAgent: 'signalk-vesseltwin/test',
+  });
+}
+
+async function pairedCredential(post: Awaited<ReturnType<typeof boot>>['post']): Promise<string> {
+  const start = await post('/v1/integrations/pairing/start', startBody);
+  const token = await post('/v1/integrations/pairing/token', { deviceCode: start.json.deviceCode });
+  return token.json.credential as string;
+}
+
+describe('mock status vs the plugin status parser', () => {
+  it('a paired credential is classified as connected by checkStatus', async () => {
+    const { base, post } = await boot({ autoApproveAfterPolls: 1 });
+    const credential = await pairedCredential(post);
+    const out = await checkStatus(plugClient(base), { credential });
+    expect(out.kind).toBe('connected');
+    if (out.kind !== 'connected') return;
+    expect(out.updateRecommended).toBe(false);
+    expect(out.clockSkewWarning).toBe(false);
+    expect(out.info.minContract).toBe(1);
+    expect(out.info.latestContract).toBe(1);
+    expect(out.info.serverTime).not.toBeNull();
+  });
+
+  it('an unknown credential is reauth_required', async () => {
+    const { base } = await boot();
+    const credential = `vti_${'A'.repeat(43)}`;
+    expect((await checkStatus(plugClient(base), { credential })).kind).toBe('reauth_required');
+  });
+
+  it('injected faults map to the documented outcomes', async () => {
+    const { base, post } = await boot({ autoApproveAfterPolls: 1 });
+    const credential = await pairedCredential(post);
+    const http = plugClient(base);
+    const probe = async (fault: Record<string, unknown>) => {
+      await post('/__mock/fault', { route: 'status', once: true, ...fault });
+      return checkStatus(http, { credential });
+    };
+    expect(await probe({ status: 503, retryAfter: 120 })).toEqual({
+      kind: 'paused',
+      reason: 'feature',
+      retryAfterMs: 120_000,
+    });
+    expect(await probe({ status: 403 })).toMatchObject({ kind: 'paused', reason: 'plan' });
+    expect(await probe({ status: 401 })).toEqual({ kind: 'reauth_required' });
+    expect(await probe({ status: 426, minContract: 2 })).toMatchObject({
+      kind: 'update_required',
+      stop: true,
+    });
+    expect(await probe({ status: 200, minContract: 2 })).toMatchObject({
+      kind: 'update_required',
+      stop: false,
+    });
+    expect(await probe({ status: 429, retryAfter: 7 })).toEqual({
+      kind: 'offline',
+      retryAfterMs: 7000,
+    });
+    expect((await checkStatus(http, { credential })).kind).toBe('connected'); // faults were once-only
+  });
+});
 
 describe('mock server vs the plugin pairing parsers', () => {
   it('a full pairing is accepted by runPairing', async () => {

@@ -3,6 +3,8 @@
 # mock (or an API running on the host). The plugin only accepts http for localhost, so its
 # apiBaseUrl must be http://localhost:3001. Test use only. See dev/README.md.
 #
+# The project name is vesseltwin-dev; set COMPOSE_PROJECT_NAME to run a second copy.
+#
 #   pnpm build && docker compose -f dev/docker-compose.yml up -d --build
 #
 # SignalK admin UI: http://localhost:${SK_PORT:-3100}    Mock: http://localhost:${MOCK_HOST_PORT:-3001}
@@ -11,7 +13,7 @@
 #   mock:3001                  the mock service (default)
 #   host.docker.internal:3001  an API listening on the host's port 3001 (stop the mock first or
 #                              set MOCK_HOST_PORT to something else)
-name: vesseltwin-dev
+name: ${COMPOSE_PROJECT_NAME:-vesseltwin-dev}
 services:
   signalk:
     image: signalk/signalk-server:latest

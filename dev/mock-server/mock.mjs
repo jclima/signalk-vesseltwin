@@ -4,10 +4,7 @@
 // Scope: pairing (start, token), device status, credential rotation. There is no upload
 // surface here on purpose.
 //
-// Every response body below carries a comment naming the platform source it mirrors
-// (schema names refer to the zod schemas in the platform's shared types package; "pairing
-// service" and "guard" refer to the integrations API module's pairing service and
-// credential guard).
+// Response shapes mirror docs/api.md.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 
@@ -30,11 +27,11 @@ const DEFAULT_FAULT_CODE = {
   503: 'integration_feature_unavailable',
 };
 const DEFAULT_FAULT_MESSAGE = {
-  401: 'Authentication required', // guard: NEUTRAL_UNAUTHORIZED
-  403: 'This integration is paused for this account.', // guard: checkAvailability (plan)
-  426: 'This client version is not supported.', // guard: checkContract
+  401: 'Authentication required',
+  403: 'This integration is paused for this account.',
+  426: 'This client version is not supported.',
   429: 'Too many requests.', // shape assumed; the rate limiter was not mirrored
-  503: 'This integration is not available right now.', // guard: checkAvailability (flag)
+  503: 'This integration is not available right now.',
 };
 
 /** Mirrors `shortText(max)` in the types package (trim, NFC, no control or format chars). */
@@ -45,7 +42,7 @@ function shortText(v, max) {
   return t;
 }
 
-/** Returns a list of {path,message} issues for integrationPairingStartSchema (strict). */
+/** Returns a list of {path,message} issues for the pairing start body (strict). */
 function validateStart(b) {
   const issues = [];
   const bad = (path, message = 'Invalid') => issues.push({ path, message });
@@ -98,7 +95,7 @@ function validateStart(b) {
 
 const validationFailed = (errors) => ({
   status: 400,
-  // controller: parseBody -> BadRequestException({ message, errors: [{ path, message }] })
+  // validation failure: { message, errors: [{ path, message }] }
   body: { message: 'Validation failed', errors },
 });
 
@@ -158,9 +155,9 @@ export function createMock(o = {}) {
     let retryAfter = f.retryAfter;
     if (f.status === 503 && retryAfter === undefined) retryAfter = RETRY_AFTER_UNAVAILABLE_S;
     if (retryAfter !== undefined) headers['retry-after'] = String(retryAfter);
-    // pairing service: the 503 body also carries retryAfter (seconds)
+    // the 503 body also carries retryAfter (seconds)
     if (f.status === 503 && retryAfter !== undefined) body.retryAfter = Number(retryAfter);
-    // guard checkContract: 426 and 400 carry the contract window
+    // 426 and 400 carry the contract window
     if (f.status === 426 || f.status === 400 || f.minContract !== undefined) {
       body.minContract = f.minContract ?? 1;
       body.latestContract = f.latestContract ?? Math.max(1, f.minContract ?? 1);
@@ -168,7 +165,7 @@ export function createMock(o = {}) {
     return { status: f.status, body, headers };
   }
 
-  /** guard: parseContractHeader */
+  /** Contract header: an integer 1..9999, else null. */
   function parseContract(v) {
     if (typeof v !== 'string' || !/^\d{1,4}$/.test(v.trim())) return null;
     const n = Number(v.trim());
@@ -182,20 +179,19 @@ export function createMock(o = {}) {
     return {
       status: 200,
       headers: {},
-      // integrationStatusResponseSchema (strict): provider, minContract, latestContract,
-      // pluginUpdateRecommended, serverTime, summary
+      // status body: provider, minContract, latestContract, pluginUpdateRecommended, serverTime, summary
       body: {
         provider: PROVIDER,
         minContract: min,
         latestContract: latest,
-        pluginUpdateRecommended: contract === null || contract < latest, // guard: pluginUpdateRecommended
+        pluginUpdateRecommended: contract === null || contract < latest,
         serverTime: new Date(now()).toISOString(),
         summary: null,
       },
     };
   }
 
-  /** Credential guard checks that apply to a mock: bearer format, known, live. */
+  /** Credential checks: bearer format, known, live. */
   function authenticate(headers) {
     const m = /^Bearer ([^\s]+)$/.exec((headers.authorization ?? '').trim());
     const secret = m && CREDENTIAL_RE.test(m[1]) ? m[1] : null;
@@ -204,20 +200,19 @@ export function createMock(o = {}) {
     return row;
   }
 
-  // guard: unauthorized() / NEUTRAL_UNAUTHORIZED
   const unauthorized = () => ({
     status: 401,
     headers: {},
     body: { code: 'integration_unauthorized', message: 'Authentication required' },
   });
 
-  const noStore = { 'cache-control': 'no-store', pragma: 'no-cache' }; // controller: noStore
+  const noStore = { 'cache-control': 'no-store', pragma: 'no-cache' };
 
   function pairingStart(body) {
     const issues = validateStart(body);
     if (issues.length) return validationFailed(issues);
     if (body.contractVersion > 1) {
-      // pairing service start: integration_contract_unsupported above descriptor.contract.latest
+      // integration_contract_unsupported above the latest contract
       return {
         status: 400,
         body: {
@@ -240,8 +235,7 @@ export function createMock(o = {}) {
     });
     return {
       status: 200,
-      // integrationPairingStartResponseSchema (strict): deviceCode, userCode (ABCD-EFGH),
-      // verificationUrl, interval, expiresIn; pairing service `start`
+      // deviceCode, userCode (ABCD-EFGH), verificationUrl, interval, expiresIn
       body: {
         deviceCode,
         userCode: `${userCode.slice(0, 4)}-${userCode.slice(4)}`,
@@ -253,18 +247,18 @@ export function createMock(o = {}) {
     };
   }
 
-  // pairing service: pollError -> BadRequestException({ error })
+  // poll errors are HTTP 400 with { error }
   const pollError = (error) => ({ status: 400, body: { error }, headers: noStore });
 
   function pairingToken(body) {
     const isObj = typeof body === 'object' && body !== null && !Array.isArray(body);
     const trimmed = isObj && typeof body.deviceCode === 'string' ? body.deviceCode.trim() : '';
-    // integrationPairingTokenRequestSchema: strict { deviceCode: trimmed string, 16..128 }
+    // body is exactly { deviceCode: trimmed string, 16..128 chars }
     if (!isObj || Object.keys(body).length !== 1 || trimmed.length < 16 || trimmed.length > 128) {
       return validationFailed([{ path: 'deviceCode', message: 'Invalid' }]);
     }
     const p = pairings.get(sha256(trimmed));
-    // pairing service poll: unknown, expired and consumed all read as expired_token
+    // unknown, expired and consumed all read as expired_token
     if (!p) return pollError('expired_token');
     if (
       p.status === 'consumed' ||
@@ -273,7 +267,7 @@ export function createMock(o = {}) {
       return pollError('expired_token');
     }
     if (p.status === 'denied') return pollError('access_denied');
-    // pairing service poll: only one poll per interval wins the stamp, else slow_down
+    // only one poll per interval is accepted, else slow_down
     if (p.lastPolledAt !== null && now() - p.lastPolledAt < pollIntervalS * 1000) {
       return pollError('slow_down');
     }
@@ -287,8 +281,7 @@ export function createMock(o = {}) {
     const { secret, row } = issueCredential(PROVIDER, p.scopes);
     return {
       status: 200,
-      // integrationPairingTokenResponseSchema (strict): credential (shown once), credentialId (uuid),
-      // scopes, vesselLabel (string | null), provider
+      // credential (shown once), credentialId (uuid), scopes, vesselLabel (string | null), provider
       body: {
         credential: secret,
         credentialId: row.id,
@@ -307,7 +300,7 @@ export function createMock(o = {}) {
     return {
       status: 200,
       headers: {},
-      // integrationStatusResponseSchema (strict); controller `status`. Contract window is [1, 1].
+      // Contract window is [1, 1].
       body: {
         provider: PROVIDER,
         minContract: 1,
@@ -322,7 +315,7 @@ export function createMock(o = {}) {
   function rotate(headers) {
     const cred = authenticate(headers);
     if (!cred) return unauthorized();
-    // guard: canRotate is !revokedAt && !expiresAt; controller `rotate`: 409 when superseded
+
     if (cred.expiresAt !== null) {
       return {
         status: 409,
@@ -337,8 +330,7 @@ export function createMock(o = {}) {
     const { secret, row } = issueCredential(cred.provider, cred.scopes);
     return {
       status: 200,
-      // integrationCredentialRotateResponseSchema (strict): credential, credentialId, provider,
-      // scopes, previousExpiresAt
+      // credential, credentialId, provider, scopes, previousExpiresAt
       body: {
         credential: secret,
         credentialId: row.id,

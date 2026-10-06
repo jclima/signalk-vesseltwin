@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Drives pairing through the plugin's own endpoints. Zero dependencies.
 //
-//   node dev/pair.mjs               start pairing, approve it on the MOCK, wait for paired
+//   node dev/pair.mjs               start pairing, approve it on the MOCK, wait for the first status check
 //   node dev/pair.mjs --no-approve  start pairing and wait; approve elsewhere (a real API)
 //
 // Needs the token saved by dev/setup-signalk.mjs (.signalk-dev/token) or SK_TOKEN.
@@ -39,20 +39,29 @@ const get = async () => {
   if (!r.ok) throw new Error(`GET /status failed (${String(r.status)})`);
   return r.json();
 };
-const isPaired = (s) => s.paired === true || s.state === 'paired';
-const userCodeOf = (s) => s.pairing?.userCode ?? s.userCode;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// GET /status returns { state, paired, vesselLabel, apiOrigin, pairing, updateRecommended,
+// clockSkewWarning, lastCheckedAt, message }. `pairing` is { userCode, verificationUrl, expiresAt }
+// in state "pairing" and { reason } in state "pairing_failed".
 const start = await fetch(`${plugin}/pair`, { method: 'POST', headers: h });
 console.log('POST /pair:', start.status);
-if (!start.ok) process.exit(1);
+if (!start.ok) {
+  console.log('response:', await start.text());
+  process.exit(1);
+}
 
 let s = await get();
 const deadline = Date.now() + timeoutS * 1000;
-let approved = false;
-while (Date.now() < deadline && !isPaired(s)) {
-  const code = userCodeOf(s);
-  if (code && !approved) {
+let announced = false;
+let seenPairing = false;
+// Done once pairing has been seen and the plugin moved on: "checking" is the first probe in flight.
+const settled = (x) => seenPairing && !['pairing', 'checking', 'not_paired'].includes(x.state);
+while (Date.now() < deadline && !settled(s)) {
+  if (s.state === 'pairing_failed' || s.state === 'config_error') break;
+  const code = s.state === 'pairing' ? s.pairing?.userCode : undefined;
+  if (code) seenPairing = true;
+  if (code && !announced) {
     console.log('pending status:', JSON.stringify(mask(s)));
     if (approve) {
       const r = await fetch(`${mock}/__mock/approve`, {
@@ -61,15 +70,16 @@ while (Date.now() < deadline && !isPaired(s)) {
         body: JSON.stringify({ userCode: code }),
       });
       console.log('mock approve:', r.status, await r.text());
-      approved = true;
     } else {
       console.log(`Approve user code ${code} in the VesselTwin web app, then wait.`);
-      approved = true; // print once
     }
+    announced = true; // print once
   }
   await sleep(1000);
   s = await get();
+  if (s.state === 'pairing' && s.pairing?.userCode) seenPairing = true;
 }
 console.log('final status:', JSON.stringify(mask(s)));
-console.log(isPaired(s) ? 'PAIRED' : 'NOT PAIRED (timed out)');
-process.exit(isPaired(s) ? 0 : 1);
+const ok = settled(s) && s.paired === true;
+console.log(ok ? `PAIRED (state: ${s.state})` : `NOT PAIRED (state: ${s.state})`);
+process.exit(ok ? 0 : 1);
