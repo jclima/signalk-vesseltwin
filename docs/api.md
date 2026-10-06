@@ -142,7 +142,8 @@ if it is not running when the owner approves, the pairing simply expires and mus
 - Bound to the API origin that issued it. The plugin records `apiOrigin` (scheme, host, port) in
   `credential.json` at pairing and sends the credential only to that origin. A stored credential with
   no origin, or one that differs from the configured API URL, is never sent anywhere; the plugin goes
-  to `reauth_required` with no network call. The HTTP client enforces this too: it sets
+  to `reauth_required` with no network call (the status line then says the API address changed since
+  pairing, without showing any URL; a real 401 keeps the generic "no longer valid" copy). The HTTP client enforces this too: it sets
   `Authorization` only when the request URL's origin equals the recorded one, and refuses otherwise.
 - Redirects are never followed (every request uses `redirect: 'error'`); a redirect is treated as a
   network error, so a credential cannot be bounced to another host.

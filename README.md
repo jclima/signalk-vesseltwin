@@ -38,16 +38,13 @@ SignalK security enabled** (see below).
 
 The code expires after 10 minutes. If it does, start pairing again.
 
-The plugin's endpoints (`status`, `pair`, `unpair`) rely on the SignalK server's own access control.
-With SignalK security enabled they are admin-only by default in SignalK 2.x, and the plugin also
-refuses browser requests whose `Origin` does not match the server. **Pairing requires SignalK
-security to be enabled.** With security off, any device on your network, or a web page that tricks a
-browser on that network, could start or complete pairing against your server. The plugin does not
-check this for you, so enable security before you pair.
+The plugin's endpoints (`status`, `pair`, `unpair`) rely on the SignalK server's own access control
+(see Security below).
 
 Other things the status line can tell you: the connection is paused, VesselTwin cannot be reached
 right now (the plugin keeps trying), the plugin version is not supported (update the plugin), or the
-pairing is no longer valid (pair again; this replaces the stored connection). When VesselTwin rejects
+pairing is no longer valid or the API address changed since pairing (pair again, or restore the
+previous address; pairing again replaces the stored connection). When VesselTwin rejects
 the stored connection, the plugin removes the secret from its data folder and keeps only a marker, so
 it does not try the old credential again after a restart. An unexpected rejection that does not come
 from VesselTwin itself (for example from a proxy) also stops the checks, but leaves the stored
@@ -56,6 +53,14 @@ connection in place.
 **Unpair** (`POST /plugins/signalk-vesseltwin/unpair`) only removes the stored connection on this
 server. Also revoke the connection in VesselTwin so it stops working there; the plugin cannot do that
 for you.
+
+## Security
+
+Pair from the SignalK admin UI with **SignalK security enabled**. With security enabled the plugin's
+endpoints are admin-only by default in SignalK 2.x. With security off, anyone who can reach your
+server can read the pairing code and start pairing, and the plugin's browser same-origin check does
+not protect against non-browser clients. The plugin does not block pairing in that case, so enable
+SignalK security before you pair.
 
 ## What it sends (privacy)
 

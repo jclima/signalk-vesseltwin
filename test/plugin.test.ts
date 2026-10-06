@@ -490,7 +490,7 @@ describe('label and token handling', () => {
     h.held[0]?.resolve(
       new Response(JSON.stringify({ ...tokenBody, credential: 'vti_short' }), { status: 200 }),
     );
-    await h.tick();
+    await h.until(() => /^ERR /.test(h.app.statuses.at(-1) ?? ''));
     await h.untilFiles([]);
     expect(h.app.statuses.at(-1)).toMatch(/^ERR /);
     h.plugin.stop();
@@ -688,7 +688,8 @@ describe('state machine', () => {
         { status: 200 },
       ),
     );
-    await h.tick();
+    await h.untilState('connected');
+    await h.until(() => h.statusCalls() === 3);
     expect(h.statusCalls()).toBe(3);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
     await h.until(async () =>
@@ -724,11 +725,11 @@ describe('state machine', () => {
   });
 
   it.each([
-    ['missing', undefined],
-    ['different', 'https://other.example'],
+    ['missing', undefined, COPY.reauth],
+    ['different', 'https://other.example', COPY.reauthOrigin],
   ])(
     'a credential with a %s origin goes to reauth_required with zero network calls',
-    async (_n, origin) => {
+    async (_n, origin, copy) => {
       const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
       await seed(dir, { apiOrigin: origin });
       const h = harness({ dir });
@@ -740,10 +741,81 @@ describe('state machine', () => {
       });
       await h.tick(3 * 60 * MIN);
       expect(h.calls).toEqual([]);
-      expect(h.app.statuses.at(-1)).toMatch(/^ERR Pairing with VesselTwin is no longer valid/);
+      expect(h.app.statuses.at(-1)).toBe(`ERR ${copy}`);
       h.plugin.stop();
     },
   );
+
+  it('origin-change copy is neutral: no URLs, no server codes; real 401s keep the generic copy', () => {
+    expect(COPY.reauthOrigin).toBe(
+      `The VesselTwin API address changed since pairing. Pair again, or restore the previous address. ${NO_UPLOAD}`,
+    );
+    expect(COPY.reauthOrigin).not.toMatch(/https?:|integration_|\.example/);
+    expect(COPY.reauth).toMatch(/no longer valid/);
+    expect(COPY.reauth).not.toBe(COPY.reauthOrigin);
+  });
+
+  it('a changed API URL after pairing shows the origin copy', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.plugin.start({ apiBaseUrl: 'https://other.example' });
+    await h.tick();
+    expect(h.app.statuses.at(-1)).toBe(`ERR ${COPY.reauthOrigin}`);
+    expect(h.app.statuses.at(-1)).not.toMatch(/other\.example|vesseltwin\.io/);
+    h.plugin.stop();
+  });
+
+  it('a real 401 keeps the generic re-pair copy, not the origin copy', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
+    h.plugin.start({});
+    await h.tick();
+    await h.untilState('reauth_required');
+    expect(h.app.statuses.at(-1)).toBe(`ERR ${COPY.reauth}`);
+    h.plugin.stop();
+  });
+
+  it('a stale error is cleared when pairing starts again', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    // Reuse the rig: first pairing fails (a held reply is never used; make start fail via expiry).
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    h.held[0]?.resolve(new Response(JSON.stringify({ error: 'expired_token' }), { status: 400 }));
+    await h.untilState('pairing_failed');
+    expect(h.app.statuses.at(-1)).toBe(`ERR ${FAILURE_COPY.expired}`);
+    const before = h.app.statuses.length;
+    await h.call('POST /pair');
+    await h.untilState('pairing');
+    const after = h.app.statuses.slice(before);
+    expect(after).toEqual(['ERR ', COPY.pairingInProgress]); // error cleared, then the status line
+    h.plugin.stop();
+  });
+
+  it('a stale reauth error is cleared once re-paired and connected', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
+    h.plugin.start({});
+    await h.tick();
+    await h.untilState('reauth_required');
+    expect(h.app.statuses.at(-1)).toBe(`ERR ${COPY.reauth}`);
+    // Re-pair and connect: the reauth error must not linger.
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    h.held[0]?.resolve(h.ok());
+    await h.untilState('connected');
+    const i = h.app.statuses.lastIndexOf('ERR ');
+    expect(i).toBeGreaterThan(-1);
+    expect(h.app.statuses.slice(i).every((l) => !l.startsWith('ERR ') || l === 'ERR ')).toBe(true);
+    expect(h.app.statuses.at(-1)).toMatch(/^Paired with Sea Hag/);
+    h.plugin.stop();
+  });
 
   it('a credential issued for a configured non-default origin works against it', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
@@ -1225,7 +1297,7 @@ describe('unpair, cleanup and route hardening', () => {
         status: 200,
       }),
     );
-    await h.tick();
+    await h.untilState('connected');
     expect((await h.call('GET /status')).body.vesselLabel).toBe('Sea Hag');
     h.plugin.stop();
   });

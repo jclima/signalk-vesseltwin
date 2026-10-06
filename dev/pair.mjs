@@ -4,7 +4,8 @@
 //   node dev/pair.mjs               start pairing, approve it on the MOCK, wait for the first status check
 //   node dev/pair.mjs --no-approve  start pairing and wait; approve elsewhere (a real API)
 //
-// Needs the token saved by dev/setup-signalk.mjs (.signalk-dev/token) or SK_TOKEN.
+// Needs the token saved by dev/setup-signalk.mjs (.signalk-dev/token) or SK_TOKEN. With SignalK
+// security disabled (see docs/TESTING.md) set SK_NO_AUTH=1 to send no token.
 // Env: SK_PORT (3100)  SK_URL  SK_TOKEN  MOCK_URL (http://localhost:3001)  PAIR_TIMEOUT_S (90)
 // Prints status JSON from the plugin. Any credential-looking field is masked before printing.
 import { readFile } from 'node:fs/promises';
@@ -17,11 +18,14 @@ const approve = !process.argv.includes('--no-approve');
 const token = (
   process.env.SK_TOKEN ?? (await readFile('.signalk-dev/token', 'utf8').catch(() => ''))
 ).trim();
-if (!token) {
-  console.error('No token. Run `node dev/setup-signalk.mjs` first.');
+const noAuth = process.env.SK_NO_AUTH === '1';
+if (!token && !noAuth) {
+  console.error(
+    'No token. Run `node dev/setup-signalk.mjs` first (or SK_NO_AUTH=1 with security off).',
+  );
   process.exit(1);
 }
-const h = { authorization: `Bearer ${token}` };
+const h = noAuth ? {} : { authorization: `Bearer ${token}` };
 const plugin = `${sk}/plugins/signalk-vesseltwin`;
 
 const SECRET_KEY = /credential|device.?code|authorization|token|secret/i;

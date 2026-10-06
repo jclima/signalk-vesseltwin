@@ -20,6 +20,8 @@ docker compose -f dev/docker-compose.yml down -v
 - SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).
+- `setup-signalk.mjs` saves the admin token to `.signalk-dev/token` (gitignored, mode 0600) and does
+  not print it. `dev/pair.mjs` reads that file (or `SK_TOKEN`).
 - The compose project is named `vesseltwin-dev`; set `COMPOSE_PROJECT_NAME` to run a second copy.
 - Rebuild the plugin with `pnpm build` and run `docker compose -f dev/docker-compose.yml restart signalk`
   to pick up code changes.
@@ -29,6 +31,26 @@ The plugin only accepts `http` for `localhost`, so its `apiBaseUrl` is `http://l
 reach an API on your host instead, set `RELAY_TARGET=host.docker.internal:3001` (and stop the mock or
 change `MOCK_HOST_PORT` so the ports do not clash), then recreate with `up -d`. Use `node dev/pair.mjs
 --no-approve` and approve the code in that API's web app.
+
+## Security is always on in the stock image
+
+The stock signalk image starts the server with `--securityenabled` (its `startup.sh` passes it), so
+the rig cannot run with security off as is. To test with security disabled, add a compose override
+that runs a plain `signalk-server` (local testing only; never on a real boat):
+
+```yaml
+# dev/docker-compose.nosecurity.yml
+services:
+  signalk:
+    entrypoint: ['/home/node/signalk/node_modules/signalk-server/bin/signalk-server']
+```
+
+```sh
+docker compose -f dev/docker-compose.yml -f dev/docker-compose.nosecurity.yml up -d
+SK_NO_AUTH=1 node dev/pair.mjs      # setup-signalk.mjs needs a login, so configure the plugin in the admin UI
+```
+
+See [docs/TESTING.md](../docs/TESTING.md) for details.
 
 ## Mock behaviour
 
