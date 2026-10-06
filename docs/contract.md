@@ -4,7 +4,7 @@ The pairing and credential surface is documented in [platform-handoff.md](platfo
 
 - `POST /v1/integrations/pairing/start` and `/pairing/token` (RFC 8628 device flow), implemented here.
 - `GET /v1/integrations/status`, `POST /v1/integrations/credential/rotate`: not yet used by the plugin.
-- Ingest routes (`/v1/integrations/signalk/readings`): **not built server-side yet**; the plugin does not call them.
+- Ingest routes (`/v1/integrations/signalk/readings`): **not built server-side yet**. The plugin only calls a placeholder version of this route when a developer sets `VESSELTWIN_DEV_UPLOAD=1`, against the local mock (see [TESTING.md](TESTING.md)); the body shape is a draft, not the contract.
 
 Every request carries `X-VesselTwin-Contract: 1` and a `User-Agent`. The JSON Schema for ingest
 will be published as a release artifact with milestone M2 and vendored here; CI will validate

@@ -56,6 +56,13 @@ Point the plugin's API URL at a local or staging VesselTwin API (`http://localho
 other non-HTTPS URLs are rejected). Because the integration is not yet generally available,
 production may answer pairing requests with 503.
 
+### Local end-to-end testing (developers)
+
+A zero-dependency mock VesselTwin server (`pnpm dev:mock`) and a Docker rig under `dev/` let you
+exercise pairing and the upload pipeline against a stock SignalK server. Upload stays off unless
+`VESSELTWIN_DEV_UPLOAD=1` is set, and the readings endpoint it uses is a **placeholder** until the
+platform publishes its ingest contract. See [docs/TESTING.md](docs/TESTING.md).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
