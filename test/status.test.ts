@@ -106,7 +106,12 @@ describe('classify', () => {
   it('maps the error statuses', () => {
     expect(classify(res(401, { code: 'integration_unauthorized' }), NOW)).toEqual({
       kind: 'reauth_required',
+      tombstone: true,
     });
+    // Any other 401 (a proxy, a captive portal) still stops probing but is not a verdict on the file.
+    for (const body of [{}, { code: 'something_else' }, 'nope', null]) {
+      expect(classify(res(401, body), NOW)).toEqual({ kind: 'reauth_required', tombstone: false });
+    }
     expect(
       classify(res(503, { code: 'integration_feature_unavailable' }, { 'retry-after': '90' }), NOW),
     ).toEqual({ kind: 'paused', reason: 'feature', retryAfterMs: 90_000 });

@@ -76,6 +76,8 @@ export const COPY = {
   credentialUnreadable:
     'Cannot read the stored VesselTwin connection. Check the permissions of the plugin data folder.',
   notRunning: 'The VesselTwin plugin is not running. Enable it first.',
+  starting: 'The VesselTwin plugin is starting. Try again in a moment.',
+  pairingInProgress: `Pairing in progress. Open /plugins/${PLUGIN_ID}/status as an admin for the code.`,
   alreadyPaired: 'Already paired. Unpair first to pair again.',
   unpairFailed: 'Could not remove the stored connection. Try again.',
   unpaired:
@@ -137,11 +139,19 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let credentialUnreadable = false;
   /** A credential file exists (it is kept in reauth_required until a new pairing overwrites it). */
   let hasCredential = false;
+  /** Set by unpair: keeps the revoke reminder in the status line until the next start or pairing. */
+  let unpairedNotice = false;
   let vesselLabel: string | null = null;
   let monitor: StatusMonitor | null = null;
   let snap: MonitorSnapshot | null = null;
   /** The in-flight tombstone write, so unpair and a new pairing never race it. */
   let tombstoneWrite: Promise<void> | null = null;
+  /**
+   * The in-flight credential write (and the stale-run cleanup that may follow it). start() waits for
+   * it before reading, so a pairing that outlived stop() cannot delete a credential the next
+   * lifecycle just loaded, or leave a file behind that the next lifecycle did not see.
+   */
+  let persisting: Promise<boolean> | null = null;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -175,8 +185,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         snap = s;
         report();
       },
-      onUnauthorized: () => {
-        if (monitor === m) recordReauth(credentialOrigin, pairedAt);
+      onUnauthorized: (tombstone) => {
+        // Only the platform's own "credential is bad" answer retires the file. Any other 401 (a
+        // proxy, a captive portal) stops probing but leaves the credential for the next start.
+        if (monitor === m && tombstone) recordReauth(credentialOrigin, pairedAt);
       },
       log: (msg) => {
         app.debug(msg);
@@ -243,9 +255,11 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       case 'config_error':
         return options.configError ?? COPY.credentialUnreadable;
       case 'not_paired':
-        return COPY.notPaired;
+        return unpairedNotice ? COPY.unpaired : COPY.notPaired;
       case 'pairing':
-        return `Enter code ${pairing?.userCode ?? ''} at ${pairing?.verificationUrl ?? ''}`;
+        // The status line is broadcast to every SignalK client, including read-only and anonymous
+        // ones. The code is only in the admin-only /status response.
+        return COPY.pairingInProgress;
       case 'pairing_failed':
         return FAILURE_COPY[failure ?? 'unavailable'];
       case 'checking':
@@ -306,6 +320,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     const ctl = new AbortController();
     abort = ctl;
     failure = null;
+    unpairedNotice = false;
     // A run is current only while it is still the registered one (stop/unpair clear `abort`).
     const current = () => abort === ctl && !ctl.signal.aborted;
     const fail = (reason: PairingFailure) => {
@@ -338,21 +353,27 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         const pairedAt = new Date().toISOString();
         await tombstoneWrite; // a late tombstone must not overwrite the new credential
         if (!current()) return;
-        await s.write({
-          credential: out.token.credential,
-          credentialId: out.token.credentialId,
-          vesselLabel: out.token.vesselLabel,
-          pairedAt,
-          apiOrigin: issuer,
-        });
-        if (!current()) {
+        const saved = (async () => {
+          await s.write({
+            credential: out.token.credential,
+            credentialId: out.token.credentialId,
+            vesselLabel: out.token.vesselLabel,
+            pairedAt,
+            apiOrigin: issuer,
+          });
+          if (current()) return true;
           try {
             await s.clear(); // cancelled while the file was being written
           } catch (err) {
             app.debug(`stale pairing cleanup failed: ${redactError(err)}`);
           }
-          return;
-        }
+          return false;
+        })();
+        persisting = saved;
+        const keep = await saved.finally(() => {
+          if (persisting === saved) persisting = null;
+        });
+        if (!keep) return;
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
@@ -428,6 +449,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       store = new CredentialStore(app.getDataDirPath());
       loaded = false;
       failure = null;
+      unpairedNotice = false;
       credentialUnreadable = false;
       hasCredential = false;
       vesselLabel = null;
@@ -437,7 +459,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         return;
       }
       const s = store;
-      s.read()
+      const earlier = Promise.allSettled([persisting, tombstoneWrite]);
+      earlier
+        .then(() => s.read())
         .then((c) => {
           if (mine !== epoch) return;
           loaded = true;
@@ -501,6 +525,11 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             res.status(503).json({ error: options.configError });
             return;
           }
+          if (!loaded) {
+            // The stored credential has not been read yet: pairing now could overwrite it.
+            res.status(503).json({ error: COPY.starting });
+            return;
+          }
           const st = state();
           if (st === 'config_error') {
             res.status(503).json({ error: message(st) });
@@ -530,13 +559,14 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           cancelPairing();
           stopMonitor();
           try {
-            await tombstoneWrite;
+            await Promise.allSettled([persisting, tombstoneWrite]);
             await s.clear();
             stopMonitor(); // a load that raced past the epoch check cannot leave a monitor behind
             loaded = true;
             hasCredential = false;
             vesselLabel = null;
             failure = null;
+            unpairedNotice = true;
             report();
             res.json({ paired: false, message: COPY.unpaired });
           } catch (err) {

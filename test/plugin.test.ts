@@ -250,8 +250,12 @@ describe('pairing lifecycle', () => {
     expect(h.app.statuses.at(-1)).toBe(
       'Paired with Sea Hag. Data upload is not available in this version.',
     );
-    expect(h.app.statuses).toContain('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
-    expect(h.app.statuses.at(-1)).not.toContain('AAAA-AAAA');
+    expect(h.app.statuses).toContain(COPY.pairingInProgress);
+    // The status line is broadcast to anonymous clients: it never carries the code or the URL.
+    for (const line of h.app.statuses) {
+      expect(line).not.toContain('AAAA-AAAA');
+      expect(line).not.toContain('vesseltwin.io/connect');
+    }
     expect(h.app.statuses.join('\n')).not.toContain(FAKE_CRED);
     h.plugin.stop();
   });
@@ -312,9 +316,8 @@ describe('pairing lifecycle', () => {
       paired: false,
       pairing: null,
     });
-    expect(h.app.statuses.at(-1)).toBe(
-      'Not paired. Start pairing with VesselTwin (see the plugin README).',
-    );
+    // The revoke reminder stays in the status line after an unpair.
+    expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     expect(h.statusCalls()).toBe(0);
     h.plugin.stop();
   });
@@ -626,7 +629,7 @@ describe('state machine', () => {
 
     await h.call('POST /pair');
     await h.tick();
-    expect(h.app.statuses.at(-1)).toBe('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
+    expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
     await h.tick(5_000);
     h.held[0]?.resolve(h.ok());
     await h.untilState('connected');
@@ -1125,7 +1128,7 @@ describe('unpair, cleanup and route hardening', () => {
     expect(h.statusCalls()).toBe(0);
     expect(h.files()).toEqual([]);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
-    expect(h.app.statuses.at(-1)).toBe(COPY.notPaired);
+    expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     h.plugin.stop();
   });
 
@@ -1255,5 +1258,149 @@ describe('unpair, cleanup and route hardening', () => {
     for (const text of [...Object.values(FAILURE_COPY), ...Object.values(COPY)]) {
       expect(text).not.toMatch(/plugin page/i);
     }
+  });
+});
+
+function gate() {
+  let open!: () => void;
+  const p = new Promise<void>((r) => {
+    open = r;
+  });
+  return { p, open };
+}
+
+describe('lifecycle races and the status line', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('never puts the pairing code or URL in a status line, only in the admin /status body', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick();
+    expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
+    expect(COPY.pairingInProgress).toContain('/plugins/signalk-vesseltwin/status');
+    expect((await h.call('GET /status')).body.pairing).toMatchObject({ userCode: 'AAAA-AAAA' });
+    for (const line of h.app.statuses) expect(line).not.toMatch(/AAAA|connect/);
+    h.plugin.stop();
+  });
+
+  it('POST /pair is refused until the stored credential has loaded, with zero network calls', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const g = gate();
+    const read = CredentialStore.prototype.read;
+    vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      await g.p;
+      return read.call(this);
+    });
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.tick();
+    const early = await h.call('POST /pair');
+    expect(early.status).toBe(503);
+    expect(early.body).toEqual({ error: COPY.starting });
+    expect(h.calls).toHaveLength(0);
+    g.open();
+    await h.untilState('connected');
+    // Loaded and paired: now it is the normal refusal, still without a pairing/start call.
+    expect((await h.call('POST /pair')).status).toBe(409);
+    expect(h.calls.some((u) => u.endsWith('/pairing/start'))).toBe(false);
+    h.plugin.stop();
+  });
+
+  it('a pairing write that outlives stop() cannot leave file and monitor out of step', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000); // token poll in flight
+
+    const writeGate = gate();
+    const clearGate = gate();
+    const readGate = gate();
+    let clearCalled = false;
+    const { write, clear, read } = CredentialStore.prototype;
+    vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(async function (
+      this: CredentialStore,
+      c,
+    ) {
+      await writeGate.p;
+      return write.call(this, c);
+    });
+    vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      clearCalled = true;
+      await clearGate.p;
+      return clear.call(this);
+    });
+    vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      await readGate.p;
+      return read.call(this);
+    });
+
+    h.held[0]?.resolve(h.ok()); // approval arrives; the credential write is now pending
+    await h.tick();
+    h.plugin.stop();
+    h.plugin.start({}); // the next lifecycle begins while the old write is pending
+    await h.tick();
+    writeGate.open(); // file lands, the stale run then tries to clear it
+    await h.until(() => clearCalled);
+    readGate.open(); // a load that did not wait for the stale run would now see the file
+    await h.tick();
+    clearGate.open();
+    await h.until(() => h.files().length === 0);
+    await h.tick(2 * MIN);
+
+    expect(h.files()).toEqual([]);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      paired: false,
+    });
+    expect(h.statusCalls()).toBe(0); // no monitor on a credential that was deleted
+    h.plugin.stop();
+  });
+
+  it('an unrecognised 401 stops probing but keeps the credential file untouched', async () => {
+    for (const body of [{}, { code: 'something_else' }]) {
+      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      await seed(dir);
+      const before = await readFile(join(dir, 'credential.json'), 'utf8');
+      const h = harness({ dir });
+      h.statusReplies.push(reply(401, body));
+      h.plugin.start({});
+      await h.tick();
+      expect(h.statusCalls()).toBe(1);
+      expect((await h.call('GET /status')).body).toMatchObject({
+        state: 'reauth_required',
+        paired: false,
+      });
+      await h.tick(3 * 60 * MIN);
+      expect(h.statusCalls()).toBe(1); // stopped
+      expect(await readFile(join(dir, 'credential.json'), 'utf8')).toBe(before);
+      expect(h.files()).toEqual(['credential.json']);
+      h.plugin.stop();
+    }
+  });
+
+  it('keeps the revoke reminder after unpair until the next start or pairing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('connected');
+    await h.call('POST /unpair');
+    expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
+    h.plugin.stop();
+    h.plugin.start({});
+    await h.until(() => h.app.statuses.at(-1) === COPY.notPaired);
+    h.plugin.stop();
   });
 });

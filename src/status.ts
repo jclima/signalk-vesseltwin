@@ -31,7 +31,8 @@ export type StatusOutcome =
   | { kind: 'connected'; updateRecommended: boolean; clockSkewWarning: boolean; info: StatusInfo }
   /** `stop`: false for a client older than the server's minContract (probe hourly, it may update). */
   | { kind: 'update_required'; stop: boolean; info: StatusInfo | null }
-  | { kind: 'reauth_required' }
+  /** `tombstone`: the server said the credential itself is bad (`integration_unauthorized`). */
+  | { kind: 'reauth_required'; tombstone: boolean }
   | { kind: 'paused'; reason: PauseReason; retryAfterMs: number | null }
   | { kind: 'offline'; retryAfterMs: number | null }
   /** 403 integration_scope: the plugin asked for something it has no scope for. A bug; stop. */
@@ -89,7 +90,8 @@ export function classify(
       info,
     };
   }
-  if (status === 401) return { kind: 'reauth_required' };
+  if (status === 401)
+    return { kind: 'reauth_required', tombstone: code === 'integration_unauthorized' };
   if (status === 426 || (status === 400 && code?.startsWith('integration_contract_'))) {
     return { kind: 'update_required', stop: true, info: null };
   }
@@ -168,8 +170,9 @@ export interface StatusMonitorOptions {
   /** Origin of the configured API URL. */
   apiOrigin: string;
   onUpdate: (s: MonitorSnapshot) => void;
-  /** Called once when the server answered 401 (not for an origin mismatch, which makes no call). */
-  onUnauthorized?: () => void;
+  /** Called once when the server answered 401 (not for an origin mismatch, which makes no call).
+   * `tombstone` is true only for the platform's `integration_unauthorized` body. */
+  onUnauthorized?: (tombstone: boolean) => void;
   /** Debug logging; always receives redacted text. */
   log?: (msg: string) => void;
   now?: () => number;
@@ -298,7 +301,7 @@ export class StatusMonitor {
         break;
       case 'reauth_required':
         this.set({ state: 'reauth_required', lastCheckedAt: at });
-        this.o.onUnauthorized?.();
+        this.o.onUnauthorized?.(out.tombstone);
         break;
       case 'stopped':
         this.set({ state: 'stopped', lastCheckedAt: at });
