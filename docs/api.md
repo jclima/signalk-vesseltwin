@@ -308,9 +308,10 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
 ### Configuration errors
 
 The `apiBaseUrl` setting must be `https://`, or `http://` for `localhost`, `127.0.0.1` or `[::1]`, with
-no credentials, query or fragment. A blank or otherwise invalid value is a configuration error: state `config_error`, a status line asking the user
+no credentials, query or fragment. A set value that is not valid is a configuration error: state `config_error`, a status line asking the user
 to fix the URL, `503` on `POST /pair`, and **no network calls**. The plugin never falls back to the
-production URL. An unset value uses the default.
+production URL for a non-blank invalid value. An absent, null, empty or whitespace-only value uses the
+default.
 
 ## Rate limits
 

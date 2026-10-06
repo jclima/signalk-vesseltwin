@@ -109,7 +109,7 @@ Details worth checking:
   answers `{"paired":false,"message":"Unpaired on this server. Also revoke the connection in VesselTwin so it stops working there."}`,
   `credential.json` is gone and the state is `not_paired`. The mock still holds the credential: unpair
   does not revoke it.
-- **Invalid API URL**: save a config with `"apiBaseUrl":"http://example.com"` (or an empty string).
+- **Invalid API URL**: save a config with `"apiBaseUrl":"http://example.com"` (an empty or whitespace-only value is not invalid: it means the production default).
   The state is `config_error`, `POST /pair` answers 503, and the mock log gets no new entries.
 
 Tear down (removes the SignalK volume and with it the stored credential):
