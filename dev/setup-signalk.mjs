@@ -4,12 +4,12 @@
 // Against the SignalK server at http://localhost:${SK_PORT:-3100} it creates the throwaway dev
 // admin (or logs in if it already exists), enables the plugin, sets apiBaseUrl to
 // http://localhost:3001 (the relay inside the container forwards it), and saves an admin token for
-// later calls to .signalk-dev/token (gitignored, mode 0600). The token is never printed.
+// later calls to .signalk-dev/token (gitignored, file 0600, directory 0700). The token is never printed.
 //
 // Env: SK_PORT (3100)  SK_URL (overrides the URL)  SK_ADMIN_USER (dev-admin)
 //      SK_ADMIN_PASSWORD (dev-admin-password)  PLUGIN_API_URL (http://localhost:3001)
 // Developed against signalk-server 2.33.
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { saveToken } from './token-store.mjs';
 
 const base = process.env.SK_URL ?? `http://localhost:${process.env.SK_PORT ?? '3100'}`;
 const user = process.env.SK_ADMIN_USER ?? 'dev-admin';
@@ -54,9 +54,7 @@ if (!res.ok) {
   process.exit(1);
 }
 const { token } = await res.json();
-await mkdir('.signalk-dev', { recursive: true, mode: 0o700 });
-await writeFile('.signalk-dev/token', token, { mode: 0o600 });
-await chmod('.signalk-dev/token', 0o600); // writeFile's mode only applies to a new file
+await saveToken('.signalk-dev', token); // dir 0700, file 0600, tightened if they already exist
 
 const auth = { ...json, authorization: `Bearer ${token}` };
 const cfg = await fetch(`${base}/skServer/plugins/signalk-vesseltwin/config`, {

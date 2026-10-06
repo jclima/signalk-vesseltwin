@@ -20,7 +20,7 @@ docker compose -f dev/docker-compose.yml down -v
 - SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).
-- `setup-signalk.mjs` saves the admin token to `.signalk-dev/token` (gitignored, mode 0600) and does
+- `setup-signalk.mjs` saves the admin token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700) and does
   not print it. `dev/pair.mjs` reads that file (or `SK_TOKEN`).
 - The compose project is named `vesseltwin-dev`; set `COMPOSE_PROJECT_NAME` to run a second copy.
 - Rebuild the plugin with `pnpm build` and run `docker compose -f dev/docker-compose.yml restart signalk`
