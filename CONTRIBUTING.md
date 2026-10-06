@@ -30,18 +30,28 @@ pnpm test && pnpm lint && pnpm typecheck
 
 ### Smoke testing in a SignalK server
 
-Either link into a local server (`cd ~/.signalk && npm install /path/to/signalk-vesseltwin`, restart,
-enable the plugin in Server > Plugin Config), or use the dev container:
+The `dev/` directory holds a local rig: a stock signalk-server with the built plugin mounted, a mock
+VesselTwin API (with fault injection) and helper scripts. See [dev/README.md](dev/README.md) for the
+commands and [docs/TESTING.md](docs/TESTING.md) for the full walkthrough (mock API, a local VesselTwin
+API, and a verification checklist).
 
-1. `pnpm build`, then `docker compose -f docker-compose.dev.yml up` (stock signalk-server with
-   `plugin/` mounted read-only). Admin UI at http://localhost:3000; create the admin user, then enable
-   the plugin under Server > Plugin Config. A fresh server has security on, so the admin API
-   (`/skServer/*`) and the plugin's endpoints (`/plugins/signalk-vesseltwin/*`) return 401 until an
-   admin user exists; for curl or scripted testing, create the admin first and send its bearer token.
-2. Set the plugin's API URL to a local or test VesselTwin API. `http://localhost:3001` is allowed;
-   other non-HTTPS URLs are rejected. A server where the integration is not enabled for the account
-   answers pairing with 503; the plugin should report "unavailable" rather than crash. Do not point
-   tests at production.
-3. Start pairing from the plugin page, enter the shown code on the VesselTwin connect page, approve,
-   then confirm `credential.json` exists in the plugin data directory with mode `0600` and no secret
-   appears in the server log. Unpair must remove the file.
+```sh
+pnpm build
+docker compose -f dev/docker-compose.yml up -d --build
+node dev/setup-signalk.mjs   # throwaway dev admin, enables the plugin
+node dev/pair.mjs            # pairs against the mock
+docker compose -f dev/docker-compose.yml down -v
+```
+
+Notes:
+
+- A fresh server has security on, so the admin API (`/skServer/*`) and the plugin's endpoints
+  (`/plugins/signalk-vesseltwin/*`) return 401 until an admin user exists and you send its bearer
+  token. `dev/setup-signalk.mjs` does that for the rig.
+- The plugin only accepts `http` for `localhost`, `127.0.0.1` and `[::1]`; other non-HTTPS URLs are
+  rejected as a configuration error. Inside a Docker container `localhost` is the container itself,
+  so `http://localhost:3001` only works through the rig's `relay` container, which forwards that port
+  to the mock (or, with `RELAY_TARGET`, to an API on your host). Do not point tests at production.
+- A server where the integration is off answers pairing with 503; the plugin reports "not available
+  right now" instead of crashing.
+- `dev/` is for testing only and is not published to npm. Tests (`pnpm test`) never use the network.
