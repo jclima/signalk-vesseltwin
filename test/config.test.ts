@@ -5,7 +5,7 @@ const url = (v: unknown) => parseOptions({ apiBaseUrl: v }).apiBaseUrl;
 const err = (v: unknown) => parseOptions({ apiBaseUrl: v }).configError;
 
 describe('parseOptions apiBaseUrl', () => {
-  it.each([undefined, null, '', '   '])('treats unset %j as the production default', (v) => {
+  it.each([undefined, null])('treats unset %j as the production default', (v) => {
     const o = parseOptions({ apiBaseUrl: v });
     expect(o.apiBaseUrl).toBe(DEFAULT_API_BASE_URL);
     expect(o.configError).toBeNull();
@@ -38,6 +38,8 @@ describe('parseOptions apiBaseUrl', () => {
     'javascript:alert(1)',
     'ftp://localhost',
     'not a url',
+    '',
+    '   ',
     42,
     true,
     {},

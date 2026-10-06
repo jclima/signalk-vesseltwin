@@ -719,6 +719,13 @@ describe('state machine', () => {
       true,
     ],
     [
+      'stopped by a scope error (reported as update_required)',
+      reply(403, { code: 'integration_scope' }),
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      { state: 'update_required', paired: true },
+      true,
+    ],
+    [
       'reauth_required',
       reply(401, { code: 'integration_unauthorized' }),
       `Pairing with VesselTwin is no longer valid. Pair again from the plugin page. ${NO_UPLOAD}`,

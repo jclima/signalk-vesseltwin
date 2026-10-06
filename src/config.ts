@@ -72,12 +72,12 @@ function num(v: unknown, d: number, min: number, max: number): number {
 }
 
 /**
- * Unset (undefined, null or blank) means the production default. A SET value must be https (or http
+ * Unset (undefined or null) means the production default. A SET value must be https (or http
  * on localhost, 127.0.0.1, [::1]) with no credentials, query or hash; anything else is a config
  * error and never silently falls back to production.
  */
 function parseApiBaseUrl(v: unknown): { url: string | null; error: string | null } {
-  if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
+  if (v === undefined || v === null) {
     return { url: DEFAULT_API_BASE_URL, error: null };
   }
   const bad = { url: null, error: CONFIG_ERROR_API_URL };
