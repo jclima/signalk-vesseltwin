@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpClient } from '../src/http';
-import { cleanSelfUuid, runPairing } from '../src/pairing';
+import { cleanSelfUuid, defaultSleep, runPairing } from '../src/pairing';
 
 const startBody = {
   deviceCode: 'dc_abcdefghijklmnopqrstuvwxyz',
@@ -292,5 +292,160 @@ describe('signalkSelfUuid hint', () => {
   it('cleanSelfUuid enforces the 100 character cap', () => {
     expect(cleanSelfUuid(`urn:mrn:signalk:uuid:${U}`)?.length).toBeLessThanOrEqual(100);
     expect(cleanSelfUuid(`${U}${'a'.repeat(70)}`)).toBeUndefined();
+  });
+});
+
+/** Runs a pairing with an injected clock/sleep; stops after `max` sleeps. */
+async function drive(
+  startOver: Record<string, unknown>,
+  tokenReplies: Response[],
+  max = 4,
+  startReply?: Response,
+) {
+  const { http, calls } = setup(
+    tokenReplies,
+    startReply ?? json(200, { ...startBody, ...startOver }),
+  );
+  const sleeps: number[] = [];
+  const codes: { expiresAt: number }[] = [];
+  let t = 1_000_000;
+  const c = new AbortController();
+  const out = await runPairing({
+    ...base(
+      http,
+      vi.fn((info: { expiresAt: number }) => codes.push(info)),
+    ),
+    now: () => t,
+    sleep: (ms) => {
+      sleeps.push(ms);
+      t += ms;
+      if (sleeps.length >= max) c.abort();
+      return Promise.resolve();
+    },
+    signal: c.signal,
+  });
+  return { out, sleeps, codes, calls, tokenCalls: calls.filter((x) => x.url.endsWith('/token')) };
+}
+
+describe('server-controlled timing is clamped', () => {
+  it('clamps a huge or tiny interval to 1..60 s, and slow_down never grows it past 60 s', async () => {
+    expect((await drive({ interval: 1e12 }, [])).sleeps[0]).toBe(60_000);
+    expect((await drive({ interval: 0.001 }, [])).sleeps[0]).toBe(1_000);
+    expect((await drive({ interval: -3 }, [])).sleeps[0]).toBe(1_000);
+    expect((await drive({ interval: 1e12 }, [json(400, { error: 'slow_down' })])).sleeps).toEqual([
+      60_000, 60_000, 60_000, 60_000,
+    ]);
+  });
+
+  it('clamps expiresIn to 30 minutes and rejects a non-positive one', async () => {
+    const r = await drive({ expiresIn: 1e12 }, [], 1);
+    expect(r.codes[0]?.expiresAt).toBe(1_000_000 + 1_800_000);
+    for (const expiresIn of [0, -5]) {
+      const bad = await drive({ expiresIn }, []);
+      expect(bad.out).toEqual({ kind: 'rejected' });
+      expect(bad.codes).toEqual([]);
+    }
+  });
+
+  it('never sleeps beyond the remaining lifetime, and expires on schedule', async () => {
+    const r = await drive({ interval: 60, expiresIn: 100 }, [], 5);
+    expect(r.sleeps).toEqual([60_000, 40_000]);
+    expect(r.out).toEqual({ kind: 'expired' });
+    expect(r.tokenCalls).toHaveLength(1);
+  });
+
+  it('no sleep ever exceeds the timer limit', async () => {
+    const r = await drive({ interval: 60 }, [json(429, {}, { 'retry-after': '1000' })], 3);
+    for (const ms of r.sleeps) expect(ms).toBeLessThanOrEqual(2 ** 31 - 1);
+  });
+
+  it('a huge delta-seconds Retry-After past the code lifetime returns busy without sleeping', async () => {
+    const r = await drive({}, [json(429, {}, { 'retry-after': '99999999999' })]);
+    expect(r.out).toEqual({ kind: 'busy', retryAfterMs: 99_999_999_999_000 });
+    expect(r.sleeps).toEqual([5_000]);
+    expect(r.tokenCalls).toHaveLength(1);
+  });
+
+  it('an HTTP-date Retry-After far in the future returns busy; a 5xx returns unavailable', async () => {
+    const far = new Date(Date.UTC(2099, 0, 1)).toUTCString();
+    const busy = await drive({}, [json(429, {}, { 'retry-after': far })]);
+    expect(busy.out).toMatchObject({ kind: 'busy' });
+    expect(busy.sleeps).toEqual([5_000]);
+    const down = await drive({}, [json(503, {}, { 'retry-after': '3600' })]);
+    expect(down.out).toEqual({ kind: 'unavailable', retryAfterMs: 3_600_000 });
+    expect(down.tokenCalls).toHaveLength(1);
+  });
+
+  it('a Retry-After within the remaining lifetime is still honoured', async () => {
+    const r = await drive({ expiresIn: 600 }, [json(429, {}, { 'retry-after': '120' })], 3);
+    expect(r.sleeps[1]).toBe(120_000);
+    expect(r.out).toEqual({ kind: 'cancelled' });
+  });
+});
+
+describe('start response validation', () => {
+  it.each([
+    ['javascript url', { verificationUrl: 'javascript:alert(1)' }],
+    ['plain http remote', { verificationUrl: 'http://vesseltwin.io/connect' }],
+    ['not a url', { verificationUrl: 'vesseltwin.io/connect' }],
+    ['file url', { verificationUrl: 'file:///etc/passwd' }],
+    ['url too long', { verificationUrl: `https://vesseltwin.io/${'a'.repeat(300)}` }],
+    ['empty user code', { userCode: '' }],
+    ['long user code', { userCode: 'A'.repeat(33) }],
+    ['control chars in code', { userCode: 'AB\nCD' }],
+    ['bidi override in code', { userCode: 'AB\u202eCD' }],
+    ['missing device code', { deviceCode: '' }],
+  ])('rejects %s', async (_n, over) => {
+    const r = await drive(over, [], 1);
+    expect(r.out).toEqual({ kind: 'rejected' });
+    expect(r.codes).toEqual([]);
+    expect(r.tokenCalls).toEqual([]);
+  });
+
+  it.each([
+    'https://vesseltwin.io/connect',
+    'http://localhost:3000/connect',
+    'http://127.0.0.1:3000/connect',
+    'http://[::1]:3000/connect',
+  ])('accepts %s', async (verificationUrl) => {
+    const r = await drive({ verificationUrl }, [], 1);
+    expect(r.codes).toHaveLength(1);
+  });
+});
+
+describe('defaultSleep', () => {
+  it('resolves promptly when aborted mid-sleep, and immediately if already aborted', async () => {
+    const c = new AbortController();
+    const p = defaultSleep(60_000, c.signal);
+    c.abort();
+    await p; // would hang (fake timers) if abort were ignored
+    await defaultSleep(60_000, c.signal);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for the timer otherwise, and its timer is unref-ed', async () => {
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    let done = false;
+    const p = defaultSleep(1_000).then(() => {
+      done = true;
+    });
+    const handle = spy.mock.results.at(-1)?.value as { hasRef?: () => boolean } | undefined;
+    if (typeof handle?.hasRef === 'function') expect(handle.hasRef()).toBe(false);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(done).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('runPairing returns cancelled promptly when aborted during the default sleep', async () => {
+    const { http } = setup([]);
+    const c = new AbortController();
+    const p = runPairing({ ...base(http), signal: c.signal });
+    await vi.advanceTimersByTimeAsync(10); // start response is in; now sleeping 5 s
+    c.abort();
+    expect(await p).toEqual({ kind: 'cancelled' });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

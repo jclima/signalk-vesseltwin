@@ -6,7 +6,7 @@ import {
   SCOPES,
   type Scope,
 } from './contract';
-import { HttpClient, HttpError, retryAfterMs } from './http';
+import { HttpClient, HttpError, MAX_TIMER_MS, retryAfterMs } from './http';
 
 export type PairingOutcome =
   | { kind: 'paired'; token: PairingTokenResponse }
@@ -29,7 +29,8 @@ export interface PairingParams {
   onCode: (info: { userCode: string; verificationUrl: string; expiresAt: number }) => void;
   signal?: AbortSignal;
   now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
+  /** Must resolve early (not reject) when `signal` aborts. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 /** `vti_` + 32 random bytes base64url, as issued by the platform. */
@@ -48,32 +49,77 @@ export function cleanSelfUuid(v: unknown): string | undefined {
 
 const SLOW_DOWN_STEP_S = 5;
 const DEFAULT_INTERVAL_S = 5;
+/** The server is not trusted to pick our polling cadence or code lifetime. */
+export const MIN_INTERVAL_S = 1;
+export const MAX_INTERVAL_S = 60;
+export const MAX_EXPIRES_IN_S = 1800;
+const MAX_URL_LEN = 300;
+const MAX_USER_CODE_LEN = 32;
 
-const defaultSleep = (ms: number) =>
+/** Resolves after `ms` or as soon as `signal` aborts. The timer never keeps the process alive. */
+export const defaultSleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, Math.min(Math.max(0, ms), MAX_TIMER_MS));
+    timer.unref();
+    signal?.addEventListener('abort', done, { once: true });
   });
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** https, or http on a loopback host (development only). */
+function safeVerificationUrl(v: string): boolean {
+  if (v.length > MAX_URL_LEN) return false;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname));
+  } catch {
+    return false;
+  }
+}
+
+function safeUserCode(v: string): boolean {
+  return v.length > 0 && v.length <= MAX_USER_CODE_LEN && !/[\p{Cc}\p{Cf}]/u.test(v);
+}
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function parseStart(json: unknown): PairingStartResponse {
+/** Null when the body is unusable; the interval and lifetime are clamped to sane bounds. */
+function parseStart(json: unknown): PairingStartResponse | null {
   if (
     !isObject(json) ||
     typeof json.deviceCode !== 'string' ||
+    json.deviceCode === '' ||
     typeof json.userCode !== 'string' ||
+    !safeUserCode(json.userCode) ||
     typeof json.verificationUrl !== 'string' ||
-    typeof json.expiresIn !== 'number'
+    !safeVerificationUrl(json.verificationUrl) ||
+    typeof json.expiresIn !== 'number' ||
+    !Number.isFinite(json.expiresIn) ||
+    json.expiresIn <= 0
   ) {
-    throw new HttpError('unexpected pairing/start response');
+    return null;
   }
+  const interval =
+    typeof json.interval === 'number' && Number.isFinite(json.interval)
+      ? json.interval
+      : DEFAULT_INTERVAL_S;
   return {
     deviceCode: json.deviceCode,
     userCode: json.userCode,
     verificationUrl: json.verificationUrl,
-    interval: typeof json.interval === 'number' ? json.interval : DEFAULT_INTERVAL_S,
-    expiresIn: json.expiresIn,
+    interval: Math.min(MAX_INTERVAL_S, Math.max(MIN_INTERVAL_S, interval)),
+    expiresIn: Math.min(MAX_EXPIRES_IN_S, json.expiresIn),
   };
 }
 
@@ -136,13 +182,20 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     throw new HttpError(`pairing/start failed`, start.status);
   }
   const s = parseStart(start.json);
+  if (!s) return { kind: 'rejected' };
   const expiresAt = now() + s.expiresIn * 1000;
   p.onCode({ userCode: s.userCode, verificationUrl: s.verificationUrl, expiresAt });
 
-  let intervalS = s.interval > 0 ? s.interval : DEFAULT_INTERVAL_S;
+  let intervalS = s.interval;
   let minWaitMs = 0; // Retry-After floor for the next sleep only
   for (;;) {
-    await sleep(Math.max(intervalS * 1000, minWaitMs));
+    // Never sleep past the code's lifetime, and never beyond what a timer can hold.
+    const wait = Math.min(
+      MAX_TIMER_MS,
+      Math.max(0, expiresAt - now()),
+      Math.max(intervalS * 1000, minWaitMs),
+    );
+    await sleep(wait, p.signal);
     minWaitMs = 0;
     if (p.signal?.aborted) return { kind: 'cancelled' };
     if (now() >= expiresAt) return { kind: 'expired' };
@@ -159,15 +212,21 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     if (res.status === 400 || res.status === 403) {
       if (err === 'authorization_pending') continue;
       if (err === 'slow_down') {
-        intervalS += SLOW_DOWN_STEP_S;
+        intervalS = Math.min(MAX_INTERVAL_S, intervalS + SLOW_DOWN_STEP_S);
         continue;
       }
       if (err === 'expired_token') return { kind: 'expired' };
       if (err === 'access_denied') return { kind: 'denied' };
     }
     if (res.status === 429 || res.status >= 500) {
-      intervalS += SLOW_DOWN_STEP_S; // be gentle on transient failures
+      intervalS = Math.min(MAX_INTERVAL_S, intervalS + SLOW_DOWN_STEP_S); // be gentle
       minWaitMs = retryAfterMs(res.headers, now()) ?? 0; // never retry sooner than asked
+      if (minWaitMs > expiresAt - now()) {
+        // The server asks for more patience than this code has lifetime left.
+        return res.status === 429
+          ? { kind: 'busy', retryAfterMs: minWaitMs }
+          : { kind: 'unavailable', retryAfterMs: minWaitMs };
+      }
       continue;
     }
     throw new HttpError('pairing/token failed', res.status);
