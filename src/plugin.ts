@@ -1,4 +1,4 @@
-import { CredentialStore } from './credential-store';
+import { CredentialStore, isTombstone } from './credential-store';
 import { SCOPES } from './contract';
 import { apiOrigin, configSchema, parseOptions, type PluginOptions } from './config';
 import { HttpClient, type FetchLike } from './http';
@@ -61,9 +61,8 @@ const NO_UPLOAD = 'Data upload is not available in this version.';
 /** Neutral copy per failed pairing outcome. Never shows raw server codes. */
 export const FAILURE_COPY: Record<PairingFailure, string> = {
   expired:
-    'The pairing code expired. Start pairing again from the plugin page. If this keeps happening, VesselTwin integrations may not be enabled for your account yet.',
-  denied:
-    'Pairing was declined in VesselTwin. Start again from the plugin page if that was a mistake.',
+    'The pairing code expired. Start pairing again. If this keeps happening, VesselTwin integrations may not be enabled for your account yet.',
+  denied: 'Pairing was declined in VesselTwin. Start pairing again if that was a mistake.',
   unavailable: 'VesselTwin is not available right now. Try again later.',
   busy: 'VesselTwin is busy. Try pairing again in a few minutes.',
   update_required: 'This plugin version is not supported by VesselTwin. Update the plugin.',
@@ -72,8 +71,8 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
 };
 
 export const COPY = {
-  notPaired: 'Not paired. Open the plugin page to start pairing.',
-  reauth: `Pairing with VesselTwin is no longer valid. Pair again from the plugin page. ${NO_UPLOAD}`,
+  notPaired: 'Not paired. Start pairing with VesselTwin (see the plugin README).',
+  reauth: `Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
   credentialUnreadable:
     'Cannot read the stored VesselTwin connection. Check the permissions of the plugin data folder.',
   notRunning: 'The VesselTwin plugin is not running. Enable it first.',
@@ -93,18 +92,25 @@ function header(req: RequestLike, name: string): string | undefined {
 function sameOriginOrNone(req: RequestLike): boolean {
   const origin = header(req, 'origin');
   if (origin === undefined) return true; // curl and scripts send none
-  const host = header(req, 'host');
+  let originHost: string;
   try {
-    return host !== undefined && new URL(origin).host.toLowerCase() === host.toLowerCase();
+    originHost = new URL(origin).host.toLowerCase(); // `Origin: null` and junk throw
   } catch {
     return false;
   }
+  // Browsers set Sec-Fetch-Site themselves and page scripts cannot forge it. It also covers a
+  // reverse proxy that rewrites Host.
+  const site = header(req, 'sec-fetch-site')?.toLowerCase();
+  if (site === 'same-origin' || site === 'none') return true;
+  const host = header(req, 'host');
+  return host !== undefined && originHost === host.toLowerCase();
 }
 
 /** The label comes from the server; keep it short and printable before showing it. */
 function cleanLabel(v: string | null | undefined): string | null {
+  // Control characters and invisible format characters (bidi overrides, zero-width).
   // eslint-disable-next-line no-control-regex
-  const t = (v ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim();
+  const t = (v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}]/gu, ' ').trim();
   return t ? t.slice(0, 80) : null;
 }
 
@@ -129,6 +135,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let vesselLabel: string | null = null;
   let monitor: StatusMonitor | null = null;
   let snap: MonitorSnapshot | null = null;
+  /** The in-flight tombstone write, so unpair and a new pairing never race it. */
+  let tombstoneWrite: Promise<void> | null = null;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -143,7 +151,11 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     snap = null;
   }
 
-  function startMonitor(credential: string, credentialOrigin: string | null): void {
+  function startMonitor(
+    credential: string,
+    credentialOrigin: string | null,
+    pairedAt?: string,
+  ): void {
     stopMonitor();
     const baseUrl = options.apiBaseUrl;
     const origin = baseUrl === null ? null : apiOrigin(baseUrl);
@@ -158,6 +170,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         snap = s;
         report();
       },
+      onUnauthorized: () => {
+        if (monitor === m) recordReauth(credentialOrigin, pairedAt);
+      },
       log: (msg) => {
         app.debug(msg);
       },
@@ -168,6 +183,29 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     monitor = m;
     snap = m.snapshot();
     m.start();
+  }
+
+  /**
+   * After a 401 the credential is dead: replace the file with a secret-free tombstone so a restart
+   * does not send the dead credential again. Best effort; a failure is only logged.
+   */
+  function recordReauth(origin: string | null, pairedAt: string | undefined): void {
+    const s = store;
+    if (!s) return;
+    const w = s
+      .writeTombstone({
+        reauthRequired: true,
+        vesselLabel,
+        apiOrigin: origin,
+        ...(pairedAt ? { pairedAt } : {}),
+      })
+      .catch((err: unknown) => {
+        app.debug(`could not record the re-pair requirement: ${redactError(err)}`);
+      })
+      .finally(() => {
+        if (tombstoneWrite === w) tombstoneWrite = null;
+      });
+    tombstoneWrite = w;
   }
 
   function state(): PluginState {
@@ -287,21 +325,28 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       pairing = null;
       if (out.kind === 'paired') {
         if (issuer === null) throw new Error('invalid API URL');
+        const pairedAt = new Date().toISOString();
+        await tombstoneWrite; // a late tombstone must not overwrite the new credential
+        if (!current()) return;
         await s.write({
           credential: out.token.credential,
           credentialId: out.token.credentialId,
           vesselLabel: out.token.vesselLabel,
-          pairedAt: new Date().toISOString(),
+          pairedAt,
           apiOrigin: issuer,
         });
         if (!current()) {
-          await s.clear(); // cancelled while the file was being written
+          try {
+            await s.clear(); // cancelled while the file was being written
+          } catch (err) {
+            app.debug(`stale pairing cleanup failed: ${redactError(err)}`);
+          }
           return;
         }
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
-        startMonitor(out.token.credential, issuer); // probe right after pairing
+        startMonitor(out.token.credential, issuer, pairedAt); // probe right after pairing
         report();
       } else if (out.kind === 'cancelled') {
         report();
@@ -385,8 +430,19 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           if (c) {
             hasCredential = true;
             vesselLabel = cleanLabel(c.vesselLabel);
-            // Missing or different origin: the monitor goes to reauth_required with zero calls.
-            startMonitor(c.credential, c.apiOrigin);
+            if (isTombstone(c)) {
+              // The server already rejected this pairing: no monitor, no network calls.
+              snap = {
+                state: 'reauth_required',
+                pausedReason: null,
+                updateRecommended: false,
+                clockSkewWarning: false,
+                lastCheckedAt: null,
+              };
+            } else {
+              // Missing or different origin: the monitor goes to reauth_required with zero calls.
+              startMonitor(c.credential, c.apiOrigin, c.pairedAt || undefined);
+            }
           }
           report();
         })
@@ -413,6 +469,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       router.get(
         '/status',
         guarded((_req, res) => {
+          if (!store) {
+            res.status(503).json({ error: COPY.notRunning });
+            return;
+          }
           res.json(statusBody());
         }),
       );
@@ -450,10 +510,16 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             res.status(503).json({ error: COPY.notRunning });
             return;
           }
+          // Before any await: a late approval, a racing credential load and a late 401 must all
+          // lose against this unpair.
+          epoch += 1;
+          cancelPairing();
+          stopMonitor();
           try {
-            cancelPairing(); // before the await, so a late approval cannot re-create the file
-            stopMonitor();
+            await tombstoneWrite;
             await s.clear();
+            stopMonitor(); // a load that raced past the epoch check cannot leave a monitor behind
+            loaded = true;
             hasCredential = false;
             vesselLabel = null;
             failure = null;
