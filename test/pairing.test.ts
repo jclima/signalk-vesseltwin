@@ -46,7 +46,7 @@ let ctl: AbortController;
 describe('runPairing', () => {
   it('shows the code, polls every 5s through pending, then returns the credential', async () => {
     const token = {
-      credential: 'vti_xxxxxxxxxx',
+      credential: `vti_${'x'.repeat(43)}`,
       credentialId: 'c1',
       scopes: ['meters:write'],
       vesselLabel: 'V',
@@ -155,5 +155,71 @@ describe('runPairing', () => {
     ctl.abort();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(await p).toEqual({ kind: 'cancelled' });
+  });
+
+  it.each([
+    ['too short', 'vti_short'],
+    ['one char short', `vti_${'x'.repeat(42)}`],
+    ['one char long', `vti_${'x'.repeat(44)}`],
+    ['wrong prefix', `xxx_${'x'.repeat(43)}`],
+    ['bad characters', `vti_${'x'.repeat(42)} `],
+    ['not a string', 12345],
+  ])('rejects a malformed credential (%s)', async (_n, credential) => {
+    const { http } = setup([
+      json(200, { credential, credentialId: 'c1', scopes: [], vesselLabel: null, provider: 'x' }),
+    ]);
+    const p = runPairing(base(http));
+    const caught = p.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
+  });
+
+  it('rejects a non-string credentialId', async () => {
+    const { http } = setup([json(200, { credential: `vti_${'x'.repeat(43)}`, credentialId: 7 })]);
+    const caught = runPairing(base(http)).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
+  });
+
+  it('copies only known token fields', async () => {
+    const { http } = setup([
+      json(200, {
+        credential: `vti_${'x'.repeat(43)}`,
+        credentialId: 'c1',
+        scopes: ['meters:write', 'bogus:scope'],
+        vesselLabel: 'V',
+        provider: 'signalk',
+        extra: 'nope',
+        position: { lat: 1 },
+      }),
+    ]);
+    const p = runPairing(base(http));
+    await vi.advanceTimersByTimeAsync(5_000);
+    const out = await p;
+    expect(out).toEqual({
+      kind: 'paired',
+      token: {
+        credential: `vti_${'x'.repeat(43)}`,
+        credentialId: 'c1',
+        scopes: ['meters:write'],
+        vesselLabel: 'V',
+        provider: 'signalk',
+      },
+    });
+  });
+
+  it('passes the abort signal to the HTTP layer', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const fetchFn = (_u: string, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return Promise.resolve(json(200, startBody));
+    };
+    const http = new HttpClient({ baseUrl: 'https://api.test', fetch: fetchFn, userAgent: 'ua' });
+    const c = new AbortController();
+    const p = runPairing({ ...base(http), signal: c.signal });
+    c.abort();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await p).toEqual({ kind: 'cancelled' });
+    expect(seen[0]).toBeTruthy();
   });
 });

@@ -3,6 +3,7 @@ import {
   PROVIDER,
   type PairingStartResponse,
   type PairingTokenResponse,
+  SCOPES,
   type Scope,
 } from './contract';
 import { HttpClient, HttpError, retryAfterMs } from './http';
@@ -28,6 +29,9 @@ export interface PairingParams {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
+
+/** `vti_` + 32 random bytes base64url, as issued by the platform. */
+export const CREDENTIAL_RE = /^vti_[A-Za-z0-9_-]{43}$/;
 
 const SLOW_DOWN_STEP_S = 5;
 const DEFAULT_INTERVAL_S = 5;
@@ -64,11 +68,23 @@ function parseToken(json: unknown): PairingTokenResponse {
   if (
     !isObject(json) ||
     typeof json.credential !== 'string' ||
-    typeof json.credentialId !== 'string'
+    !CREDENTIAL_RE.test(json.credential) ||
+    typeof json.credentialId !== 'string' ||
+    json.credentialId === ''
   ) {
     throw new HttpError('unexpected pairing/token response');
   }
-  return json as unknown as PairingTokenResponse;
+  // Copy only known fields; never pass unknown server fields along.
+  const scopes = Array.isArray(json.scopes)
+    ? SCOPES.filter((sc) => (json.scopes as unknown[]).includes(sc))
+    : [];
+  return {
+    credential: json.credential,
+    credentialId: json.credentialId,
+    scopes,
+    vesselLabel: typeof json.vesselLabel === 'string' ? json.vesselLabel : null,
+    provider: typeof json.provider === 'string' ? json.provider : PROVIDER,
+  };
 }
 
 /** RFC 8628 device flow against the VesselTwin integrations platform. No ingest. */
@@ -76,15 +92,20 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
   const now = p.now ?? Date.now;
   const sleep = p.sleep ?? defaultSleep;
 
-  const start = await p.http.post('/v1/integrations/pairing/start', {
-    provider: PROVIDER,
-    clientName: p.clientName,
-    clientVersion: p.clientVersion,
-    contractVersion: CONTRACT_VERSION,
-    deviceLabel: p.deviceLabel,
-    requestedScopes: p.scopes,
-    ...(p.signalkSelfUuid ? { providerHints: { signalkSelfUuid: p.signalkSelfUuid } } : {}),
-  });
+  const ro = p.signal ? { signal: p.signal } : {};
+  const start = await p.http.post(
+    '/v1/integrations/pairing/start',
+    {
+      provider: PROVIDER,
+      clientName: p.clientName,
+      clientVersion: p.clientVersion,
+      contractVersion: CONTRACT_VERSION,
+      deviceLabel: p.deviceLabel,
+      requestedScopes: p.scopes,
+      ...(p.signalkSelfUuid ? { providerHints: { signalkSelfUuid: p.signalkSelfUuid } } : {}),
+    },
+    ro,
+  );
   if (start.status === 503) {
     return { kind: 'unavailable', retryAfterMs: retryAfterMs(start.headers, now()) };
   }
@@ -106,7 +127,11 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     if (p.signal?.aborted) return { kind: 'cancelled' };
     if (now() >= expiresAt) return { kind: 'expired' };
 
-    const res = await p.http.post('/v1/integrations/pairing/token', { deviceCode: s.deviceCode });
+    const res = await p.http.post(
+      '/v1/integrations/pairing/token',
+      { deviceCode: s.deviceCode },
+      ro,
+    );
     if (res.status === 200 || res.status === 201) {
       return { kind: 'paired', token: parseToken(res.json) };
     }

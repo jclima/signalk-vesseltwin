@@ -17,6 +17,7 @@ const cred = {
   credentialId: 'id-1',
   vesselLabel: 'Sea Hag',
   pairedAt: 'now',
+  apiOrigin: 'https://api.test',
 };
 
 describe('CredentialStore', () => {
@@ -49,5 +50,15 @@ describe('CredentialStore', () => {
     expect(await s.read()).toBeNull();
     await s.clear();
     expect(await readdir(dir)).toEqual([]);
+  });
+
+  it('reads a file with no recorded origin as unbound (null)', async () => {
+    await import('node:fs/promises').then((f) =>
+      f.writeFile(
+        path.join(dir, 'credential.json'),
+        JSON.stringify({ credential: 'vti_abcdefghijk', credentialId: 'id-1' }),
+      ),
+    );
+    expect((await new CredentialStore(dir).read())?.apiOrigin).toBeNull();
   });
 });

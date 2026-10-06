@@ -81,4 +81,18 @@ describe('HttpClient', () => {
     });
     await expect(c.post('/v1/a', {})).rejects.toThrow('timed out');
   });
+
+  it('aborts when the caller signal fires and reports a cancellation', async () => {
+    const fetchFn = (_u: string, init?: RequestInit) =>
+      new Promise<Response>((_res, rej) => {
+        init?.signal?.addEventListener('abort', () => {
+          rej(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        });
+      });
+    const c = new HttpClient({ baseUrl: 'https://x.test', fetch: fetchFn, userAgent: 'ua' });
+    const ctl = new AbortController();
+    const p = c.post('/v1/a', {}, { signal: ctl.signal });
+    ctl.abort();
+    await expect(p).rejects.toThrow('request cancelled');
+  });
 });

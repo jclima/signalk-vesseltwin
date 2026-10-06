@@ -9,6 +9,15 @@ export interface PluginOptions {
 
 export const DEFAULT_API_BASE_URL = 'https://api.vesseltwin.io';
 
+/** Origin (scheme + host + port) of an API base URL; null if it does not parse. */
+export function apiOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 export const configSchema = {
   type: 'object',
   properties: {
