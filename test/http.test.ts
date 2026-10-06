@@ -4,6 +4,8 @@ import {
   BACKOFF_MIN_MS,
   HttpClient,
   HttpError,
+  errorCode,
+  isRetryableStatus,
   joinUrl,
   backoffDelay,
   retryAfterMs,
@@ -119,5 +121,99 @@ describe('HttpClient', () => {
     const c = new HttpClient({ baseUrl: 'https://h/api', fetch: fetchFn, userAgent: 'ua' });
     await c.post('/v1/integrations/pairing/start', {});
     expect(seen).toBe('https://h/api/v1/integrations/pairing/start');
+  });
+});
+
+describe('HttpClient.get', () => {
+  const capture = () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchFn = (url: string, init?: RequestInit) => {
+      seen.url = url;
+      seen.init = init;
+      return Promise.resolve(new Response('{"ok":1}', { status: 200 }));
+    };
+    return { seen, fetchFn };
+  };
+
+  it('sends no body and no content-type, keeps the standard headers', async () => {
+    const { seen, fetchFn } = capture();
+    const c = new HttpClient({ baseUrl: 'https://h/api', fetch: fetchFn, userAgent: 'ua/1' });
+    const r = await c.get('/v1/integrations/status');
+    expect(r.json).toEqual({ ok: 1 });
+    expect(seen.url).toBe('https://h/api/v1/integrations/status');
+    expect(seen.init?.method).toBe('GET');
+    expect(seen.init?.body).toBeUndefined();
+    const h = seen.init?.headers as Record<string, string>;
+    expect(h['content-type']).toBeUndefined();
+    expect(h['user-agent']).toBe('ua/1');
+    expect(h['x-vesseltwin-contract']).toBe('1');
+    expect(h.accept).toBe('application/json');
+    expect(h.authorization).toBeUndefined();
+  });
+
+  it('sends Authorization only when a credential is given', async () => {
+    const { seen, fetchFn } = capture();
+    const c = new HttpClient({ baseUrl: 'https://h', fetch: fetchFn, userAgent: 'ua' });
+    await c.get('/v1/a', { credential: 'vti_secretsecret1' });
+    expect((seen.init?.headers as Record<string, string>).authorization).toBe(
+      'Bearer vti_secretsecret1',
+    );
+  });
+
+  it('times out, honors the caller signal and redacts errors', async () => {
+    const hang = (_u: string, init?: RequestInit) =>
+      new Promise<Response>((_res, rej) => {
+        init?.signal?.addEventListener('abort', () => {
+          rej(Object.assign(new Error('aborted vti_secretsecret1'), { name: 'AbortError' }));
+        });
+      });
+    const c = new HttpClient({ baseUrl: 'https://h', fetch: hang, userAgent: 'ua', timeoutMs: 20 });
+    await expect(c.get('/v1/a')).rejects.toThrow('timed out');
+    const ctl = new AbortController();
+    const p = new HttpClient({ baseUrl: 'https://h', fetch: hang, userAgent: 'ua' }).get('/v1/a', {
+      signal: ctl.signal,
+    });
+    ctl.abort();
+    await expect(p).rejects.toThrow('request cancelled');
+    const boom = new HttpClient({
+      baseUrl: 'https://h',
+      fetch: () => Promise.reject(new Error('Authorization: Bearer vti_secretsecret1')),
+      userAgent: 'ua',
+    });
+    const err = await boom
+      .get('/v1/a', { credential: 'vti_secretsecret1' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).not.toContain('vti_secretsecret1');
+  });
+
+  it('returns null json for a non-JSON body', async () => {
+    const c = new HttpClient({
+      baseUrl: 'https://h',
+      fetch: () => Promise.resolve(new Response('<html>', { status: 502 })),
+      userAgent: 'ua',
+    });
+    expect((await c.get('/v1/a')).json).toBeNull();
+  });
+});
+
+describe('isRetryableStatus and errorCode', () => {
+  it('classifies by status plus code', () => {
+    expect(isRetryableStatus(429)).toBe(true);
+    expect(isRetryableStatus(500)).toBe(true);
+    expect(isRetryableStatus(502, 'x')).toBe(true);
+    expect(isRetryableStatus(503)).toBe(true);
+    expect(isRetryableStatus(503, 'integration_feature_unavailable')).toBe(false);
+    expect(isRetryableStatus(401)).toBe(false);
+    expect(isRetryableStatus(403, 'integration_paused_plan')).toBe(false);
+    expect(isRetryableStatus(426)).toBe(false);
+    expect(isRetryableStatus(200)).toBe(false);
+  });
+  it('reads code or error from a JSON body', () => {
+    expect(errorCode({ code: 'integration_scope' })).toBe('integration_scope');
+    expect(errorCode({ error: 'slow_down' })).toBe('slow_down');
+    expect(errorCode(null)).toBeNull();
+    expect(errorCode('x')).toBeNull();
+    expect(errorCode({ code: 5 })).toBeNull();
   });
 });

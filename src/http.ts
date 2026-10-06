@@ -66,14 +66,28 @@ export class HttpClient {
     this.timeoutMs = opts.timeoutMs ?? 15_000;
   }
 
-  async post(path: string, body: unknown, ro: RequestOptions = {}): Promise<HttpResult> {
+  post(path: string, body: unknown, ro: RequestOptions = {}): Promise<HttpResult> {
+    return this.request('POST', path, ro, body);
+  }
+
+  /** GET sends no body and no content-type; every other header matches `post`. */
+  get(path: string, ro: RequestOptions = {}): Promise<HttpResult> {
+    return this.request('GET', path, ro);
+  }
+
+  private async request(
+    method: 'GET' | 'POST',
+    path: string,
+    ro: RequestOptions,
+    body?: unknown,
+  ): Promise<HttpResult> {
     const url = joinUrl(this.opts.baseUrl, path);
     const headers: Record<string, string> = {
-      'content-type': 'application/json',
       accept: 'application/json',
       'user-agent': this.opts.userAgent,
       'x-vesseltwin-contract': String(this.opts.contractVersion ?? CONTRACT_VERSION),
     };
+    if (method === 'POST') headers['content-type'] = 'application/json';
     if (ro.credential) headers.authorization = `Bearer ${ro.credential}`;
     const ctl = new AbortController();
     const timer = setTimeout(() => {
@@ -81,9 +95,9 @@ export class HttpClient {
     }, this.timeoutMs);
     try {
       const res = await this.opts.fetch(url, {
-        method: 'POST',
+        method,
         headers,
-        body: JSON.stringify(body),
+        ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
         signal: ro.signal ? AbortSignal.any([ctl.signal, ro.signal]) : ctl.signal,
       });
       let json: unknown = null;
@@ -104,6 +118,19 @@ export class HttpClient {
   }
 }
 
-export function isRetryableStatus(status: number): boolean {
-  return status === 429 || status === 503 || status >= 500;
+/** The machine-readable `code` (or poll `error`) of a JSON error body, or null. */
+export function errorCode(json: unknown): string | null {
+  if (typeof json !== 'object' || json === null) return null;
+  const o = json as Record<string, unknown>;
+  if (typeof o.code === 'string') return o.code;
+  return typeof o.error === 'string' ? o.error : null;
+}
+
+/**
+ * Whether a response is worth a fast (backoff) retry. A 503 `integration_feature_unavailable` is a
+ * dark feature flag: probe slowly (about hourly), not with backoff.
+ */
+export function isRetryableStatus(status: number, code?: string | null): boolean {
+  if (status === 503 && code === 'integration_feature_unavailable') return false;
+  return status === 429 || status >= 500;
 }
