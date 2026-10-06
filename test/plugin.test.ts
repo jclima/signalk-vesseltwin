@@ -99,6 +99,15 @@ interface Deferred {
   resolve: (r: Response) => void;
 }
 
+const okStatusBody = () => ({
+  provider: 'signalk',
+  minContract: 1,
+  latestContract: 1,
+  pluginUpdateRecommended: false,
+  serverTime: new Date().toISOString(),
+  summary: null,
+});
+
 function harness(opts: { dir?: string } = {}) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const dir = opts.dir ?? mkdtempSync(join(tmpdir(), 'vt-plugin-'));
@@ -106,8 +115,16 @@ function harness(opts: { dir?: string } = {}) {
   const calls: string[] = [];
   const held: Deferred[] = [];
   let starts = 0;
+  /** Replies for GET /v1/integrations/status, consumed in order; then a healthy 200. */
+  const statusReplies: (() => Response)[] = [];
   const fetchFn = (url: string): Promise<Response> => {
     calls.push(url);
+    if (url.endsWith('/v1/integrations/status')) {
+      const r = statusReplies.shift();
+      return Promise.resolve(
+        r ? r() : new Response(JSON.stringify(okStatusBody()), { status: 200 }),
+      );
+    }
     if (url.endsWith('/pairing/start')) {
       starts += 1;
       const code = starts === 1 ? 'AAAA-AAAA' : 'BBBB-BBBB';
@@ -160,7 +177,8 @@ function harness(opts: { dir?: string } = {}) {
   };
   const ok = () => new Response(JSON.stringify(tokenBody), { status: 200 });
   const files = () => readdirSync(dir);
-  return { app, plugin, call, tick, calls, held, ok, files, dir };
+  const statusCalls = () => calls.filter((u) => u.endsWith('/v1/integrations/status')).length;
+  return { app, plugin, call, tick, calls, held, ok, files, dir, statusReplies, statusCalls };
 }
 type RouteFn = (req: RequestLike, res: ResponseLike) => void | Promise<void>;
 
@@ -176,20 +194,30 @@ describe('pairing lifecycle', () => {
     expect((await h.call('POST /pair')).status).toBe(202);
     await h.tick();
     expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'pairing',
       paired: false,
-      pairing: { userCode: 'AAAA-AAAA' },
+      pairing: { userCode: 'AAAA-AAAA', verificationUrl: 'https://vesseltwin.io/connect' },
     });
     await h.tick(5_000);
     h.held[0]?.resolve(h.ok());
     await h.tick();
-    expect((await h.call('GET /status')).body).toEqual({ paired: true, pairing: null });
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'connected',
+      paired: true,
+      vesselLabel: 'Sea Hag',
+      apiOrigin: 'https://api.vesseltwin.io',
+      pairing: null,
+    });
+    expect(h.statusCalls()).toBe(1); // probe right after pairing
     const file = join(h.dir, 'credential.json');
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({
       credential: FAKE_CRED,
       apiOrigin: 'https://api.vesseltwin.io',
     });
-    expect(h.app.statuses.at(-1)).toMatch(/^Paired with Sea Hag\./);
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Data upload is not available in this version.',
+    );
     expect(h.app.statuses).toContain('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
     expect(h.app.statuses.at(-1)).not.toContain('AAAA-AAAA');
     expect(h.app.statuses.join('\n')).not.toContain(FAKE_CRED);
@@ -209,8 +237,13 @@ describe('pairing lifecycle', () => {
     h.held[0]?.resolve(h.ok());
     await h.tick();
     expect(h.files()).toEqual([]);
-    expect((await h.call('GET /status')).body).toEqual({ paired: false, pairing: null });
-    expect(h.app.statuses.at(-1)).toMatch(/revoke the connection in VesselTwin/);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      paired: false,
+      pairing: null,
+    });
+    expect(h.app.statuses.at(-1)).toBe('Not paired. Open the plugin page to start pairing.');
+    expect(h.statusCalls()).toBe(0);
     h.plugin.stop();
   });
 
@@ -270,7 +303,7 @@ describe('pairing lifecycle', () => {
     expect(h.files()).toEqual([]);
   });
 
-  it('refuses /pair when already paired, with no requests', async () => {
+  it('refuses /pair when already paired, with no pairing requests', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
     await writeFile(
       join(dir, 'credential.json'),
@@ -285,7 +318,7 @@ describe('pairing lifecycle', () => {
     await h.tick();
     expect((await h.call('GET /status')).body.paired).toBe(true);
     expect((await h.call('POST /pair')).status).toBe(409);
-    expect(h.calls).toEqual([]);
+    expect(h.calls.filter((u) => u.includes('/pairing/'))).toEqual([]);
     h.plugin.stop();
   });
 
@@ -482,5 +515,410 @@ describe('expired and denied copy', () => {
       expect(h.app.statuses.at(-1)).not.toMatch(/expired_token|access_denied/);
       h.plugin.stop();
     }
+  });
+});
+
+// ---- state machine -------------------------------------------------------------------------
+
+const ORIGIN = 'https://api.vesseltwin.io';
+const NO_UPLOAD = 'Data upload is not available in this version.';
+const MIN = 60_000;
+
+async function seed(dir: string, over: Record<string, unknown> = {}) {
+  await writeFile(
+    join(dir, 'credential.json'),
+    JSON.stringify({
+      credential: FAKE_CRED,
+      credentialId: 'c0',
+      vesselLabel: 'Sea Hag',
+      pairedAt: '2030-01-01T00:00:00.000Z',
+      apiOrigin: ORIGIN,
+      ...over,
+    }),
+  );
+}
+const reply =
+  (status: number, body: unknown = {}, headers: Record<string, string> = {}) =>
+  () =>
+    new Response(JSON.stringify(body), { status, headers });
+
+describe('state machine', () => {
+  it('full flow: pending, paired, probe ok, 401 reauth_required, re-pair succeeds', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      paired: false,
+    });
+
+    await h.call('POST /pair');
+    await h.tick();
+    expect(h.app.statuses.at(-1)).toBe('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
+    await h.tick(5_000);
+    h.held[0]?.resolve(h.ok());
+    await h.tick();
+    expect(h.statusCalls()).toBe(1);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
+
+    // An hour later the probe gets a 401: keep the credential, stop, ask for a new pairing.
+    h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
+    await h.tick(70 * MIN);
+    expect(h.statusCalls()).toBe(2);
+    const st = (await h.call('GET /status')).body;
+    expect(st).toMatchObject({ state: 'reauth_required', paired: false, vesselLabel: 'Sea Hag' });
+    expect(h.app.statuses.at(-1)).toBe(
+      `ERR Pairing with VesselTwin is no longer valid. Pair again from the plugin page. ${NO_UPLOAD}`,
+    );
+    expect(h.files()).toEqual(['credential.json']);
+    await h.tick(5 * 60 * MIN);
+    expect(h.statusCalls()).toBe(2); // never retried
+
+    // /pair is allowed in reauth_required, and success overwrites the credential.
+    expect((await h.call('POST /pair')).status).toBe(202);
+    await h.tick();
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'pairing',
+      pairing: { userCode: 'BBBB-BBBB' },
+    });
+    await h.tick(5_000);
+    h.held[1]?.resolve(
+      new Response(
+        JSON.stringify({
+          ...tokenBody,
+          credentialId: 'cid-2',
+          credential: `vti_${'G'.repeat(43)}`,
+        }),
+        { status: 200 },
+      ),
+    );
+    await h.tick();
+    expect(h.statusCalls()).toBe(3);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
+    expect(JSON.parse(await readFile(join(h.dir, 'credential.json'), 'utf8'))).toMatchObject({
+      credentialId: 'cid-2',
+    });
+    h.plugin.stop();
+  });
+
+  it('a restart during pairing means pairing again: no resume, no stale polling', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    expect(h.held).toHaveLength(1);
+    h.plugin.stop();
+    h.plugin.start({});
+    await h.tick();
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      pairing: null,
+    });
+    await h.tick(10 * MIN);
+    expect(h.calls.filter((u) => u.endsWith('/pairing/token'))).toHaveLength(1); // only the old one
+    expect(h.calls.filter((u) => u.endsWith('/pairing/start'))).toHaveLength(1);
+    h.held[0]?.resolve(h.ok());
+    await h.tick();
+    expect(h.files()).toEqual([]);
+    h.plugin.stop();
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['different', 'https://other.example'],
+  ])(
+    'a credential with a %s origin goes to reauth_required with zero network calls',
+    async (_n, origin) => {
+      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      await seed(dir, { apiOrigin: origin });
+      const h = harness({ dir });
+      h.plugin.start({});
+      await h.tick();
+      expect((await h.call('GET /status')).body).toMatchObject({
+        state: 'reauth_required',
+        paired: false,
+      });
+      await h.tick(3 * 60 * MIN);
+      expect(h.calls).toEqual([]);
+      expect(h.app.statuses.at(-1)).toMatch(/^ERR Pairing with VesselTwin is no longer valid/);
+      h.plugin.stop();
+    },
+  );
+
+  it('a credential issued for a configured non-default origin works against it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir, { apiOrigin: 'https://h.example' });
+    const h = harness({ dir });
+    h.plugin.start({ apiBaseUrl: 'https://h.example/api' });
+    await h.tick();
+    expect(h.calls).toEqual(['https://h.example/api/v1/integrations/status']);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'connected',
+      apiOrigin: 'https://h.example',
+    });
+    h.plugin.stop();
+  });
+
+  const lines: [string, () => Response, string, Record<string, unknown>, boolean][] = [
+    [
+      'connected',
+      () => new Response(JSON.stringify(okStatusBody()), { status: 200 }),
+      `Paired with Sea Hag. ${NO_UPLOAD}`,
+      { state: 'connected', updateRecommended: false, clockSkewWarning: false },
+      false,
+    ],
+    [
+      'connected with update and clock skew',
+      () =>
+        new Response(
+          JSON.stringify({
+            ...okStatusBody(),
+            pluginUpdateRecommended: true,
+            serverTime: new Date(Date.now() + 10 * MIN).toISOString(),
+          }),
+          { status: 200 },
+        ),
+      `Paired with Sea Hag. A plugin update is available. This device's clock differs from VesselTwin's. Check the date and time. ${NO_UPLOAD}`,
+      { state: 'connected', updateRecommended: true, clockSkewWarning: true },
+      false,
+    ],
+    [
+      'paused (feature off)',
+      reply(503, { code: 'integration_feature_unavailable' }),
+      `Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking. ${NO_UPLOAD}`,
+      { state: 'paused', paired: true },
+      false,
+    ],
+    [
+      'paused (plan)',
+      reply(403, { code: 'integration_paused_plan' }),
+      `Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking. ${NO_UPLOAD}`,
+      { state: 'paused', paired: true },
+      false,
+    ],
+    [
+      'offline',
+      reply(503, {}),
+      `Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying. ${NO_UPLOAD}`,
+      { state: 'offline', paired: true },
+      false,
+    ],
+    [
+      'update_required (426)',
+      reply(426, { code: 'integration_contract_unsupported' }),
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      { state: 'update_required', paired: true },
+      true,
+    ],
+    [
+      'update_required (minContract)',
+      () => new Response(JSON.stringify({ ...okStatusBody(), minContract: 2 }), { status: 200 }),
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      { state: 'update_required', paired: true },
+      true,
+    ],
+    [
+      'reauth_required',
+      reply(401, { code: 'integration_unauthorized' }),
+      `Pairing with VesselTwin is no longer valid. Pair again from the plugin page. ${NO_UPLOAD}`,
+      { state: 'reauth_required', paired: false },
+      true,
+    ],
+  ];
+  it.each(lines)('status line and /status for %s', async (_n, r, line, body, isError) => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.statusReplies.push(r);
+    h.plugin.start({});
+    await h.tick();
+    expect(h.app.statuses.at(-1)).toBe(`${isError ? 'ERR ' : ''}${line}`);
+    const out = (await h.call('GET /status')).body;
+    expect(out).toMatchObject(body);
+    expect(out.message).toBe(line);
+    expect(JSON.stringify(out)).not.toMatch(/integration_|vti_|dc_/);
+    expect(typeof out.lastCheckedAt).toBe('string');
+    h.plugin.stop();
+  });
+
+  it('shows the checking line until the first probe returns', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const app = fakeApp(dir);
+    const plugin = createPlugin(app, { fetch: () => new Promise<Response>(() => undefined) });
+    plugin.start({});
+    await vi.waitFor(() => {
+      expect(app.statuses.at(-1)).toBe(
+        `Paired with Sea Hag. Checking the connection. ${NO_UPLOAD}`,
+      );
+    });
+    plugin.stop();
+  });
+
+  it('keeps probing hourly while paused or offline, never faster than Retry-After', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.statusReplies.push(
+      reply(503, { code: 'integration_feature_unavailable' }, { 'retry-after': '7200' }),
+    );
+    h.plugin.start({});
+    await h.tick();
+    expect(h.statusCalls()).toBe(1);
+    await h.tick(110 * MIN);
+    expect(h.statusCalls()).toBe(1);
+    await h.tick(11 * MIN);
+    expect(h.statusCalls()).toBe(2);
+    expect((await h.call('GET /status')).body.state).toBe('connected');
+    h.plugin.stop();
+  });
+
+  it('/pair is refused with 409 in every credentialed working state', async () => {
+    for (const r of [
+      reply(503, {}),
+      reply(503, { code: 'integration_feature_unavailable' }),
+      reply(426, {}),
+      () => new Response(JSON.stringify(okStatusBody()), { status: 200 }),
+    ]) {
+      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      await seed(dir);
+      const h = harness({ dir });
+      h.statusReplies.push(r);
+      h.plugin.start({});
+      await h.tick();
+      expect((await h.call('POST /pair')).status).toBe(409);
+      expect(h.calls.some((u) => u.includes('/pairing/'))).toBe(false);
+      h.plugin.stop();
+    }
+  });
+
+  it('pairing_failed exposes the reason, and /pair can start again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const app = fakeApp(dir);
+    let n = 0;
+    const plugin = createPlugin(app, {
+      fetch: (url) => {
+        if (url.endsWith('/pairing/start')) {
+          n += 1;
+          return Promise.resolve(
+            n === 1
+              ? new Response('{}', { status: 503 })
+              : new Response(
+                  JSON.stringify({
+                    deviceCode: 'dc_abcdefghijklmnop',
+                    userCode: 'CCCC-DDDD',
+                    verificationUrl: 'https://vesseltwin.io/connect',
+                    interval: 5,
+                    expiresIn: 600,
+                  }),
+                  { status: 200 },
+                ),
+          );
+        }
+        return new Promise<Response>(() => undefined);
+      },
+    });
+    const routes: Record<string, RouteFn> = {};
+    plugin.registerWithRouter({
+      get: (p, hd) => {
+        routes[`GET ${p}`] = hd;
+      },
+      post: (p, hd) => {
+        routes[`POST ${p}`] = hd;
+      },
+    });
+    const call = async (r: string) => {
+      let body: unknown;
+      const res: ResponseLike = { status: () => res, json: (b) => (body = b) };
+      await routes[r]?.({}, res);
+      return body as Record<string, unknown>;
+    };
+    plugin.start({});
+    await vi.advanceTimersByTimeAsync(0);
+    await realPause(40);
+    await call('POST /pair');
+    await vi.advanceTimersByTimeAsync(0);
+    await realPause(40);
+    expect(await call('GET /status')).toMatchObject({
+      state: 'pairing_failed',
+      paired: false,
+      pairing: { reason: 'unavailable' },
+      message: 'VesselTwin is not available right now. Try again later.',
+    });
+    expect(app.statuses.at(-1)).toBe('ERR VesselTwin is not available right now. Try again later.');
+    await call('POST /pair');
+    await vi.advanceTimersByTimeAsync(0);
+    await realPause(40);
+    expect(await call('GET /status')).toMatchObject({
+      state: 'pairing',
+      pairing: { userCode: 'CCCC-DDDD' },
+    });
+    plugin.stop();
+  });
+
+  it('/unpair stops the monitor and stop() clears its timer: no probes afterwards', async () => {
+    for (const how of ['unpair', 'stop'] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      await seed(dir);
+      const h = harness({ dir });
+      h.plugin.start({});
+      await h.tick();
+      expect(h.statusCalls()).toBe(1);
+      if (how === 'unpair') await h.call('POST /unpair');
+      else h.plugin.stop();
+      await h.tick(5 * 60 * MIN);
+      expect(h.statusCalls()).toBe(1);
+      h.plugin.stop();
+    }
+  });
+
+  it('a config error with a stored credential makes no calls and reads nothing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    await seed(dir);
+    const h = harness({ dir });
+    h.plugin.start({ apiBaseUrl: 'ftp://nope' });
+    await h.tick(2 * 60 * MIN);
+    expect(h.calls).toEqual([]);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'config_error',
+      apiOrigin: null,
+      paired: false,
+    });
+    h.plugin.stop();
+  });
+
+  it('an unreadable credential file is reported neutrally as config_error', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(dir, 'credential.json'));
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.tick();
+    const out = (await h.call('GET /status')).body;
+    expect(out.state).toBe('config_error');
+    expect(String(out.message)).toMatch(/Cannot read the stored VesselTwin connection/);
+    expect(JSON.stringify(out)).not.toMatch(/EISDIR|credential\.json|\/var|\/tmp/);
+    expect(h.calls).toEqual([]);
+    h.plugin.stop();
+  });
+
+  it('never exposes the credential or device code in /status or the status lines', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    const pending = JSON.stringify((await h.call('GET /status')).body);
+    h.held[0]?.resolve(h.ok());
+    await h.tick();
+    const done = JSON.stringify((await h.call('GET /status')).body);
+    for (const text of [pending, done, h.app.statuses.join('\n')]) {
+      expect(text).not.toContain(FAKE_CRED);
+      expect(text).not.toContain('dc_');
+      expect(text).not.toContain('deviceCode');
+    }
+    h.plugin.stop();
   });
 });
