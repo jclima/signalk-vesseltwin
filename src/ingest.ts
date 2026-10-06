@@ -4,7 +4,7 @@ import { HttpClient, HttpError, retryAfterMs } from './http';
 /**
  * PLACEHOLDER TRANSPORT. The ingest endpoint and body below are a DRAFT used for local
  * end-to-end testing against the mock server in `dev/mock-server`. The VesselTwin platform
- * has not published the ingest contract (see docs/contract.md); until it does, nothing here
+ * has not published the ingest contract (see docs/api.md); until it does, nothing here
  * may be treated as the real wire format. Swap `PlaceholderIngestClient` for a client built
  * from the published schema; the rest of the pipeline only depends on `IngestClient`.
  */

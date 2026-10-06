@@ -1,0 +1,38 @@
+# Local end-to-end test rig: a stock signalk-server with the built plugin mounted, plus the
+# mock VesselTwin server sharing its network namespace (so the plugin reaches it at
+# http://localhost:4010, which the plugin's URL rules allow). Test use only.
+#
+#   pnpm build && docker compose -f dev/docker-compose.yml up
+#
+# Admin UI: http://localhost:3000   Mock debug: http://localhost:4010/__debug/readings
+name: vesseltwin-dev
+services:
+  signalk:
+    image: signalk/signalk-server:latest
+    ports:
+      - '${SK_PORT:-3000}:3000'
+      - '4010:4010' # the mock server (shared network namespace)
+    environment:
+      - SIGNALK_NODE_SETTINGS=/home/node/.signalk/settings.json
+      # Developer switch: without it the plugin collects and uploads nothing.
+      - VESSELTWIN_DEV_UPLOAD=${VESSELTWIN_DEV_UPLOAD:-1}
+    volumes:
+      - signalk-data:/home/node/.signalk
+      - ../plugin:/home/node/.signalk/node_modules/signalk-vesseltwin/plugin:ro
+      - ../package.json:/home/node/.signalk/node_modules/signalk-vesseltwin/package.json:ro
+  mock:
+    image: signalk/signalk-server:latest # reused only because it already has node; nothing extra to pull
+    network_mode: 'service:signalk'
+    entrypoint: ['node', '/mock/server.mjs']
+    environment:
+      - MOCK_HOST=0.0.0.0
+      - MOCK_PORT=4010
+      - MOCK_INTERVAL_S=${MOCK_INTERVAL_S:-2}
+      - MOCK_AUTO_APPROVE_S=${MOCK_AUTO_APPROVE_S:-0}
+      - MOCK_FAULT=${MOCK_FAULT:-}
+    volumes:
+      - ./mock-server:/mock:ro
+    depends_on:
+      - signalk
+volumes:
+  signalk-data:

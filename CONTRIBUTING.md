@@ -45,3 +45,10 @@ enable the plugin in Server > Plugin Config), or use the dev container:
 3. Start pairing from the plugin page, enter the shown code on the VesselTwin connect page, approve,
    then confirm `credential.json` exists in the plugin data directory with mode `0600` and no secret
    appears in the server log. Unpair must remove the file.
+
+### Local end-to-end testing (developers)
+
+A zero-dependency mock VesselTwin server (`pnpm dev:mock`) and a Docker rig under `dev/` let you
+exercise pairing and the upload pipeline against a stock SignalK server. Upload stays off unless
+`VESSELTWIN_DEV_UPLOAD=1` is set, and the readings endpoint it uses is a **placeholder** until the
+platform publishes its ingest contract. See [docs/TESTING.md](docs/TESTING.md).

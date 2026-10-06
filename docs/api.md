@@ -202,5 +202,7 @@ first place. See the privacy section of the README.
 Routes for uploading readings (batches of engine hours, battery and tank values), their request and
 response shapes, per-item result codes, vessel-info suggestions, and the idempotency rules are **not
 published**. They will ship as JSON Schema attached to a release, together with a new contract version.
-Until then the plugin does not call them, and reports that upload is not available. Do not infer
-shapes from the pairing types above.
+Until then the plugin does not call them in normal use, and reports that upload is not available. Only
+a developer who sets `VESSELTWIN_DEV_UPLOAD=1` enables a placeholder call against the local mock
+(see [TESTING.md](TESTING.md)); its body shape is a draft, not the contract. Do not infer shapes from
+the pairing types above.
