@@ -4,6 +4,7 @@ import { configSchema, parseOptions, type PluginOptions } from './config';
 import { HttpClient, type FetchLike } from './http';
 import { runPairing } from './pairing';
 import { redactError } from './redact';
+import { createPipeline } from './pipeline';
 
 /** The slice of the SignalK server API this plugin uses (kept minimal; no runtime dependency). */
 export interface SignalKApp {
@@ -37,6 +38,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let abort: AbortController | null = null;
   let pairing: { userCode: string; verificationUrl: string; expiresAt: number } | null = null;
   let paired = false;
+  const pipeline = createPipeline(app, {
+    ...(deps.fetch ? { fetch: deps.fetch } : {}),
+    userAgent: `${PLUGIN_ID}/${PLUGIN_VERSION}`,
+  });
 
   const client = () =>
     new HttpClient({
@@ -109,6 +114,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     start(settings: unknown): void {
       options = parseOptions(settings);
       store = new CredentialStore(app.getDataDirPath());
+      pipeline.start(options);
       store
         .read()
         .then((c) => {
@@ -121,6 +127,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     },
 
     stop(): void {
+      pipeline.stop();
       abort?.abort();
       abort = null;
       pairing = null;
