@@ -20,6 +20,9 @@ export class HttpError extends Error {
   }
 }
 
+/** setTimeout overflows (fires at once) above 2^31 - 1 ms. */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
 export const BACKOFF_MIN_MS = 5_000;
 export const BACKOFF_MAX_MS = 30 * 60_000;
 
@@ -55,6 +58,11 @@ export interface HttpClientOptions {
 export interface RequestOptions {
   /** Bearer credential. Only ever placed in the Authorization header. */
   credential?: string;
+  /**
+   * Origin the credential was issued for. The Authorization header is only ever set when the request
+   * URL has exactly this origin; a credential without it is refused.
+   */
+  credentialOrigin?: string;
   /** Cancels the request (in addition to the timeout). */
   signal?: AbortSignal;
 }
@@ -88,7 +96,18 @@ export class HttpClient {
       'x-vesseltwin-contract': String(this.opts.contractVersion ?? CONTRACT_VERSION),
     };
     if (method === 'POST') headers['content-type'] = 'application/json';
-    if (ro.credential) headers.authorization = `Bearer ${ro.credential}`;
+    if (ro.credential) {
+      let origin: string | null = null;
+      try {
+        origin = new URL(url).origin;
+      } catch {
+        origin = null;
+      }
+      if (ro.credentialOrigin === undefined || origin === null || origin !== ro.credentialOrigin) {
+        throw new HttpError('request refused: credential is not valid for this server');
+      }
+      headers.authorization = `Bearer ${ro.credential}`;
+    }
     const ctl = new AbortController();
     const timer = setTimeout(() => {
       ctl.abort();
@@ -98,6 +117,7 @@ export class HttpClient {
         method,
         headers,
         ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
+        redirect: 'error',
         signal: ro.signal ? AbortSignal.any([ctl.signal, ro.signal]) : ctl.signal,
       });
       let json: unknown = null;

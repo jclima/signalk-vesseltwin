@@ -41,26 +41,26 @@ describe('parseStatusBody', () => {
       serverTime: NOW,
       summary: { a: 1 },
     });
-    expect(parseStatusBody({})).toEqual({
-      minContract: null,
-      latestContract: null,
-      pluginUpdateRecommended: false,
-      serverTime: null,
-      summary: null,
-    });
     expect(
-      parseStatusBody({
-        minContract: '1',
-        serverTime: 'nope',
-        summary: [1],
-        pluginUpdateRecommended: 'yes',
-      }),
+      parseStatusBody(okBody({ serverTime: 'nope', summary: [1], pluginUpdateRecommended: 'yes' })),
     ).toMatchObject({
-      minContract: null,
+      minContract: 1,
       serverTime: null,
       summary: null,
       pluginUpdateRecommended: false,
     });
+  });
+  it('is null unless provider is signalk and both contract numbers are integers', () => {
+    expect(parseStatusBody({})).toBeNull();
+    expect(parseStatusBody(okBody({ provider: 'other' }))).toBeNull();
+    expect(parseStatusBody(okBody({ provider: undefined }))).toBeNull();
+    expect(parseStatusBody(okBody({ minContract: '1' }))).toBeNull();
+    expect(parseStatusBody(okBody({ latestContract: 1.5 }))).toBeNull();
+    expect(parseStatusBody(okBody({ minContract: undefined }))).toBeNull();
+  });
+  it('a 200 with an unrecognised body is offline, so it backs off', () => {
+    expect(classify(res(200, {}), NOW)).toEqual({ kind: 'offline', retryAfterMs: null });
+    expect(classify(res(200, okBody({ provider: 'x' })), NOW).kind).toBe('offline');
   });
   it('rejects a non-object body', () => {
     for (const j of [null, 'x', 5, [1]]) expect(parseStatusBody(j)).toBeNull();
@@ -179,7 +179,11 @@ describe('checkStatus', () => {
         return Promise.resolve(new Response(JSON.stringify(okBody()), { status: 200 }));
       },
     });
-    const out = await checkStatus(http, { credential: CRED }, { now: () => NOW });
+    const out = await checkStatus(
+      http,
+      { credential: CRED, credentialOrigin: 'https://h' },
+      { now: () => NOW },
+    );
     expect(out.kind).toBe('connected');
     expect(seen[0]?.url).toBe('https://h/api/v1/integrations/status');
     expect(seen[0]?.init?.method).toBe('GET');
@@ -191,7 +195,7 @@ describe('checkStatus', () => {
       userAgent: 'ua',
       fetch: () => Promise.reject(new Error('down')),
     });
-    expect(await checkStatus(http, { credential: CRED })).toEqual({
+    expect(await checkStatus(http, { credential: CRED, credentialOrigin: 'https://h' })).toEqual({
       kind: 'offline',
       retryAfterMs: null,
     });

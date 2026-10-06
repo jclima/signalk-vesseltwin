@@ -68,7 +68,11 @@ describe('HttpClient', () => {
     expect(seen['x-vesseltwin-contract']).toBe('1');
     expect(seen['user-agent']).toBe('ua/1');
     expect(seen.authorization).toBeUndefined();
-    await c.post('/v1/a', {}, { credential: 'vti_secretsecret1' });
+    await c.post(
+      '/v1/a',
+      {},
+      { credential: 'vti_secretsecret1', credentialOrigin: 'https://x.test' },
+    );
     expect(seen.authorization).toBe('Bearer vti_secretsecret1');
   });
 
@@ -76,7 +80,7 @@ describe('HttpClient', () => {
     const fetchFn = () => Promise.reject(new Error('boom Authorization: Bearer vti_secretsecret1'));
     const c = new HttpClient({ baseUrl: 'https://x.test', fetch: fetchFn, userAgent: 'ua' });
     const err = await c
-      .post('/v1/a', {}, { credential: 'vti_secretsecret1' })
+      .post('/v1/a', {}, { credential: 'vti_secretsecret1', credentialOrigin: 'https://x.test' })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(HttpError);
     expect((err as Error).message).not.toContain('vti_secretsecret1');
@@ -154,7 +158,7 @@ describe('HttpClient.get', () => {
   it('sends Authorization only when a credential is given', async () => {
     const { seen, fetchFn } = capture();
     const c = new HttpClient({ baseUrl: 'https://h', fetch: fetchFn, userAgent: 'ua' });
-    await c.get('/v1/a', { credential: 'vti_secretsecret1' });
+    await c.get('/v1/a', { credential: 'vti_secretsecret1', credentialOrigin: 'https://h' });
     expect((seen.init?.headers as Record<string, string>).authorization).toBe(
       'Bearer vti_secretsecret1',
     );
@@ -181,10 +185,62 @@ describe('HttpClient.get', () => {
       userAgent: 'ua',
     });
     const err = await boom
-      .get('/v1/a', { credential: 'vti_secretsecret1' })
+      .get('/v1/a', { credential: 'vti_secretsecret1', credentialOrigin: 'https://h' })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(HttpError);
     expect((err as Error).message).not.toContain('vti_secretsecret1');
+  });
+
+  it('never follows redirects, and a redirect error is a neutral network error', async () => {
+    let init: RequestInit | undefined;
+    const c = new HttpClient({
+      baseUrl: 'https://h',
+      fetch: (_u, i) => {
+        init = i;
+        return Promise.reject(new TypeError('fetch failed: redirect to https://evil.test/x'));
+      },
+      userAgent: 'ua',
+    });
+    const err = await c.get('/v1/a').catch((e: unknown) => e);
+    expect(init?.redirect).toBe('error');
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).toBe('network error');
+    const { seen, fetchFn } = capture();
+    await new HttpClient({ baseUrl: 'https://h', fetch: fetchFn, userAgent: 'ua' }).post(
+      '/v1/a',
+      {},
+    );
+    expect(seen.init?.redirect).toBe('error');
+  });
+
+  it('sets Authorization only when the URL origin equals credentialOrigin', async () => {
+    const calls: { url: string; auth: string | undefined }[] = [];
+    const fetchFn = (url: string, init?: RequestInit) => {
+      calls.push({ url, auth: (init?.headers as Record<string, string>).authorization });
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+    const c = new HttpClient({ baseUrl: 'https://h:8443/api', fetch: fetchFn, userAgent: 'ua' });
+    const cred = 'vti_secretsecret1';
+    await c.get('/v1/a', { credential: cred, credentialOrigin: 'https://h:8443' });
+    expect(calls[0]?.auth).toBe(`Bearer ${cred}`);
+    for (const credentialOrigin of [
+      'https://h',
+      'http://h:8443',
+      'https://other.test:8443',
+      'https://h:8443/api',
+      undefined,
+    ]) {
+      const err = await c
+        .get('/v1/a', { credential: cred, ...(credentialOrigin ? { credentialOrigin } : {}) })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as Error).message).not.toContain(cred);
+      expect((err as Error).message).not.toContain('h:8443');
+    }
+    expect(calls).toHaveLength(1); // refused before any fetch
+    // Unauthenticated calls are unaffected.
+    await c.get('/v1/a');
+    expect(calls[1]?.auth).toBeUndefined();
   });
 
   it('returns null json for a non-JSON body', async () => {

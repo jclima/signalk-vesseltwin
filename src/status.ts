@@ -1,5 +1,12 @@
-import { CONTRACT_VERSION } from './contract';
-import { backoffDelay, errorCode, HttpClient, retryAfterMs, type HttpResult } from './http';
+import { CONTRACT_VERSION, PROVIDER } from './contract';
+import {
+  backoffDelay,
+  errorCode,
+  HttpClient,
+  MAX_TIMER_MS,
+  retryAfterMs,
+  type HttpResult,
+} from './http';
 import { redactError } from './redact';
 
 /** Probe cadence while healthy, and the slow probe for a paused integration. */
@@ -7,13 +14,11 @@ export const PROBE_INTERVAL_MS = 60 * 60_000;
 export const PAUSED_PROBE_MS = 60 * 60_000;
 /** Warn when the server clock and ours differ by more than this. */
 export const CLOCK_SKEW_LIMIT_MS = 5 * 60_000;
-/** setTimeout overflows (fires at once) above 2^31 - 1 ms. */
-const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** Tolerantly parsed `GET /v1/integrations/status` body. Unknown fields are ignored. */
 export interface StatusInfo {
-  minContract: number | null;
-  latestContract: number | null;
+  minContract: number;
+  latestContract: number;
   pluginUpdateRecommended: boolean;
   /** Epoch ms, or null when absent or unparsable. */
   serverTime: number | null;
@@ -40,12 +45,20 @@ function int(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) ? v : null;
 }
 
+/**
+ * Null (treated as offline) unless the body is recognisably this provider's status: `provider` is
+ * `signalk` and both contract numbers are integers. A captive portal or wrong server that answers
+ * 200 with other JSON must not count as connected.
+ */
 export function parseStatusBody(json: unknown): StatusInfo | null {
-  if (!isObject(json)) return null;
+  if (!isObject(json) || json.provider !== PROVIDER) return null;
+  const minContract = int(json.minContract);
+  const latestContract = int(json.latestContract);
+  if (minContract === null || latestContract === null) return null;
   const t = typeof json.serverTime === 'string' ? Date.parse(json.serverTime) : NaN;
   return {
-    minContract: int(json.minContract),
-    latestContract: int(json.latestContract),
+    minContract,
+    latestContract,
     pluginUpdateRecommended: json.pluginUpdateRecommended === true,
     serverTime: Number.isNaN(t) ? null : t,
     summary: isObject(json.summary) ? json.summary : null,
@@ -65,14 +78,12 @@ export function classify(
   if (status === 200) {
     const info = parseStatusBody(res.json);
     if (!info) return { kind: 'offline', retryAfterMs: ra }; // cannot verify; treat as transient
-    if (info.minContract !== null && contract < info.minContract) {
+    if (contract < info.minContract) {
       return { kind: 'update_required', stop: false, info };
     }
     return {
       kind: 'connected',
-      updateRecommended:
-        info.pluginUpdateRecommended ||
-        (info.latestContract !== null && info.latestContract > contract),
+      updateRecommended: info.pluginUpdateRecommended || info.latestContract > contract,
       clockSkewWarning:
         info.serverTime !== null && Math.abs(info.serverTime - now) > CLOCK_SKEW_LIMIT_MS,
       info,
@@ -96,7 +107,7 @@ export function classify(
 /** One authenticated status probe. Network errors and timeouts are `offline`. */
 export async function checkStatus(
   http: HttpClient,
-  cred: { credential: string },
+  cred: { credential: string; credentialOrigin: string },
   opts: { signal?: AbortSignal; now?: () => number } = {},
 ): Promise<StatusOutcome> {
   const now = opts.now ?? Date.now;
@@ -104,6 +115,7 @@ export async function checkStatus(
   try {
     res = await http.get('/v1/integrations/status', {
       credential: cred.credential,
+      credentialOrigin: cred.credentialOrigin,
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
   } catch (err) {
@@ -156,6 +168,8 @@ export interface StatusMonitorOptions {
   /** Origin of the configured API URL. */
   apiOrigin: string;
   onUpdate: (s: MonitorSnapshot) => void;
+  /** Called once when the server answered 401 (not for an origin mismatch, which makes no call). */
+  onUnauthorized?: () => void;
   /** Debug logging; always receives redacted text. */
   log?: (msg: string) => void;
   now?: () => number;
@@ -252,7 +266,8 @@ export class StatusMonitor {
     try {
       out = await checkStatus(
         this.o.http,
-        { credential: this.o.credential },
+        // start() guarantees credentialOrigin is non-null here.
+        { credential: this.o.credential, credentialOrigin: this.o.credentialOrigin ?? '' },
         { signal: ctl.signal, now: this.now },
       );
     } catch (err) {
@@ -283,6 +298,7 @@ export class StatusMonitor {
         break;
       case 'reauth_required':
         this.set({ state: 'reauth_required', lastCheckedAt: at });
+        this.o.onUnauthorized?.();
         break;
       case 'stopped':
         this.set({ state: 'stopped', lastCheckedAt: at });

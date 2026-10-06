@@ -80,7 +80,10 @@ describe('mock status vs the plugin status parser', () => {
   it('a paired credential is classified as connected by checkStatus', async () => {
     const { base, post } = await boot({ autoApproveAfterPolls: 1 });
     const credential = await pairedCredential(post);
-    const out = await checkStatus(plugClient(base), { credential });
+    const out = await checkStatus(plugClient(base), {
+      credential,
+      credentialOrigin: new URL(base).origin,
+    });
     expect(out.kind).toBe('connected');
     if (out.kind !== 'connected') return;
     expect(out.updateRecommended).toBe(false);
@@ -93,7 +96,10 @@ describe('mock status vs the plugin status parser', () => {
   it('an unknown credential is reauth_required', async () => {
     const { base } = await boot();
     const credential = `vti_${'A'.repeat(43)}`;
-    expect((await checkStatus(plugClient(base), { credential })).kind).toBe('reauth_required');
+    expect(
+      (await checkStatus(plugClient(base), { credential, credentialOrigin: new URL(base).origin }))
+        .kind,
+    ).toBe('reauth_required');
   });
 
   it('injected faults map to the documented outcomes', async () => {
@@ -102,7 +108,7 @@ describe('mock status vs the plugin status parser', () => {
     const http = plugClient(base);
     const probe = async (fault: Record<string, unknown>) => {
       await post('/__mock/fault', { route: 'status', once: true, ...fault });
-      return checkStatus(http, { credential });
+      return checkStatus(http, { credential, credentialOrigin: new URL(base).origin });
     };
     expect(await probe({ status: 503, retryAfter: 120 })).toEqual({
       kind: 'paused',
@@ -123,7 +129,9 @@ describe('mock status vs the plugin status parser', () => {
       kind: 'offline',
       retryAfterMs: 7000,
     });
-    expect((await checkStatus(http, { credential })).kind).toBe('connected'); // faults were once-only
+    expect(
+      (await checkStatus(http, { credential, credentialOrigin: new URL(base).origin })).kind,
+    ).toBe('connected'); // faults were once-only
   });
 });
 
