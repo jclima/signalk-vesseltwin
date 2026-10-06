@@ -1,0 +1,4 @@
+#!/bin/sh
+# Optional pre-commit hook: scans staged files for things that must not be published.
+# Enable with: pnpm hooks:install
+exec node scripts/check-public.mjs --staged

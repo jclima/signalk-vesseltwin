@@ -1,0 +1,60 @@
+{
+  "name": "signalk-vesseltwin",
+  "version": "0.0.0",
+  "description": "SignalK server plugin that pairs a boat with VesselTwin and (in a future release) uploads engine hours, battery and tank readings to its maintenance record.",
+  "license": "Apache-2.0",
+  "author": "VesselTwin contributors",
+  "homepage": "https://github.com/jclima/signalk-vesseltwin#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jclima/signalk-vesseltwin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jclima/signalk-vesseltwin/issues"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-cloud",
+    "signalk-category-utility",
+    "vesseltwin",
+    "boat",
+    "maintenance",
+    "engine-hours"
+  ],
+  "signalk": {
+    "displayName": "VesselTwin"
+  },
+  "main": "plugin/index.js",
+  "types": "plugin/index.d.ts",
+  "files": [
+    "plugin",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "rm -rf plugin && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "lint": "eslint . && prettier --check . && node scripts/check-public.mjs",
+    "check:public": "node scripts/check-public.mjs",
+    "check:pack": "node scripts/check-public.mjs --pack",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "format": "prettier --write .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "pnpm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  }
+}

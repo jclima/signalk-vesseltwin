@@ -1,0 +1,29 @@
+node_modules/
+plugin/
+coverage/
+*.tgz
+.env
+.env.*
+*.log
+.envrc
+*.pem
+*.key
+.npmrc
+.DS_Store
+.signalk-dev/
+
+# Local-only agent notes (never commit); AGENTS.md is canonical, CLAUDE.md is a symlink to it
+CLAUDE.local.md
+AGENTS.override.md
+
+# Editor and agent config, local-only (never commit)
+.claude/
+.cursor/
+.kiro/
+.codex/
+.windsurf/
+.vscode/
+.idea/
+.mcp.json
+*.local.*
+.public-guard.local
