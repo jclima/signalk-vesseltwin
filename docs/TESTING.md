@@ -66,15 +66,15 @@ auth).
 Inject with `fault`, restart the plugin (see above), then check `st` and `mlog`. Clear with
 `fault '{"route":"clear"}'`. Full option list: [dev/README.md](../dev/README.md).
 
-| Inject (`route: "status"`)                          | Expected `state`  | Status line (after `Paired with Mock Boat.`)                                                                 |
-| --------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `{"status":503}`                                    | `paused`          | `VesselTwin integrations are not available for your account right now. The plugin will keep checking. ...`   |
-| `{"status":403}`                                    | `paused`          | `The connection is paused for your VesselTwin plan. The plugin will keep checking. ...`                      |
-| `{"status":200,"minContract":2}`                    | `update_required` | `This plugin version is not supported by VesselTwin. Update the plugin. ...`                                 |
-| `{"status":426,"minContract":2}`                    | `update_required` | same as above                                                                                                |
-| `{"status":401}`                                    | `reauth_required` | `Pairing with VesselTwin is no longer valid. Pair again from the plugin page. ...` (no `Paired with` prefix) |
-| `{"status":429,"retryAfter":30}` or `5xx`           | `offline`         | `Cannot reach VesselTwin right now. The plugin will keep trying. ...`                                        |
-| `{"status":200,"minContract":1,"latestContract":2}` | `connected`       | `A plugin update is available.` before the upload note; `updateRecommended` is `true`                        |
+| Inject (`route: "status"`)                          | Expected `state`  | Status line (after `Paired with Mock Boat.`)                                                               |
+| --------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `{"status":503}`                                    | `paused`          | `VesselTwin integrations are not available for your account right now. The plugin will keep checking. ...` |
+| `{"status":403}`                                    | `paused`          | `The connection is paused for your VesselTwin plan. The plugin will keep checking. ...`                    |
+| `{"status":200,"minContract":2}`                    | `update_required` | `This plugin version is not supported by VesselTwin. Update the plugin. ...`                               |
+| `{"status":426,"minContract":2}`                    | `update_required` | same as above                                                                                              |
+| `{"status":401}`                                    | `reauth_required` | `Pairing with VesselTwin is no longer valid. Pair again. ...` (no `Paired with` prefix)                    |
+| `{"status":429,"retryAfter":30}` or `5xx`           | `offline`         | `Cannot reach VesselTwin right now. The plugin will keep trying. ...`                                      |
+| `{"status":200,"minContract":1,"latestContract":2}` | `connected`       | `A plugin update is available.` before the upload note; `updateRecommended` is `true`                      |
 
 Every line also ends with `Data upload is not available in this version.` unless noted.
 
@@ -83,24 +83,27 @@ Details worth checking:
 - **503 with `Retry-After`**: the mock defaults `Retry-After` to 3600. The state is `paused`, and the
   mock log shows no further `GET status` until at least `Retry-After` (never sooner than an hour in
   any case). Wait a minute or so and confirm the log has not grown.
-- **401**: `paired` is `false`, but `credential.json` stays on disk. After another plugin restart the
-  log shows at most one more `GET status` (401) and then nothing; there is no retry loop. Clear the
-  fault and run `node dev/pair.mjs` again: pairing is allowed in `reauth_required`, overwrites the
-  credential and ends in `connected`.
+- **401**: `paired` is `false` and `credential.json` is replaced by a tombstone with the keys
+  `reauthRequired`, `vesselLabel`, `apiOrigin`, `pairedAt` and **no** `credential` or `credentialId`
+  (print key names only, see the checklist). Note how many `GET status` lines the mock log has, then
+  restart the plugin: the state is `reauth_required` again and the log shows **no further status
+  request**; there is no retry loop. Clear the fault and run `node dev/pair.mjs` again: pairing is
+  allowed in `reauth_required`, overwrites the tombstone with a credential and ends in `connected`.
+  `POST /unpair` on a tombstone deletes it.
 - **Origin binding**: change the plugin's `apiBaseUrl` to a different local origin (for example
   `http://127.0.0.1:3001`, which the relay does not serve) while a credential exists: the state is
   `reauth_required` and the mock log shows no request at all.
 - **Pairing failures**, via `/__mock/fault` on `pairing/start` or `/__mock/approve` with
   `{"deny":true}`, are shown in state `pairing_failed` (`pairing.reason` in `/status`):
 
-| Inject                                                                             | `pairing.reason`  | Status line                                                                                                                                                     |
-| ---------------------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{"route":"pairing/start","status":503}`                                           | `unavailable`     | `VesselTwin is not available right now. Try again later.`                                                                                                       |
-| `{"route":"pairing/start","status":429,"retryAfter":10}`                           | `busy`            | `VesselTwin is busy. Try pairing again in a few minutes.`                                                                                                       |
-| `{"route":"pairing/start","status":400,"code":"integration_contract_unsupported"}` | `update_required` | `This plugin version is not supported by VesselTwin. Update the plugin.`                                                                                        |
-| `{"route":"pairing/start","status":400}`                                           | `rejected`        | `VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.`                                                               |
-| approve with `{"deny":true}`                                                       | `denied`          | `Pairing was declined in VesselTwin. Start again from the plugin page if that was a mistake.`                                                                   |
-| let the code expire (10 minutes) or fault `pairing/token` with `expired_token`     | `expired`         | `The pairing code expired. Start pairing again from the plugin page. If this keeps happening, VesselTwin integrations may not be enabled for your account yet.` |
+| Inject                                                                             | `pairing.reason`  | Status line                                                                                                                                |
+| ---------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{"route":"pairing/start","status":503}`                                           | `unavailable`     | `VesselTwin is not available right now. Try again later.`                                                                                  |
+| `{"route":"pairing/start","status":429,"retryAfter":10}`                           | `busy`            | `VesselTwin is busy. Try pairing again in a few minutes.`                                                                                  |
+| `{"route":"pairing/start","status":400,"code":"integration_contract_unsupported"}` | `update_required` | `This plugin version is not supported by VesselTwin. Update the plugin.`                                                                   |
+| `{"route":"pairing/start","status":400}`                                           | `rejected`        | `VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.`                                          |
+| approve with `{"deny":true}`                                                       | `denied`          | `Pairing was declined in VesselTwin. Start pairing again if that was a mistake.`                                                           |
+| let the code expire (10 minutes) or fault `pairing/token` with `expired_token`     | `expired`         | `The pairing code expired. Start pairing again. If this keeps happening, VesselTwin integrations may not be enabled for your account yet.` |
 
 - **Unpair**: `curl -s -X POST -H "authorization: Bearer $T" localhost:3100/plugins/signalk-vesseltwin/unpair`
   answers `{"paired":false,"message":"Unpaired on this server. Also revoke the connection in VesselTwin so it stops working there."}`,
@@ -164,6 +167,9 @@ After a successful pairing (either track), and before `down -v`:
       credential.
 - [ ] Admin auth applies to the plugin routes: `GET /plugins/signalk-vesseltwin/status` without a
       token answers 401, with the admin token 200.
+- [ ] With SignalK security enabled and read-only or anonymous access allowed, confirm a non-admin
+      gets 401/403 on `GET /plugins/signalk-vesseltwin/status` and `POST /pair` (otherwise the pairing
+      code is exposed).
 - [ ] The SignalK self id shape on a fresh server. `getSelfPath('uuid')` reads the server's own id;
       the same value is at `GET /signalk/v1/api/vessels/self/uuid` (admin token). Expected shape:
       `urn:mrn:signalk:uuid:<uuid>`. The plugin sends it as an optional hint only when it is a SignalK

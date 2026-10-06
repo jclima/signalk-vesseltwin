@@ -74,16 +74,24 @@ Response `200`:
   `ABCD-EFGH`. Show it to the user; it is safe to display.
 - `interval` is the minimum poll spacing in seconds; `expiresIn` is the lifetime in seconds (10 minutes).
 
+The plugin does not trust these values blindly. It clamps `interval` to 1-60 s and `expiresIn` to at
+most 1800 s (a non-positive `expiresIn` is invalid), and never sleeps past the code's remaining
+lifetime. It also rejects a response whose `verificationUrl` is not `https:` (plain `http:` is
+accepted only for `localhost`, `127.0.0.1` and `[::1]`) or is longer than 300 characters, or whose
+`userCode` is empty, longer than 32 characters or contains control or invisible formatting
+characters. Such a response is treated as invalid and maps to "rejected" below.
+
 Failures and how the plugin maps them to a pairing outcome (the user sees neutral copy, never the
 code):
 
-| Response                                                                                       | Outcome in the plugin         |
-| ---------------------------------------------------------------------------------------------- | ----------------------------- |
-| `503` (`integration_feature_unavailable`, or no `code` at all)                                 | unavailable, try again later  |
-| `429`, with `Retry-After`                                                                      | busy, try again later         |
-| `400` `integration_contract_unsupported`                                                       | update the plugin             |
-| any other `400`, including `integration_scope_invalid` and a validation error without a `code` | rejected, check for an update |
-| other statuses, network errors, malformed bodies                                               | unavailable                   |
+| Response                                                                                             | Outcome in the plugin         |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `503` (`integration_feature_unavailable`, or no `code` at all)                                       | unavailable, try again later  |
+| `429`, with `Retry-After`                                                                            | busy, try again later         |
+| `400` `integration_contract_unsupported`                                                             | update the plugin             |
+| any other `400`, including `integration_scope_invalid` and a validation error without a `code`       | rejected, check for an update |
+| a `200` whose body fails the checks above (unsafe `verificationUrl`, bad `userCode`, no `expiresIn`) | rejected, check for an update |
+| other statuses, network errors, malformed bodies                                                     | unavailable                   |
 
 `contract_unsupported` means `contractVersion` is higher than the server supports. A `503` is
 recognised by its status alone; a missing or unknown `code` does not change the outcome.
@@ -105,7 +113,9 @@ Pending and terminal states are returned as **HTTP 400** with `{ "error": "<stri
 Unknown and already-used device codes deliberately look the same as expired ones. `expired_token` and
 `access_denied` can also result from account checks made at approval time (for example if the
 integration is not enabled for the account), so the plugin's copy for them stays neutral and does not
-say why. A `429` or `5xx` while polling widens the interval by 5 s and honors `Retry-After`.
+say why. A `429` or `5xx` while polling widens the interval by 5 s (never past 60 s) and honors
+`Retry-After`. If `Retry-After` is longer than the code's remaining lifetime the plugin stops instead
+of sleeping: `429` becomes "busy", `5xx` becomes "unavailable", and the user starts pairing again.
 
 Success `200` (returned exactly once, then the pairing is consumed):
 
@@ -131,7 +141,10 @@ if it is not running when the owner approves, the pairing simply expires and mus
 - Bound to the API origin that issued it. The plugin records `apiOrigin` (scheme, host, port) in
   `credential.json` at pairing and sends the credential only to that origin. A stored credential with
   no origin, or one that differs from the configured API URL, is never sent anywhere; the plugin goes
-  to `reauth_required` with no network call.
+  to `reauth_required` with no network call. The HTTP client enforces this too: it sets
+  `Authorization` only when the request URL's origin equals the recorded one, and refuses otherwise.
+- Redirects are never followed (every request uses `redirect: 'error'`); a redirect is treated as a
+  network error, so a credential cannot be bounced to another host.
 - The device cannot revoke its own credential. Unpair only deletes the local file; the owner revokes
   the connection in VesselTwin.
 - Use: `Authorization: Bearer vti_...` on every authenticated call, only in that header.
@@ -175,26 +188,29 @@ probed no more often than hourly.
 
 Outcome table (`src/status.ts`):
 
-| Response                                                                                                       | State shown       | Next probe                            |
-| -------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------- |
-| `200`, plugin contract within `minContract`; update if `latestContract` is higher or `pluginUpdateRecommended` | `connected`       | hourly, with jitter                   |
-| `200` with `minContract` above the plugin's contract                                                           | `update_required` | hourly (an updated plugin would pass) |
-| `200` body that is not a JSON object                                                                           | `offline`         | backoff                               |
-| `401`                                                                                                          | `reauth_required` | none (see below)                      |
-| `426`, or `400` with a `integration_contract_*` code                                                           | `update_required` | none                                  |
-| `503` `integration_feature_unavailable`                                                                        | `paused`          | `Retry-After`, at least 1 hour        |
-| `403` `integration_paused_plan`                                                                                | `paused`          | `Retry-After`, at least 1 hour        |
-| `403` `integration_scope`                                                                                      | `update_required` | none (a plugin bug; same remedy)      |
-| `429`, `5xx`, network error, timeout, anything else                                                            | `offline`         | backoff, at least `Retry-After`       |
+| Response                                                                                                                          | State shown       | Next probe                            |
+| --------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------- |
+| `200`, plugin contract within `minContract`; update if `latestContract` is higher or `pluginUpdateRecommended`                    | `connected`       | hourly, with jitter                   |
+| `200` with `minContract` above the plugin's contract                                                                              | `update_required` | hourly (an updated plugin would pass) |
+| `200` body that is not this provider's status (`provider` is not `signalk`, or `minContract` / `latestContract` are not integers) | `offline`         | backoff                               |
+| `401`                                                                                                                             | `reauth_required` | none (see below)                      |
+| `426`, or `400` with a `integration_contract_*` code                                                                              | `update_required` | none                                  |
+| `503` `integration_feature_unavailable`                                                                                           | `paused`          | `Retry-After`, at least 1 hour        |
+| `403` `integration_paused_plan`                                                                                                   | `paused`          | `Retry-After`, at least 1 hour        |
+| `403` `integration_scope`                                                                                                         | `update_required` | none (a plugin bug; same remedy)      |
+| `429`, `5xx`, network error, timeout, anything else                                                                               | `offline`         | backoff, at least `Retry-After`       |
 
 If the server clock and the device clock differ by more than 5 minutes, the `connected` status line
 adds a note to check the date and time. A `connected` response also sets "a plugin update is
 available" when `pluginUpdateRecommended` is true or `latestContract` exceeds the plugin's contract.
 
-A `401` keeps the credential file in place, stops all authenticated calls and moves to
-`reauth_required`; the plugin tells the user to pair again. It does not loop. Pairing again
-overwrites the stored credential. A plugin restart makes at most one further status request while the
-file is kept.
+A `401` stops all authenticated calls and moves to `reauth_required`; the plugin tells the user to
+pair again. It does not loop. The plugin also replaces `credential.json` (atomically, same `0600`
+path) with a tombstone, `{ "reauthRequired": true, "vesselLabel", "apiOrigin", "pairedAt" }`, which
+holds no credential and no credential id. A restart over a tombstone starts in `reauth_required`
+and makes **no** network call. `POST /pair` is allowed and overwrites the tombstone; `POST /unpair`
+deletes it. If the tombstone cannot be written the failure is logged and the old file stays, so a
+restart would probe once more and get the same 401.
 
 ### `POST /v1/integrations/credential/rotate`
 
@@ -224,15 +240,15 @@ Empty body. Same headers. Response `200` (plaintext shown once):
 
 Authenticated routes can answer with the following. The order shown is not a guarantee.
 
-| Status | `code`                             | Meaning                                                                         | Client action                                                                                                                                       |
-| ------ | ---------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop all authenticated calls, keep the credential file, state `reauth_required`; re-pairing overwrites it. Response has `WWW-Authenticate: Bearer`. |
-| 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                                                                                 |
-| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                                                                  |
-| 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                                                                   |
-| 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                                                                          |
-| 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                                                                        |
-| 429    | `integration_rate_limited`         | Over the rate limit                                                             | Wait at least `Retry-After` seconds, then back off                                                                                                  |
+| Status | `code`                             | Meaning                                                                         | Client action                                                                                                                                                                       |
+| ------ | ---------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop all authenticated calls, replace the credential file with a secret-free tombstone, state `reauth_required`; re-pairing overwrites it. Response has `WWW-Authenticate: Bearer`. |
+| 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                                                                                                                 |
+| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                                                                                                  |
+| 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                                                                                                   |
+| 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                                                                                                          |
+| 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                                                                                                        |
+| 429    | `integration_rate_limited`         | Over the rate limit                                                             | Wait at least `Retry-After` seconds, then back off                                                                                                                                  |
 
 The 426 and the contract `400` come only from routes that enforce the contract header. The status
 route does not (it tolerates a missing or old header so an outdated plugin can learn it must update),
@@ -248,11 +264,14 @@ are transient: back off with jitter.
 
 The plugin registers three routes on the SignalK server, at `/plugins/signalk-vesseltwin`. They sit
 behind the server's own admin authentication (a fresh server has security on; send an admin bearer
-token). A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`.
+token). A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
+the browser also sends `Sec-Fetch-Site: same-origin` or `none` (this covers a reverse proxy that
+rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A request without
+`Origin` (curl, scripts) is allowed.
 
 | Route          | Response                                                                                                                                       |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /status`  | `200` with the object below                                                                                                                    |
+| `GET /status`  | `200` with the object below; `503` if the plugin is not running                                                                                |
 | `POST /pair`   | `202 { "started": true }`; `409` when already paired and working (or still checking); `503` if the plugin is not running or has a config error |
 | `POST /unpair` | `200 { "paired": false, "message": ... }` after deleting the local credential; `503` if not running; `500` if it cannot be deleted             |
 

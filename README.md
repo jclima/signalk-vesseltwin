@@ -35,9 +35,15 @@ endpoint, and the code is shown in the plugin's status line.
 
 The code expires after 10 minutes. If it does, start pairing again.
 
+The plugin's endpoints rely on the SignalK server's own access control. Keep SignalK security
+enabled and do not give anonymous or read-only users access to the plugin's `status` and `pair`
+endpoints, because the pairing code is visible there while pairing is pending.
+
 Other things the status line can tell you: the connection is paused, VesselTwin cannot be reached
 right now (the plugin keeps trying), the plugin version is not supported (update the plugin), or the
-pairing is no longer valid (pair again; this replaces the stored connection).
+pairing is no longer valid (pair again; this replaces the stored connection). When VesselTwin rejects
+the stored connection, the plugin removes the secret from its data folder and keeps only a marker, so
+it does not try the old credential again after a restart.
 
 **Unpair** (`POST /plugins/signalk-vesseltwin/unpair`) only removes the stored connection on this
 server. Also revoke the connection in VesselTwin so it stops working there; the plugin cannot do that
@@ -57,7 +63,7 @@ for you.
   supports. It carries the credential and the contract version and **no boat data**.
 - The credential is stored in the plugin's data directory with mode `0600`, never in plugin
   settings, and is never written to logs. It is bound to the API URL it was issued for and is sent
-  only there.
+  only there. Redirects are never followed.
 - Data is only sent to the API URL in the plugin settings (default `https://api.vesseltwin.io`). If
   that URL is invalid, the plugin reports a configuration error and makes no network calls.
 - Uploading is not available yet. When it ships, only these values will be sent: engine and generator
