@@ -32,7 +32,7 @@ ownership by typing the code in the web app.
 plugin                         VesselTwin API                    owner (web app)
   |-- POST pairing/start ------->|                                    |
   |<-- deviceCode, userCode -----|                                    |
-  | show userCode + verificationUrl in the plugin status              |
+  | show userCode + verificationUrl on the plugin status page             |
   |                              |<-- types code, picks a boat, approves
   |-- POST pairing/token (every `interval` s) -->|                    |
   |<-- 400 {error:authorization_pending} ...      |                    |
@@ -71,7 +71,8 @@ Response `200`:
 
 - `deviceCode` is a secret: keep it in memory only, never log it, send it only to `pairing/token`.
 - `userCode` is 8 characters from an unambiguous alphabet (no `I`, `O`, `0`, `1`), displayed as
-  `ABCD-EFGH`. Show it to the user; it is safe to display.
+  `ABCD-EFGH`. Show it to the owner; it is safe to display, but the plugin shows it only on its admin-only
+  status endpoint, not in the status line.
 - `interval` is the minimum poll spacing in seconds; `expiresIn` is the lifetime in seconds (10 minutes).
 
 Failures: `503` `integration_feature_unavailable` with `Retry-After` (seconds) when the integration is
@@ -172,15 +173,15 @@ Empty body. Same headers. Response `200` (plaintext shown once):
 
 Authenticated routes can answer with the following. The order shown is not a guarantee.
 
-| Status | `code`                             | Meaning                                                                         | Client action                                                                                     |
-| ------ | ---------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop. Clear the credential, tell the user to pair again. Response has `WWW-Authenticate: Bearer`. |
-| 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                               |
-| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                |
-| 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                 |
-| 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                        |
-| 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                      |
-| 429    | `integration_rate_limited`         | Over the rate limit                                                             | Wait at least `Retry-After` seconds, then back off                                                |
+| Status | `code`                             | Meaning                                                                         | Client action                                                                                                                                                                        |
+| ------ | ---------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop. Keep nothing retrying and tell the user to pair again. The plugin keeps the stored credential until the owner unpairs or pairs again. Response has `WWW-Authenticate: Bearer`. |
+| 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                                                                                                                  |
+| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                                                                                                   |
+| 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                                                                                                    |
+| 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                                                                                                           |
+| 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                                                                                                         |
+| 429    | `integration_rate_limited`         | Over the rate limit                                                             | Wait at least `Retry-After` seconds, then back off                                                                                                                                   |
 
 The 401 is intentionally identical for every credential problem so it cannot be used to probe state.
 Every 401, 403 and 429 above is an authenticated verdict about the credential; 5xx and network failures

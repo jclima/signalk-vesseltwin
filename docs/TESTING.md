@@ -48,8 +48,8 @@ machine, so you can test pairing and the upload pipeline without the real platfo
    curl -X POST http://127.0.0.1:4010/__debug/approve    # stands in for the owner approving
    ```
 
-   (`node dev/pair.mjs --approve` does both.) The same text is the plugin's status line in the
-   admin UI (Server > Plugin Config > VesselTwin, or the dashboard plugin status). After approval
+   (`node dev/pair.mjs --approve` does both.) The plugin's status line only says pairing is in
+   progress; the code itself is returned by the admin-only status endpoint that `pair.mjs` reads. After approval
    the status endpoint reports `"paired": true`. The mock logs `pairing started` and
    `pairing approved`.
 

@@ -73,7 +73,11 @@ list of permitted paths; never add anything location-like.
 - Never log an Authorization header, a credential, a device code, or a user code. Every string that may
   be logged goes through `redact`/`redactError`; wrap errors in `HttpError` (it redacts) and never
   forward raw fetch errors.
-- Show the user code only in the status line and the `/status` response while pairing is pending.
+- Show the user code only in the `/status` response (admin-only) while pairing is pending, never in the
+  status line (`setPluginStatus`), which is visible to every dashboard viewer.
+- The credential file records the API origin that issued it (`apiOrigin`); never send it to another
+  origin. A missing or different origin means "pair again".
+- Router endpoints reject requests whose `Origin` host differs from `Host`; keep that check on every route.
 - Credentials are write-scoped. Treat any change to storage, logging or redaction as security-sensitive.
 
 **Transport.** HTTPS only, except `http://localhost`, `127.0.0.1`, `[::1]` for development. Every

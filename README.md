@@ -20,7 +20,9 @@ Connecting requires a VesselTwin account ([sign up at vesseltwin.io](https://ves
 account yet.
 
 1. In the SignalK admin UI open the VesselTwin plugin and start pairing.
-2. The plugin shows a short code such as `ABCD-EFGH` in its status line.
+2. The plugin status line says pairing is in progress and where to look. Open
+   `/plugins/signalk-vesseltwin/status` on your SignalK server (signed in as an admin) to see a
+   short code such as `ABCD-EFGH`. The code is deliberately not shown in the status line.
 3. Open the connect page at [vesseltwin.io](https://vesseltwin.io) and sign in.
 4. Enter the code, choose your boat, and approve.
 5. The plugin picks up the approval within a few seconds and shows that it is connected.
@@ -45,8 +47,10 @@ The code expires after 10 minutes. If it does, start pairing again.
 
 - **Pairing says the integration is unavailable.** It is not enabled for your account right now, or your account is not on the Pro plan.
   The plugin keeps working and you can try again later.
-- **Disconnect or revoke.** Use unpair on the plugin page, which deletes the stored credential, and/or
-  revoke the connection in VesselTwin.
+- **Disconnect or revoke.** Unpair only removes the stored credential on this server. Also revoke the
+  connection in VesselTwin so it stops working there.
+- **Changed the API URL.** A stored connection only works with the API it was paired with; pair again
+  after changing the URL.
 - **Asked to pair again.** The connection was revoked or expired; start pairing again.
 
 ## Contributing
