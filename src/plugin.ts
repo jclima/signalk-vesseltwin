@@ -73,6 +73,7 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
 export const COPY = {
   notPaired: 'Not paired. Start pairing with VesselTwin (see the plugin README).',
   reauth: `Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
+  reauthOrigin: `The VesselTwin API address changed since pairing. Pair again, or restore the previous address. ${NO_UPLOAD}`,
   credentialUnreadable:
     'Cannot read the stored VesselTwin connection. Check the permissions of the plugin data folder.',
   notRunning: 'The VesselTwin plugin is not running. Enable it first.',
@@ -143,6 +144,13 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let unpairedNotice = false;
   let vesselLabel: string | null = null;
   let monitor: StatusMonitor | null = null;
+  /** The API origin the running monitor's credential was issued for (null: unknown or no monitor). */
+  let credentialOrigin: string | null = null;
+  /**
+   * An error line was last handed to the server. SignalK keeps the last error until it is replaced,
+   * so a later non-error state clears it explicitly (see report()).
+   */
+  let errorShown = false;
   let snap: MonitorSnapshot | null = null;
   /** The in-flight tombstone write, so unpair and a new pairing never race it. */
   let tombstoneWrite: Promise<void> | null = null;
@@ -164,11 +172,12 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     monitor?.stop();
     monitor = null;
     snap = null;
+    credentialOrigin = null;
   }
 
   function startMonitor(
     credential: string,
-    credentialOrigin: string | null,
+    credentialOrigin_: string | null,
     pairedAt?: string,
   ): void {
     stopMonitor();
@@ -178,7 +187,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     const m = new StatusMonitor({
       http: client(baseUrl),
       credential,
-      credentialOrigin,
+      credentialOrigin: credentialOrigin_,
       apiOrigin: origin,
       onUpdate: (s) => {
         if (monitor !== m) return;
@@ -188,7 +197,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       onUnauthorized: (tombstone) => {
         // Only the platform's own "credential is bad" answer retires the file. Any other 401 (a
         // proxy, a captive portal) stops probing but leaves the credential for the next start.
-        if (monitor === m && tombstone) recordReauth(credentialOrigin, pairedAt);
+        if (monitor === m && tombstone) recordReauth(credentialOrigin_, pairedAt);
       },
       log: (msg) => {
         app.debug(msg);
@@ -198,6 +207,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       ...(deps.scheduler ? { scheduler: deps.scheduler } : {}),
     });
     monitor = m;
+    credentialOrigin = credentialOrigin_;
     snap = m.snapshot();
     m.start();
   }
@@ -282,8 +292,13 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         return `${lead}. Cannot reach VesselTwin right now. The plugin will keep trying. ${NO_UPLOAD}`;
       case 'update_required':
         return `${lead}. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`;
-      case 'reauth_required':
-        return COPY.reauth;
+      case 'reauth_required': {
+        // A credential issued for another origin never reached the network (no 401): say what changed.
+        const configured = options.apiBaseUrl === null ? null : apiOrigin(options.apiBaseUrl);
+        return monitor && credentialOrigin !== null && credentialOrigin !== configured
+          ? COPY.reauthOrigin
+          : COPY.reauth;
+      }
     }
   }
 
@@ -298,7 +313,12 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       st === 'pairing_failed'
     ) {
       app.setPluginError(msg);
+      errorShown = true;
     } else {
+      if (errorShown) {
+        app.setPluginError(''); // SignalK keeps the last error otherwise; an empty one clears it
+        errorShown = false;
+      }
       app.setPluginStatus(msg);
     }
   }
