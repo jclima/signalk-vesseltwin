@@ -46,7 +46,8 @@
     "format": "prettier --write .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "prepack": "pnpm run build"
+    "prepack": "pnpm run build",
+    "dev:mock": "node dev/mock-server/server.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
