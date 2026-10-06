@@ -14,7 +14,7 @@ Needs Docker and Node >= 22. Run everything from the repository root.
   under `pairing.userCode`. The status line (SignalK admin UI, Server > Plugin Config) only says
   "Pairing in progress" and points to that route, because it is broadcast to every client.
 - These routes sit behind the server's admin login. `node dev/setup-signalk.mjs` creates a throwaway
-  admin, saves a bearer token to `.signalk-dev/token` (gitignored, mode 0600; the script never prints
+  admin, saves a bearer token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700; the script never prints
   it) and enables the plugin.
 - Handy shell helpers used below:
 
