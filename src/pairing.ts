@@ -75,19 +75,26 @@ export const defaultSleep = (ms: number, signal?: AbortSignal) =>
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
-/** https, or http on a loopback host (development only). */
-function safeVerificationUrl(v: string): boolean {
-  if (v.length > MAX_URL_LEN) return false;
+/** Control characters and invisible format characters (bidi overrides, zero-width, tab, newline). */
+const UNSAFE_CHARS_RE = /[\p{Cc}\p{Cf}]/u;
+
+/**
+ * The normalized URL (`new URL(v).href`) when it is https, or http on a loopback host (development
+ * only), has no unsafe characters, and is not too long. Null otherwise.
+ */
+function safeVerificationUrl(v: string): string | null {
+  if (v.length > MAX_URL_LEN || UNSAFE_CHARS_RE.test(v)) return null;
   try {
     const u = new URL(v);
-    return u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname));
+    const ok = u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname));
+    return ok && u.href.length <= MAX_URL_LEN && !UNSAFE_CHARS_RE.test(u.href) ? u.href : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 function safeUserCode(v: string): boolean {
-  return v.length > 0 && v.length <= MAX_USER_CODE_LEN && !/[\p{Cc}\p{Cf}]/u.test(v);
+  return v.length > 0 && v.length <= MAX_USER_CODE_LEN && !UNSAFE_CHARS_RE.test(v);
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -96,14 +103,17 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 /** Null when the body is unusable; the interval and lifetime are clamped to sane bounds. */
 function parseStart(json: unknown): PairingStartResponse | null {
+  const verificationUrl =
+    isObject(json) && typeof json.verificationUrl === 'string'
+      ? safeVerificationUrl(json.verificationUrl)
+      : null;
   if (
+    verificationUrl === null ||
     !isObject(json) ||
     typeof json.deviceCode !== 'string' ||
     json.deviceCode === '' ||
     typeof json.userCode !== 'string' ||
     !safeUserCode(json.userCode) ||
-    typeof json.verificationUrl !== 'string' ||
-    !safeVerificationUrl(json.verificationUrl) ||
     typeof json.expiresIn !== 'number' ||
     !Number.isFinite(json.expiresIn) ||
     json.expiresIn <= 0
@@ -117,7 +127,7 @@ function parseStart(json: unknown): PairingStartResponse | null {
   return {
     deviceCode: json.deviceCode,
     userCode: json.userCode,
-    verificationUrl: json.verificationUrl,
+    verificationUrl,
     interval: Math.min(MAX_INTERVAL_S, Math.max(MIN_INTERVAL_S, interval)),
     expiresIn: Math.min(MAX_EXPIRES_IN_S, json.expiresIn),
   };
