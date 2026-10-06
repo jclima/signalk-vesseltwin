@@ -77,7 +77,8 @@ Response `200`:
 Failures: `503` `integration_feature_unavailable` with `Retry-After` (seconds) when the integration is
 not available; `400` `integration_scope_invalid` (a requested scope is not supported);
 `400` `integration_contract_unsupported` (`contractVersion` is higher than the server supports);
-`400` validation errors; `429` when throttled.
+`400` validation errors; `429` when throttled, with `Retry-After`; the plugin waits at least that long
+before trying again.
 
 ### `POST /v1/integrations/pairing/token`
 

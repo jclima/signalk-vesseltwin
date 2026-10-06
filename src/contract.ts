@@ -28,6 +28,10 @@ export const ERROR_CODES = [
   'integration_scope_invalid',
   'integration_pairing_invalid',
   'integration_vessel_invalid',
+  'integration_unauthorized',
+  'integration_contract_required',
+  'integration_rate_limited',
+  'integration_credential_superseded',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -5,13 +5,14 @@ import {
   type PairingTokenResponse,
   type Scope,
 } from './contract';
-import { HttpClient, HttpError } from './http';
+import { HttpClient, HttpError, retryAfterMs } from './http';
 
 export type PairingOutcome =
   | { kind: 'paired'; token: PairingTokenResponse }
   | { kind: 'expired' }
   | { kind: 'denied' }
   | { kind: 'unavailable'; retryAfterMs: number | null }
+  | { kind: 'busy'; retryAfterMs: number | null }
   | { kind: 'cancelled' };
 
 export interface PairingParams {
@@ -85,8 +86,10 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     ...(p.signalkSelfUuid ? { providerHints: { signalkSelfUuid: p.signalkSelfUuid } } : {}),
   });
   if (start.status === 503) {
-    const ra = start.headers.get('retry-after');
-    return { kind: 'unavailable', retryAfterMs: ra && Number(ra) >= 0 ? Number(ra) * 1000 : null };
+    return { kind: 'unavailable', retryAfterMs: retryAfterMs(start.headers, now()) };
+  }
+  if (start.status === 429) {
+    return { kind: 'busy', retryAfterMs: retryAfterMs(start.headers, now()) };
   }
   if (start.status !== 200 && start.status !== 201) {
     throw new HttpError(`pairing/start failed`, start.status);
@@ -96,8 +99,10 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
   p.onCode({ userCode: s.userCode, verificationUrl: s.verificationUrl, expiresAt });
 
   let intervalS = s.interval > 0 ? s.interval : DEFAULT_INTERVAL_S;
+  let minWaitMs = 0; // Retry-After floor for the next sleep only
   for (;;) {
-    await sleep(intervalS * 1000);
+    await sleep(Math.max(intervalS * 1000, minWaitMs));
+    minWaitMs = 0;
     if (p.signal?.aborted) return { kind: 'cancelled' };
     if (now() >= expiresAt) return { kind: 'expired' };
 
@@ -117,6 +122,7 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     }
     if (res.status === 429 || res.status >= 500) {
       intervalS += SLOW_DOWN_STEP_S; // be gentle on transient failures
+      minWaitMs = retryAfterMs(res.headers, now()) ?? 0; // never retry sooner than asked
       continue;
     }
     throw new HttpError('pairing/token failed', res.status);

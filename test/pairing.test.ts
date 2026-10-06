@@ -41,6 +41,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+let ctl: AbortController;
+
 describe('runPairing', () => {
   it('shows the code, polls every 5s through pending, then returns the credential', async () => {
     const token = {
@@ -105,6 +107,45 @@ describe('runPairing', () => {
       json(503, { code: 'integration_feature_unavailable' }, { 'retry-after': '60' }),
     );
     expect(await runPairing(base(http))).toEqual({ kind: 'unavailable', retryAfterMs: 60_000 });
+  });
+
+  it('start 429 returns busy with Retry-After', async () => {
+    const { http } = setup([], json(429, {}, { 'retry-after': '90' }));
+    expect(await runPairing(base(http))).toEqual({ kind: 'busy', retryAfterMs: 90_000 });
+  });
+
+  it('start 503 parses an HTTP-date Retry-After', async () => {
+    const now = Date.parse('2030-01-01T00:00:00Z');
+    const { http } = setup(
+      [],
+      json(503, {}, { 'retry-after': new Date(now + 120_000).toUTCString() }),
+    );
+    expect(await runPairing({ ...base(http), now: () => now })).toEqual({
+      kind: 'unavailable',
+      retryAfterMs: 120_000,
+    });
+  });
+
+  it('token 429 never retries sooner than Retry-After, then resumes the interval', async () => {
+    const { http, calls } = setup([json(429, {}, { 'retry-after': '120' })]);
+    const sleeps: number[] = [];
+    let t = 0;
+    const out = runPairing({
+      ...base(http),
+      now: () => t,
+      sleep: (ms) => {
+        sleeps.push(ms);
+        t += ms;
+        if (sleeps.length >= 3) ctl.abort();
+        return Promise.resolve();
+      },
+      signal: (ctl = new AbortController()).signal,
+    });
+    expect(await out).toEqual({ kind: 'cancelled' });
+    expect(sleeps[0]).toBe(5_000);
+    expect(sleeps[1]).toBeGreaterThanOrEqual(120_000);
+    expect(sleeps[2]).toBe(10_000); // back to intervalS (5 + 5 step), no Retry-After floor
+    expect(calls.filter((c) => c.url.endsWith('/token')).length).toBe(2);
   });
 
   it('stops when aborted', async () => {

@@ -63,7 +63,8 @@ export function parseOptions(raw: unknown): PluginOptions {
     try {
       const u = new URL(o.apiBaseUrl);
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-      if (u.protocol === 'https:' || (u.protocol === 'http:' && local)) {
+      const clean = !u.username && !u.password && !u.search && !u.hash;
+      if (clean && (u.protocol === 'https:' || (u.protocol === 'http:' && local))) {
         url = u.toString().replace(/\/$/, '');
       }
     } catch {

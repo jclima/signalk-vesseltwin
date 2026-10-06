@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { parseOptions } from '../src/config';
 import { categoryFor, PATH_RULES } from '../src/mapping';
@@ -25,6 +28,32 @@ describe('plugin shell', () => {
     p.start({});
     await vi.waitFor(() => {
       expect(app.statuses.at(-1)).toMatch(/Not paired/);
+    });
+    p.stop();
+  });
+
+  it('shows neutral busy copy when pairing is throttled', async () => {
+    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const fetchFn = () =>
+      Promise.resolve(new Response('{}', { status: 429, headers: { 'retry-after': '60' } }));
+    const p = createPlugin(app, { fetch: fetchFn });
+    p.start({});
+    const routes: Record<string, () => void | Promise<void>> = {};
+    const res = { status: () => res, json: () => undefined };
+    p.registerWithRouter({
+      get: () => undefined,
+      post: (path, h) => {
+        routes[path] = () => h({}, res);
+      },
+    });
+    await vi.waitFor(() => {
+      expect(app.statuses.at(-1)).toMatch(/Not paired/);
+    });
+    await routes['/pair']?.();
+    await vi.waitFor(() => {
+      expect(app.statuses.at(-1)).toBe(
+        'ERR VesselTwin is busy. Try pairing again in a few minutes.',
+      );
     });
     p.stop();
   });

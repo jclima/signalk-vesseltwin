@@ -84,6 +84,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           pairedAt: new Date().toISOString(),
         });
         paired = true;
+      } else if (out.kind === 'busy') {
+        app.setPluginError('VesselTwin is busy. Try pairing again in a few minutes.');
+        return;
       } else if (out.kind !== 'cancelled') {
         app.setPluginError(`Pairing ${out.kind}. Try again from the plugin page.`);
         return;
