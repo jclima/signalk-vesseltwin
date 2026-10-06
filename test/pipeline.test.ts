@@ -49,8 +49,9 @@ const delta = (path: string, value: number, ts: string) => ({
   context: 'vessels.self',
   updates: [{ timestamp: ts, values: [{ path, value }] }],
 });
-const pair = () =>
+const pair = (apiOrigin: string | null = 'https://api.vesseltwin.io') =>
   new CredentialStore(dir).write({
+    apiOrigin,
     credential: 'vti_FAKEFAKEFAKEFAKEFAKE',
     credentialId: 'cid',
     vesselLabel: null,
@@ -168,5 +169,26 @@ describe('pipeline (enabled)', () => {
     expect(f.app.errors.at(-1)).toMatch(/pair this boat/);
     p.stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['another origin', 'http://localhost:3001'],
+    ['no recorded origin (older file)', null],
+  ])('refuses to send when the credential is bound to %s', async (_n, bound) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await pair(bound);
+    const f = fakeApp();
+    const fetchSpy = vi.fn();
+    const p = createPipeline(f.app, { env, fetch: fetchSpy, drainIntervalMs: 10_000 });
+    p.start(parseOptions({}));
+    f.subs[0]?.push(delta('propulsion.port.runTime', 7200, new Date().toISOString()));
+    await p.idle();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.waitFor(() => {
+      expect(f.app.errors.at(-1)).toMatch(/Pair this boat with VesselTwin again/);
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify([f.app.errors, f.app.statuses])).not.toContain('vti_');
+    p.stop();
   });
 });

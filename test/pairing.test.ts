@@ -46,7 +46,7 @@ let ctl: AbortController;
 describe('runPairing', () => {
   it('shows the code, polls every 5s through pending, then returns the credential', async () => {
     const token = {
-      credential: 'vti_xxxxxxxxxx',
+      credential: 'vti_xxxxxxxxxxxxxxxxxxxx',
       credentialId: 'c1',
       scopes: ['meters:write'],
       vesselLabel: 'V',
@@ -155,5 +155,20 @@ describe('runPairing', () => {
     ctl.abort();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(await p).toEqual({ kind: 'cancelled' });
+  });
+
+  it.each([
+    ['too short', 'vti_short'],
+    ['wrong prefix', 'xxx_abcdefghijklmnopqrstuvwxyz'],
+    ['bad characters', 'vti_abcdefghijklmnop qrstuv'],
+    ['not a string', 12345],
+  ])('rejects a malformed credential (%s)', async (_n, credential) => {
+    const { http } = setup([
+      json(200, { credential, credentialId: 'c1', scopes: [], vesselLabel: null, provider: 'x' }),
+    ]);
+    const p = runPairing(base(http));
+    const caught = p.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
   });
 });

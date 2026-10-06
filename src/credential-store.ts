@@ -7,6 +7,8 @@ export interface StoredCredential {
   credentialId: string;
   vesselLabel: string | null;
   pairedAt: string;
+  /** Origin of the API that issued the credential; it is only ever sent there. Null = unbound (old file). */
+  apiOrigin: string | null;
 }
 
 const FILE = 'credential.json';
@@ -39,6 +41,7 @@ export class CredentialStore {
         credentialId: v.credentialId,
         vesselLabel: v.vesselLabel ?? null,
         pairedAt: v.pairedAt ?? '',
+        apiOrigin: typeof v.apiOrigin === 'string' ? v.apiOrigin : null,
       };
     } catch {
       return null;

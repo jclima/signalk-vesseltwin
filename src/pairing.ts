@@ -29,6 +29,9 @@ export interface PairingParams {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** Documented format is `vti_` + 43 url-safe chars; accept any plausible length of that alphabet. */
+export const CREDENTIAL_RE = /^vti_[A-Za-z0-9_-]{16,}$/;
+
 const SLOW_DOWN_STEP_S = 5;
 const DEFAULT_INTERVAL_S = 5;
 
@@ -64,6 +67,7 @@ function parseToken(json: unknown): PairingTokenResponse {
   if (
     !isObject(json) ||
     typeof json.credential !== 'string' ||
+    !CREDENTIAL_RE.test(json.credential) ||
     typeof json.credentialId !== 'string'
   ) {
     throw new HttpError('unexpected pairing/token response');
@@ -76,15 +80,21 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
   const now = p.now ?? Date.now;
   const sleep = p.sleep ?? defaultSleep;
 
-  const start = await p.http.post('/v1/integrations/pairing/start', {
-    provider: PROVIDER,
-    clientName: p.clientName,
-    clientVersion: p.clientVersion,
-    contractVersion: CONTRACT_VERSION,
-    deviceLabel: p.deviceLabel,
-    requestedScopes: p.scopes,
-    ...(p.signalkSelfUuid ? { providerHints: { signalkSelfUuid: p.signalkSelfUuid } } : {}),
-  });
+  const ro = p.signal ? { signal: p.signal } : {};
+  const start = await p.http.post(
+    '/v1/integrations/pairing/start',
+    {
+      provider: PROVIDER,
+      clientName: p.clientName,
+      clientVersion: p.clientVersion,
+      contractVersion: CONTRACT_VERSION,
+      deviceLabel: p.deviceLabel,
+      requestedScopes: p.scopes,
+      ...(p.signalkSelfUuid ? { providerHints: { signalkSelfUuid: p.signalkSelfUuid } } : {}),
+    },
+    ro,
+  );
+  if (p.signal?.aborted) return { kind: 'cancelled' };
   if (start.status === 503) {
     return { kind: 'unavailable', retryAfterMs: retryAfterMs(start.headers, now()) };
   }
@@ -106,7 +116,12 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     if (p.signal?.aborted) return { kind: 'cancelled' };
     if (now() >= expiresAt) return { kind: 'expired' };
 
-    const res = await p.http.post('/v1/integrations/pairing/token', { deviceCode: s.deviceCode });
+    const res = await p.http.post(
+      '/v1/integrations/pairing/token',
+      { deviceCode: s.deviceCode },
+      ro,
+    );
+    if (p.signal?.aborted) return { kind: 'cancelled' };
     if (res.status === 200 || res.status === 201) {
       return { kind: 'paired', token: parseToken(res.json) };
     }

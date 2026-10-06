@@ -5,7 +5,7 @@ import { drainOnce } from './drain';
 import { backoffDelay, HttpClient, type FetchLike } from './http';
 import { PlaceholderIngestClient, type HaltReason, type IngestClient } from './ingest';
 import { normalize } from './normalize';
-import type { PluginOptions } from './config';
+import { apiOrigin, type PluginOptions } from './config';
 import { ReadingQueue } from './queue';
 import { redactError } from './redact';
 import { Sampler } from './sampler';
@@ -30,6 +30,9 @@ const HALT_TEXT: Record<HaltReason, string> = {
   scope: 'Upload stopped: this connection is not allowed to send readings.',
   plugin_bug: 'Upload stopped: unexpected response. Please update the VesselTwin plugin.',
 };
+
+const ORIGIN_TEXT =
+  'Upload stopped: the VesselTwin API URL changed since pairing. Pair this boat with VesselTwin again.';
 
 /**
  * collector -> normalize -> sampler -> queue -> drain loop. Disabled (no subscription, no
@@ -83,6 +86,13 @@ export function createPipeline(app: CollectorApp, deps: PipelineDeps = {}) {
       schedule(drainEvery, tick); // stay halted until the credential changes (re-pair)
       return;
     }
+    // The credential is only ever sent to the origin that issued it. Files without a recorded
+    // origin (older versions) are treated as a mismatch: re-pairing binds them.
+    if (cred.apiOrigin === null || cred.apiOrigin !== apiOrigin(currentOptions.apiBaseUrl)) {
+      app.setPluginError(ORIGIN_TEXT);
+      schedule(drainEvery, tick);
+      return;
+    }
     haltedCredential = undefined;
     const client =
       deps.client ??
@@ -92,7 +102,12 @@ export function createPipeline(app: CollectorApp, deps: PipelineDeps = {}) {
           fetch: deps.fetch ?? ((u, i) => fetch(u, i)),
           userAgent: deps.userAgent ?? 'signalk-vesseltwin',
         }),
-        async () => (await store?.read().catch(() => null))?.credential ?? null,
+        async () => {
+          const c = await store?.read().catch(() => null);
+          return c && c.apiOrigin !== null && c.apiOrigin === apiOrigin(currentOptions.apiBaseUrl)
+            ? c.credential
+            : null;
+        },
         now,
       );
     const out = await drainOnce(queue, client);

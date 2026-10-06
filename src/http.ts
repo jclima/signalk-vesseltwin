@@ -50,6 +50,8 @@ export interface HttpClientOptions {
 export interface RequestOptions {
   /** Bearer credential. Only ever placed in the Authorization header. */
   credential?: string;
+  /** Caller cancellation; combined with the request timeout. */
+  signal?: AbortSignal;
 }
 
 export class HttpClient {
@@ -77,7 +79,7 @@ export class HttpClient {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
-        signal: ctl.signal,
+        signal: ro.signal ? AbortSignal.any([ctl.signal, ro.signal]) : ctl.signal,
       });
       let json: unknown = null;
       try {
@@ -89,6 +91,7 @@ export class HttpClient {
     } catch (err) {
       // Never forward the raw error: undici messages can embed request details.
       const aborted = err instanceof Error && err.name === 'AbortError';
+      if (aborted && ro.signal?.aborted) throw new HttpError('request cancelled');
       throw new HttpError(aborted ? 'request timed out' : 'network error');
     } finally {
       clearTimeout(timer);

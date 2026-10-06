@@ -17,6 +17,7 @@ const cred = {
   credentialId: 'id-1',
   vesselLabel: 'Sea Hag',
   pairedAt: 'now',
+  apiOrigin: 'https://api.test',
 };
 
 describe('CredentialStore', () => {
