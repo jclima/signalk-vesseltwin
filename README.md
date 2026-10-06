@@ -6,13 +6,16 @@ maintenance record.
 
 > **Status: pre-release (0.0.0).** Pairing and credential handling are implemented. **Uploading
 > readings is not implemented yet**; it waits for the VesselTwin ingest API. The plugin is not
-> published to npm or the SignalK appstore, and the VesselTwin integration is currently dark in
-> production (enabled per account).
+> published to npm or the SignalK appstore, and the VesselTwin integration is not yet generally
+> available.
 
 ## Privacy
 
 - **Never sent in v1: position, tracks, MMSI, callsign, or any AIS data.** The plugin does not read
   those paths, and the server rejects them.
+- Pairing sends only: the plugin name and version, the contract version, the fixed device label
+  "SignalK server", the requested scope, and your SignalK server's own random install UUID (a
+  server identifier, not a vessel identity). Nothing else is sent before you approve.
 - Once upload ships, only these allowlisted values will be sent: engine and generator run time,
   battery voltage and state of charge, tank level and volume, plus (optional, off by default)
   vessel name and dimensions as suggestions you approve in VesselTwin.
@@ -50,8 +53,8 @@ Try it in a SignalK server, either:
   http://localhost:3000.
 
 Point the plugin's API URL at a local or staging VesselTwin API (`http://localhost:3001` is allowed;
-other non-HTTPS URLs are rejected). The integrations feature flag is dark in production, so
-production returns 503 for accounts that are not enabled.
+other non-HTTPS URLs are rejected). Because the integration is not yet generally available,
+production may answer pairing requests with 503.
 
 ## License
 

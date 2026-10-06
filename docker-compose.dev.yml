@@ -3,7 +3,7 @@
 # Admin UI: http://localhost:3000  (create the admin user on first visit).
 # The built plugin is mounted read-only into the server's node_modules and
 # must be enabled in Server > Plugin Config. Use a local/staging VesselTwin API URL
-# in the plugin settings; the integrations flag is dark in production.
+# in the plugin settings; the integration is not yet generally available in production.
 services:
   signalk:
     image: signalk/signalk-server:latest
