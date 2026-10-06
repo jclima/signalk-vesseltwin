@@ -183,10 +183,34 @@ function harness(opts: { dir?: string } = {}) {
     await vi.advanceTimersByTimeAsync(ms);
     await realPause(40);
   };
+  /** Poll until `cond` holds (real fs I/O has no fixed completion time); bounded, no fixed sleep. */
+  const until = async (cond: () => boolean | Promise<boolean>) => {
+    for (let i = 0; i < 200; i++) {
+      if (await cond()) return;
+      await tick();
+    }
+    throw new Error('condition not reached');
+  };
+  const untilState = (state: string) =>
+    until(async () => (await call('GET /status')).body.state === state);
   const ok = () => new Response(JSON.stringify(tokenBody), { status: 200 });
   const files = () => readdirSync(dir);
   const statusCalls = () => calls.filter((u) => u.endsWith('/v1/integrations/status')).length;
-  return { app, plugin, call, tick, calls, held, ok, files, dir, statusReplies, statusCalls };
+  return {
+    app,
+    plugin,
+    call,
+    tick,
+    until,
+    untilState,
+    calls,
+    held,
+    ok,
+    files,
+    dir,
+    statusReplies,
+    statusCalls,
+  };
 }
 type RouteFn = (req: RequestLike, res: ResponseLike) => void | Promise<void>;
 
@@ -208,7 +232,7 @@ describe('pairing lifecycle', () => {
     });
     await h.tick(5_000);
     h.held[0]?.resolve(h.ok());
-    await h.tick();
+    await h.untilState('connected');
     expect((await h.call('GET /status')).body).toMatchObject({
       state: 'connected',
       paired: true,
@@ -230,6 +254,44 @@ describe('pairing lifecycle', () => {
     expect(h.app.statuses.at(-1)).not.toContain('AAAA-AAAA');
     expect(h.app.statuses.join('\n')).not.toContain(FAKE_CRED);
     h.plugin.stop();
+  });
+
+  it('never reports not_paired while the approved credential is still being saved', async () => {
+    const h = harness();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+    const realWrite = CredentialStore.prototype.write;
+    const spy = vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(async function (
+      this: CredentialStore,
+      c,
+    ) {
+      await gate;
+      return realWrite.call(this, c);
+    });
+    try {
+      h.plugin.start({});
+      await h.tick();
+      await h.call('POST /pair');
+      await h.tick(5_000);
+      h.held[0]?.resolve(h.ok());
+      await h.until(() => spy.mock.calls.length > 0); // the save is now held open
+      const mid = (await h.call('GET /status')).body;
+      expect(mid.state).toBe('checking');
+      expect(mid.pairing).toBeNull();
+      expect(String(mid.message)).not.toContain('AAAA-AAAA');
+      expect(String(mid.message)).not.toContain(FAKE_CRED);
+      expect(h.files()).toEqual([]);
+      release();
+      await h.untilState('connected');
+      expect((await h.call('GET /status')).body).toMatchObject({ paired: true });
+      h.plugin.stop();
+    } finally {
+      release();
+      spy.mockRestore();
+    }
   });
 
   it('unpair during a pending pairing wins over a late approval', async () => {
@@ -567,7 +629,7 @@ describe('state machine', () => {
     expect(h.app.statuses.at(-1)).toBe('Enter code AAAA-AAAA at https://vesseltwin.io/connect');
     await h.tick(5_000);
     h.held[0]?.resolve(h.ok());
-    await h.tick();
+    await h.untilState('connected');
     expect(h.statusCalls()).toBe(1);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
 
@@ -940,7 +1002,7 @@ describe('state machine', () => {
     await h.tick(5_000);
     const pending = JSON.stringify((await h.call('GET /status')).body);
     h.held[0]?.resolve(h.ok());
-    await h.tick();
+    await h.untilState('connected');
     const done = JSON.stringify((await h.call('GET /status')).body);
     for (const text of [pending, done, h.app.statuses.join('\n')]) {
       expect(text).not.toContain(FAKE_CRED);
@@ -1015,7 +1077,7 @@ describe('tombstone after a 401', () => {
     expect((await h2.call('POST /pair')).status).toBe(202);
     await h2.tick(5_000);
     h2.held[0]?.resolve(h2.ok());
-    await h2.tick();
+    await h2.untilState('connected');
     expect((await h2.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
     const file = JSON.parse(await readFile(credFile(dir), 'utf8')) as Record<string, unknown>;
     expect(file).toMatchObject({ credential: FAKE_CRED, credentialId: 'cid-1' });
@@ -1084,6 +1146,7 @@ describe('unpair, cleanup and route hardening', () => {
       await h.call('POST /pair');
       await h.tick(5_000);
       h.held[0]?.resolve(h.ok());
+      await h.until(() => clear.mock.calls.length > 0);
       await h.tick();
       expect(clear).toHaveBeenCalled();
       const logged = debug.mock.calls.map((c) => c[0]);

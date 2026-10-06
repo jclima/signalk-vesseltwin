@@ -128,6 +128,11 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let loaded = false;
   let abort: AbortController | null = null;
   let pairing: PendingPairing | null = null;
+  /**
+   * The owner approved: the credential is being saved and the monitor started. Reported as
+   * `checking` so /status never shows `not_paired` mid-transition.
+   */
+  let finalizing = false;
   let failure: PairingFailure | null = null;
   let credentialUnreadable = false;
   /** A credential file exists (it is kept in reauth_required until a new pairing overwrites it). */
@@ -211,6 +216,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   function state(): PluginState {
     if (options.configError !== null || credentialUnreadable) return 'config_error';
     if (pairing) return 'pairing';
+    if (finalizing) return 'checking';
     if (failure) return 'pairing_failed';
     if (!hasCredential) return 'not_paired';
     switch (snap?.state ?? 'checking') {
@@ -243,6 +249,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       case 'pairing_failed':
         return FAILURE_COPY[failure ?? 'unavailable'];
       case 'checking':
+        if (finalizing) return `Pairing approved. Saving the connection. ${NO_UPLOAD}`;
         return `${lead}. Checking the connection. ${NO_UPLOAD}`;
       case 'connected': {
         const extras = [
@@ -287,6 +294,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     abort?.abort();
     abort = null;
     pairing = null;
+    finalizing = false;
   }
 
   async function startPairing(): Promise<void> {
@@ -302,6 +310,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     const current = () => abort === ctl && !ctl.signal.aborted;
     const fail = (reason: PairingFailure) => {
       pairing = null;
+      finalizing = false;
       failure = reason;
       report();
     };
@@ -324,6 +333,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       if (!current()) return;
       pairing = null;
       if (out.kind === 'paired') {
+        finalizing = true;
         if (issuer === null) throw new Error('invalid API URL');
         const pairedAt = new Date().toISOString();
         await tombstoneWrite; // a late tombstone must not overwrite the new credential
@@ -346,6 +356,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
+        finalizing = false;
         startMonitor(out.token.credential, issuer, pairedAt); // probe right after pairing
         report();
       } else if (out.kind === 'cancelled') {
@@ -359,7 +370,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         fail('unavailable');
       }
     } finally {
-      if (abort === ctl) abort = null;
+      if (abort === ctl) {
+        abort = null;
+        finalizing = false;
+      }
     }
   }
 
