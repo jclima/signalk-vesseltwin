@@ -1,0 +1,9 @@
+node_modules/
+plugin/
+coverage/
+*.tgz
+.env
+.env.*
+*.log
+.DS_Store
+.signalk-dev/

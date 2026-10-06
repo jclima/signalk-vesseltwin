@@ -1,0 +1,32 @@
+# DRAFT: disabled until the owner configures npm trusted publishing (OIDC) for this repo.
+# Steps for the owner: npmjs.com > package signalk-vesseltwin > Settings > Trusted Publisher >
+#   GitHub Actions: organization/user `jclima`, repository `signalk-vesseltwin`,
+#   workflow filename `release.yml`, environment `npm-publish`.
+# Then create the `npm-publish` environment (require reviewer), and delete the `if: false` line.
+# No long-lived NPM_TOKEN is ever used.
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: false # remove only after trusted publishing is configured
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # OIDC for trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # trusted publishing needs npm >= 11.5.1
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm typecheck && pnpm test
+      - run: pnpm build
+      - run: npm publish --provenance --access public

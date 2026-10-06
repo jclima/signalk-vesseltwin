@@ -1,0 +1,19 @@
+# Local manual testing against a stock SignalK server.
+#   pnpm build && docker compose -f docker-compose.dev.yml up
+# Admin UI: http://localhost:3000  (create the admin user on first visit).
+# The built plugin is mounted read-only into the server's node_modules and
+# must be enabled in Server > Plugin Config. Use a local/staging VesselTwin API URL
+# in the plugin settings; the integrations flag is dark in production.
+services:
+  signalk:
+    image: signalk/signalk-server:latest
+    ports:
+      - '3000:3000'
+    environment:
+      - SIGNALK_NODE_SETTINGS=/home/node/.signalk/settings.json
+    volumes:
+      - signalk-data:/home/node/.signalk
+      - ./plugin:/home/node/.signalk/node_modules/signalk-vesseltwin/plugin:ro
+      - ./package.json:/home/node/.signalk/node_modules/signalk-vesseltwin/package.json:ro
+volumes:
+  signalk-data:
