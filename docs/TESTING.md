@@ -10,8 +10,9 @@ Needs Docker and Node >= 22. Run everything from the repository root.
 ## How you drive the plugin
 
 - The plugin has no page or button. Pairing starts with `POST /plugins/signalk-vesseltwin/pair`
-  (`node dev/pair.mjs` does this). The code appears in the plugin's status line (SignalK admin UI,
-  Server > Plugin Config) and in `GET /plugins/signalk-vesseltwin/status` under `pairing.userCode`.
+  (`node dev/pair.mjs` does this). The code appears in the admin-only `GET /plugins/signalk-vesseltwin/status` response
+  under `pairing.userCode`. The status line (SignalK admin UI, Server > Plugin Config) only says
+  "Pairing in progress" and points to that route, because it is broadcast to every client.
 - These routes sit behind the server's admin login. `node dev/setup-signalk.mjs` creates a throwaway
   admin, saves a bearer token to `.signalk-dev/token` (gitignored) and enables the plugin.
 - Handy shell helpers used below:
@@ -90,6 +91,9 @@ Details worth checking:
   request**; there is no retry loop. Clear the fault and run `node dev/pair.mjs` again: pairing is
   allowed in `reauth_required`, overwrites the tombstone with a credential and ends in `connected`.
   `POST /unpair` on a tombstone deletes it.
+- **401 with another code** (`{"route":"status","status":401,"code":"proxy_error"}`): the state is
+  `reauth_required` and probing stops, but `credential.json` still holds the credential (no
+  tombstone); a restart probes once more.
 - **Origin binding**: change the plugin's `apiBaseUrl` to a different local origin (for example
   `http://127.0.0.1:3001`, which the relay does not serve) while a credential exists: the state is
   `reauth_required` and the mock log shows no request at all.
@@ -168,13 +172,13 @@ After a successful pairing (either track), and before `down -v`:
 - [ ] Admin auth applies to the plugin routes: `GET /plugins/signalk-vesseltwin/status` without a
       token answers 401, with the admin token 200.
 - [ ] With SignalK security enabled and read-only or anonymous access allowed, confirm a non-admin
-      gets 401/403 on `GET /plugins/signalk-vesseltwin/status` and `POST /pair` (otherwise the pairing
-      code is exposed).
+      gets 401/403 on `GET /plugins/signalk-vesseltwin/status` and `POST /pair`, and that no status
+      line or log line (visible to non-admins) contains the pairing code while pairing is pending.
 - [ ] The SignalK self id shape on a fresh server. `getSelfPath('uuid')` reads the server's own id;
       the same value is at `GET /signalk/v1/api/vessels/self/uuid` (admin token). Expected shape:
       `urn:mrn:signalk:uuid:<uuid>`. The plugin sends it as an optional hint only when it is a SignalK
       UUID (bare or with that prefix); a server id based on an MMSI is left out.
 - [ ] Unpair removes `credential.json`, the state is `not_paired`, and the status line says to revoke
-      the connection in VesselTwin too.
+      the connection in VesselTwin too (until the next start or pairing).
 - [ ] Nothing else is sent: the mock log lists only `pairing/start`, `pairing/token` and `status`
       requests.

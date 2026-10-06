@@ -32,7 +32,7 @@ ownership by typing the code in the web app.
 plugin                         VesselTwin API                    owner (web app)
   |-- POST pairing/start ------->|                                    |
   |<-- deviceCode, userCode -----|                                    |
-  | show userCode + verificationUrl in the plugin status              |
+  | admin reads userCode + verificationUrl from GET /status (not the status line) |
   |                              |<-- types code, picks a boat, approves
   |-- POST pairing/token (every `interval` s) -->|                    |
   |<-- 400 {error:authorization_pending} ...      |                    |
@@ -77,7 +77,8 @@ Response `200`:
 The plugin does not trust these values blindly. It clamps `interval` to 1-60 s and `expiresIn` to at
 most 1800 s (a non-positive `expiresIn` is invalid), and never sleeps past the code's remaining
 lifetime. It also rejects a response whose `verificationUrl` is not `https:` (plain `http:` is
-accepted only for `localhost`, `127.0.0.1` and `[::1]`) or is longer than 300 characters, or whose
+accepted only for `localhost`, `127.0.0.1` and `[::1]`), is longer than 300 characters or contains
+control or invisible formatting characters (it keeps the normalized `new URL(v).href`), or whose
 `userCode` is empty, longer than 32 characters or contains control or invisible formatting
 characters. Such a response is treated as invalid and maps to "rejected" below.
 
@@ -204,13 +205,16 @@ If the server clock and the device clock differ by more than 5 minutes, the `con
 adds a note to check the date and time. A `connected` response also sets "a plugin update is
 available" when `pluginUpdateRecommended` is true or `latestContract` exceeds the plugin's contract.
 
-A `401` stops all authenticated calls and moves to `reauth_required`; the plugin tells the user to
-pair again. It does not loop. The plugin also replaces `credential.json` (atomically, same `0600`
-path) with a tombstone, `{ "reauthRequired": true, "vesselLabel", "apiOrigin", "pairedAt" }`, which
+Any `401` stops all authenticated calls and moves to `reauth_required`; the plugin tells the user to
+pair again. It does not loop. Only a `401` whose body has `code: "integration_unauthorized"` is the
+platform's verdict on the credential; then the plugin also replaces `credential.json` (atomically,
+same `0600` path) with a tombstone, `{ "reauthRequired": true, "vesselLabel", "apiOrigin", "pairedAt" }`, which
 holds no credential and no credential id. A restart over a tombstone starts in `reauth_required`
 and makes **no** network call. `POST /pair` is allowed and overwrites the tombstone; `POST /unpair`
 deletes it. If the tombstone cannot be written the failure is logged and the old file stays, so a
-restart would probe once more and get the same 401.
+restart would probe once more and get the same 401. A `401` with any other body (a proxy, a captive
+portal) enters `reauth_required` and stops probing but leaves `credential.json` untouched, so a
+restart probes once more.
 
 ### `POST /v1/integrations/credential/rotate`
 
@@ -240,15 +244,15 @@ Empty body. Same headers. Response `200` (plaintext shown once):
 
 Authenticated routes can answer with the following. The order shown is not a guarantee.
 
-| Status | `code`                             | Meaning                                                                         | Client action                                                                                                                                                                       |
-| ------ | ---------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop all authenticated calls, replace the credential file with a secret-free tombstone, state `reauth_required`; re-pairing overwrites it. Response has `WWW-Authenticate: Bearer`. |
-| 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                                                                                                                 |
-| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                                                                                                  |
-| 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                                                                                                   |
-| 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                                                                                                          |
-| 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                                                                                                        |
-| 429    | `integration_rate_limited`         | Over the rate limit                                                             | Wait at least `Retry-After` seconds, then back off                                                                                                                                  |
+| Status | `code`                             | Meaning                                                                         | Client action                                                                                                                                                                                                                                   |
+| ------ | ---------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop all authenticated calls, replace the credential file with a secret-free tombstone, state `reauth_required`; re-pairing overwrites it. (A 401 without this `code` stops calls but keeps the file.) Response has `WWW-Authenticate: Bearer`. |
+| 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                                                                                                                                                                             |
+| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                                                                                                                                                              |
+| 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                                                                                                                                                               |
+| 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                                                                                                                                                                      |
+| 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                                                                                                                                                                    |
+| 429    | `integration_rate_limited`         | Over the rate limit                                                             | Wait at least `Retry-After` seconds, then back off                                                                                                                                                                                              |
 
 The 426 and the contract `400` come only from routes that enforce the contract header. The status
 route does not (it tolerates a missing or old header so an outdated plugin can learn it must update),
@@ -297,11 +301,14 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   `reauth_required`).
 - `pairing` is `{ "userCode", "verificationUrl", "expiresAt" }` in state `pairing`, and
   `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" }` in
-  `pairing_failed`; otherwise `null`. The user code is shown here and in the status line only while
-  pairing is pending.
-- `message` is the same text as the plugin's status line. `vesselLabel` comes from the server and is
+  `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
+  The plugin status line never contains it: SignalK broadcasts the status line to read-only and
+  anonymous clients, while this route is admin-only.
+- `message` is the same text as the plugin's status line. While pairing it is `Pairing in progress.
+Open /plugins/signalk-vesseltwin/status as an admin for the code.` `vesselLabel` comes from the server and is
   shortened and stripped of control characters.
-- `POST /pair` is allowed in `not_paired`, `pairing_failed` and `reauth_required`. It does nothing
+- `POST /pair` answers 503 until the stored credential has loaded (right after the plugin starts), and
+  is allowed in `not_paired`, `pairing_failed` and `reauth_required`. It does nothing
   new while a pairing is already pending.
 - Pairing is bound to the plugin's lifetime: stopping or unpairing cancels it and forgets the code.
 
