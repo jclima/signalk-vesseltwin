@@ -19,7 +19,19 @@ export default tseslint.config(
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
   },
   {
-    files: ['*.mjs', 'scripts/**/*.mjs', '*.config.ts', '*.config.mts'],
+    files: ['dev/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['*.mjs', 'scripts/**/*.mjs', 'dev/**/*.mjs', '*.config.ts', '*.config.mts'],
     ...tseslint.configs.disableTypeChecked,
   },
 );
