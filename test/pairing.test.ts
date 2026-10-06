@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpClient } from '../src/http';
-import { runPairing } from '../src/pairing';
+import { cleanSelfUuid, defaultSleep, runPairing } from '../src/pairing';
 
 const startBody = {
   deviceCode: 'dc_abcdefghijklmnopqrstuvwxyz',
@@ -46,7 +46,7 @@ let ctl: AbortController;
 describe('runPairing', () => {
   it('shows the code, polls every 5s through pending, then returns the credential', async () => {
     const token = {
-      credential: 'vti_xxxxxxxxxx',
+      credential: `vti_${'x'.repeat(43)}`,
       credentialId: 'c1',
       scopes: ['meters:write'],
       vesselLabel: 'V',
@@ -155,5 +155,297 @@ describe('runPairing', () => {
     ctl.abort();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(await p).toEqual({ kind: 'cancelled' });
+  });
+
+  it.each([
+    ['too short', 'vti_short'],
+    ['one char short', `vti_${'x'.repeat(42)}`],
+    ['one char long', `vti_${'x'.repeat(44)}`],
+    ['wrong prefix', `xxx_${'x'.repeat(43)}`],
+    ['bad characters', `vti_${'x'.repeat(42)} `],
+    ['not a string', 12345],
+  ])('rejects a malformed credential (%s)', async (_n, credential) => {
+    const { http } = setup([
+      json(200, { credential, credentialId: 'c1', scopes: [], vesselLabel: null, provider: 'x' }),
+    ]);
+    const p = runPairing(base(http));
+    const caught = p.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
+  });
+
+  it('rejects a non-string credentialId', async () => {
+    const { http } = setup([json(200, { credential: `vti_${'x'.repeat(43)}`, credentialId: 7 })]);
+    const caught = runPairing(base(http)).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
+  });
+
+  it('copies only known token fields', async () => {
+    const { http } = setup([
+      json(200, {
+        credential: `vti_${'x'.repeat(43)}`,
+        credentialId: 'c1',
+        scopes: ['meters:write', 'bogus:scope'],
+        vesselLabel: 'V',
+        provider: 'signalk',
+        extra: 'nope',
+        position: { lat: 1 },
+      }),
+    ]);
+    const p = runPairing(base(http));
+    await vi.advanceTimersByTimeAsync(5_000);
+    const out = await p;
+    expect(out).toEqual({
+      kind: 'paired',
+      token: {
+        credential: `vti_${'x'.repeat(43)}`,
+        credentialId: 'c1',
+        scopes: ['meters:write'],
+        vesselLabel: 'V',
+        provider: 'signalk',
+      },
+    });
+  });
+
+  it('passes the abort signal to the HTTP layer', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const fetchFn = (_u: string, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return Promise.resolve(json(200, startBody));
+    };
+    const http = new HttpClient({ baseUrl: 'https://api.test', fetch: fetchFn, userAgent: 'ua' });
+    const c = new AbortController();
+    const p = runPairing({ ...base(http), signal: c.signal });
+    c.abort();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await p).toEqual({ kind: 'cancelled' });
+    expect(seen[0]).toBeTruthy();
+  });
+
+  it.each([
+    [
+      'contract unsupported',
+      { code: 'integration_contract_unsupported', message: 'x' },
+      'update_required',
+    ],
+    ['scope invalid', { code: 'integration_scope_invalid', message: 'x' }, 'rejected'],
+    ['validation failed, no code', { message: 'Validation failed', errors: [] }, 'rejected'],
+    ['contract required', { code: 'integration_contract_required' }, 'rejected'],
+    ['empty body', null, 'rejected'],
+  ])('start 400 (%s) maps to %s', async (_n, body, kind) => {
+    const { http, calls } = setup([], json(400, body));
+    expect(await runPairing(base(http))).toEqual({ kind });
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    ['feature code, no Retry-After', { code: 'integration_feature_unavailable' }, {}, null],
+    [
+      'feature code, Retry-After',
+      { code: 'integration_feature_unavailable' },
+      { 'retry-after': '30' },
+      30_000,
+    ],
+    ['no code, no Retry-After', {}, {}, null],
+    ['no code, Retry-After', { message: 'Please try again.' }, { 'retry-after': '7' }, 7_000],
+  ])('start 503 (%s) maps to unavailable', async (_n, body, headers, ms) => {
+    const { http } = setup([], json(503, body, headers));
+    expect(await runPairing(base(http))).toEqual({ kind: 'unavailable', retryAfterMs: ms });
+  });
+
+  it('start 5xx other than 503 and 4xx other than 400/429 throw a redacted HttpError', async () => {
+    for (const status of [401, 403, 404, 500]) {
+      const { http } = setup([], json(status, {}));
+      await expect(runPairing(base(http))).rejects.toThrow('pairing/start failed');
+    }
+  });
+});
+
+describe('signalkSelfUuid hint', () => {
+  const U = '123e4567-e89b-12d3-a456-426614174000';
+  const hintOf = async (v: unknown) => {
+    const { http, calls } = setup([], json(503, {}));
+    await runPairing({ ...base(http), signalkSelfUuid: v as string });
+    return (calls[0]?.body as { providerHints?: unknown }).providerHints;
+  };
+
+  it.each([`urn:mrn:signalk:uuid:${U}`, U, U.toUpperCase()])('sends %s', async (v) => {
+    expect(await hintOf(v)).toEqual({ signalkSelfUuid: v });
+  });
+
+  it.each([
+    'urn:mrn:imo:mmsi:123456789',
+    'urn:mrn:signalk:uuid:not-a-uuid',
+    `urn:mrn:signalk:uuid:${U}-extra`,
+    `${U}\n`,
+    `urn:mrn:signalk:uuid:${U}${' '.repeat(100)}`,
+    '123456789',
+    '',
+    undefined,
+    42,
+    null,
+  ])('omits %j', async (v) => {
+    expect(await hintOf(v)).toBeUndefined();
+  });
+
+  it('cleanSelfUuid enforces the 100 character cap', () => {
+    expect(cleanSelfUuid(`urn:mrn:signalk:uuid:${U}`)?.length).toBeLessThanOrEqual(100);
+    expect(cleanSelfUuid(`${U}${'a'.repeat(70)}`)).toBeUndefined();
+  });
+});
+
+/** Runs a pairing with an injected clock/sleep; stops after `max` sleeps. */
+async function drive(
+  startOver: Record<string, unknown>,
+  tokenReplies: Response[],
+  max = 4,
+  startReply?: Response,
+) {
+  const { http, calls } = setup(
+    tokenReplies,
+    startReply ?? json(200, { ...startBody, ...startOver }),
+  );
+  const sleeps: number[] = [];
+  const codes: { expiresAt: number }[] = [];
+  let t = 1_000_000;
+  const c = new AbortController();
+  const out = await runPairing({
+    ...base(
+      http,
+      vi.fn((info: { expiresAt: number }) => codes.push(info)),
+    ),
+    now: () => t,
+    sleep: (ms) => {
+      sleeps.push(ms);
+      t += ms;
+      if (sleeps.length >= max) c.abort();
+      return Promise.resolve();
+    },
+    signal: c.signal,
+  });
+  return { out, sleeps, codes, calls, tokenCalls: calls.filter((x) => x.url.endsWith('/token')) };
+}
+
+describe('server-controlled timing is clamped', () => {
+  it('clamps a huge or tiny interval to 1..60 s, and slow_down never grows it past 60 s', async () => {
+    expect((await drive({ interval: 1e12 }, [])).sleeps[0]).toBe(60_000);
+    expect((await drive({ interval: 0.001 }, [])).sleeps[0]).toBe(1_000);
+    expect((await drive({ interval: -3 }, [])).sleeps[0]).toBe(1_000);
+    expect((await drive({ interval: 1e12 }, [json(400, { error: 'slow_down' })])).sleeps).toEqual([
+      60_000, 60_000, 60_000, 60_000,
+    ]);
+  });
+
+  it('clamps expiresIn to 30 minutes and rejects a non-positive one', async () => {
+    const r = await drive({ expiresIn: 1e12 }, [], 1);
+    expect(r.codes[0]?.expiresAt).toBe(1_000_000 + 1_800_000);
+    for (const expiresIn of [0, -5]) {
+      const bad = await drive({ expiresIn }, []);
+      expect(bad.out).toEqual({ kind: 'rejected' });
+      expect(bad.codes).toEqual([]);
+    }
+  });
+
+  it('never sleeps beyond the remaining lifetime, and expires on schedule', async () => {
+    const r = await drive({ interval: 60, expiresIn: 100 }, [], 5);
+    expect(r.sleeps).toEqual([60_000, 40_000]);
+    expect(r.out).toEqual({ kind: 'expired' });
+    expect(r.tokenCalls).toHaveLength(1);
+  });
+
+  it('no sleep ever exceeds the timer limit', async () => {
+    const r = await drive({ interval: 60 }, [json(429, {}, { 'retry-after': '1000' })], 3);
+    for (const ms of r.sleeps) expect(ms).toBeLessThanOrEqual(2 ** 31 - 1);
+  });
+
+  it('a huge delta-seconds Retry-After past the code lifetime returns busy without sleeping', async () => {
+    const r = await drive({}, [json(429, {}, { 'retry-after': '99999999999' })]);
+    expect(r.out).toEqual({ kind: 'busy', retryAfterMs: 99_999_999_999_000 });
+    expect(r.sleeps).toEqual([5_000]);
+    expect(r.tokenCalls).toHaveLength(1);
+  });
+
+  it('an HTTP-date Retry-After far in the future returns busy; a 5xx returns unavailable', async () => {
+    const far = new Date(Date.UTC(2099, 0, 1)).toUTCString();
+    const busy = await drive({}, [json(429, {}, { 'retry-after': far })]);
+    expect(busy.out).toMatchObject({ kind: 'busy' });
+    expect(busy.sleeps).toEqual([5_000]);
+    const down = await drive({}, [json(503, {}, { 'retry-after': '3600' })]);
+    expect(down.out).toEqual({ kind: 'unavailable', retryAfterMs: 3_600_000 });
+    expect(down.tokenCalls).toHaveLength(1);
+  });
+
+  it('a Retry-After within the remaining lifetime is still honoured', async () => {
+    const r = await drive({ expiresIn: 600 }, [json(429, {}, { 'retry-after': '120' })], 3);
+    expect(r.sleeps[1]).toBe(120_000);
+    expect(r.out).toEqual({ kind: 'cancelled' });
+  });
+});
+
+describe('start response validation', () => {
+  it.each([
+    ['javascript url', { verificationUrl: 'javascript:alert(1)' }],
+    ['plain http remote', { verificationUrl: 'http://vesseltwin.io/connect' }],
+    ['not a url', { verificationUrl: 'vesseltwin.io/connect' }],
+    ['file url', { verificationUrl: 'file:///etc/passwd' }],
+    ['url too long', { verificationUrl: `https://vesseltwin.io/${'a'.repeat(300)}` }],
+    ['empty user code', { userCode: '' }],
+    ['long user code', { userCode: 'A'.repeat(33) }],
+    ['control chars in code', { userCode: 'AB\nCD' }],
+    ['bidi override in code', { userCode: 'AB\u202eCD' }],
+    ['missing device code', { deviceCode: '' }],
+  ])('rejects %s', async (_n, over) => {
+    const r = await drive(over, [], 1);
+    expect(r.out).toEqual({ kind: 'rejected' });
+    expect(r.codes).toEqual([]);
+    expect(r.tokenCalls).toEqual([]);
+  });
+
+  it.each([
+    'https://vesseltwin.io/connect',
+    'http://localhost:3000/connect',
+    'http://127.0.0.1:3000/connect',
+    'http://[::1]:3000/connect',
+  ])('accepts %s', async (verificationUrl) => {
+    const r = await drive({ verificationUrl }, [], 1);
+    expect(r.codes).toHaveLength(1);
+  });
+});
+
+describe('defaultSleep', () => {
+  it('resolves promptly when aborted mid-sleep, and immediately if already aborted', async () => {
+    const c = new AbortController();
+    const p = defaultSleep(60_000, c.signal);
+    c.abort();
+    await p; // would hang (fake timers) if abort were ignored
+    await defaultSleep(60_000, c.signal);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for the timer otherwise, and its timer is unref-ed', async () => {
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    let done = false;
+    const p = defaultSleep(1_000).then(() => {
+      done = true;
+    });
+    const handle = spy.mock.results.at(-1)?.value as { hasRef?: () => boolean } | undefined;
+    if (typeof handle?.hasRef === 'function') expect(handle.hasRef()).toBe(false);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(done).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('runPairing returns cancelled promptly when aborted during the default sleep', async () => {
+    const { http } = setup([]);
+    const c = new AbortController();
+    const p = runPairing({ ...base(http), signal: c.signal });
+    await vi.advanceTimersByTimeAsync(10); // start response is in; now sleeping 5 s
+    c.abort();
+    expect(await p).toEqual({ kind: 'cancelled' });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

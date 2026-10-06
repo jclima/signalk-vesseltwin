@@ -1,0 +1,59 @@
+# Local smoke-test rig: a stock signalk-server with the built plugin mounted, a mock VesselTwin
+# API, and a tiny relay so that http://localhost:3001 *inside the signalk container* reaches the
+# mock (or an API running on the host). The plugin only accepts http for localhost, so its
+# apiBaseUrl must be http://localhost:3001. Test use only. See dev/README.md.
+#
+# The project name is vesseltwin-dev; set COMPOSE_PROJECT_NAME to run a second copy.
+#
+#   pnpm build && docker compose -f dev/docker-compose.yml up -d --build
+#
+# SignalK admin UI: http://localhost:${SK_PORT:-3100}    Mock: http://localhost:${MOCK_HOST_PORT:-3001}
+#
+# Relay target (RELAY_TARGET, host:port):
+#   mock:3001                  the mock service (default)
+#   host.docker.internal:3001  an API listening on the host's port 3001 (stop the mock first or
+#                              set MOCK_HOST_PORT to something else)
+name: ${COMPOSE_PROJECT_NAME:-vesseltwin-dev}
+services:
+  signalk:
+    image: signalk/signalk-server:latest
+    ports:
+      - '${SK_PORT:-3100}:3000'
+    environment:
+      - SIGNALK_NODE_SETTINGS=/home/node/.signalk/settings.json
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - signalk-data:/home/node/.signalk
+      - ../plugin:/home/node/.signalk/node_modules/signalk-vesseltwin/plugin:ro
+      - ../package.json:/home/node/.signalk/node_modules/signalk-vesseltwin/package.json:ro
+
+  mock:
+    image: signalk/signalk-server:latest # reused only because it already ships node
+    entrypoint: ['node', '/mock/server.mjs']
+    ports:
+      - '${MOCK_HOST_PORT:-3001}:3001'
+    environment:
+      - MOCK_HOST=0.0.0.0
+      - MOCK_PORT=3001
+      - MOCK_POLL_INTERVAL_S=${MOCK_POLL_INTERVAL_S:-5}
+      - MOCK_AUTO_APPROVE_AFTER_POLLS=${MOCK_AUTO_APPROVE_AFTER_POLLS:-0}
+    volumes:
+      - ./mock-server:/mock:ro
+
+  # Shares the signalk container's network namespace and forwards its port 3001 to the target.
+  relay:
+    image: signalk/signalk-server:latest
+    network_mode: 'service:signalk'
+    entrypoint: ['node', '/relay/relay.mjs']
+    environment:
+      - RELAY_LISTEN_PORT=3001
+      - RELAY_TARGET=${RELAY_TARGET:-mock:3001}
+    volumes:
+      - ./relay.mjs:/relay/relay.mjs:ro
+    depends_on:
+      - signalk
+      - mock
+
+volumes:
+  signalk-data:

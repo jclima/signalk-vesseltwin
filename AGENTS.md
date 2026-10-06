@@ -36,14 +36,16 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 - `src/index.ts` default export loaded by signalk-server
 - `src/pairing.ts` device-code pairing (start, poll with interval/slow_down handling)
 - `src/http.ts` HTTP client (headers, timeout, `backoffDelay`, `retryAfterMs`, `HttpError`)
-- `src/credential-store.ts` 0600 credential file, atomic write
+- `src/status.ts` status probe (`checkStatus`) and `StatusMonitor` (hourly probe, backoff, 401 handling)
+- `src/credential-store.ts` 0600 credential file, atomic write; secret-free reauth tombstone after a 401
 - `src/queue.ts` crash-safe NDJSON store-and-forward queue (caps, torn-line repair)
 - `src/redact.ts` secret redaction for anything that may be logged
 - `src/config.ts` settings schema and defensive parsing (API URL rules)
 - `src/contract.ts` wire constants and types mirrored from the platform contract
 - `src/mapping.ts` permitted-path list, intentionally empty until upload ships; `src/ids.ts` UUIDv7
 - `scripts/check-public.mjs` public-repo guard (forbidden files, secrets, personal paths, tarball contents)
-- `test/*.test.ts` one file per module (vitest); `docs/api.md` wire contract; `docker-compose.dev.yml` local server
+- `test/*.test.ts` one file per module (vitest); `docs/api.md` wire contract
+- `dev/` mock API, docker rig and scripts for local testing (see `docs/TESTING.md`)
 
 ## Conventions
 

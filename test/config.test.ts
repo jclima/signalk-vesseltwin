@@ -2,8 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_API_BASE_URL, parseOptions } from '../src/config';
 
 const url = (v: unknown) => parseOptions({ apiBaseUrl: v }).apiBaseUrl;
+const err = (v: unknown) => parseOptions({ apiBaseUrl: v }).configError;
 
 describe('parseOptions apiBaseUrl', () => {
+  it.each([undefined, null, '', '   ', '\t\n'])(
+    'treats blank %j as the production default',
+    (v) => {
+      const o = parseOptions({ apiBaseUrl: v });
+      expect(o.apiBaseUrl).toBe(DEFAULT_API_BASE_URL);
+      expect(o.configError).toBeNull();
+    },
+  );
+
+  it('uses the production default when the key is absent or settings are empty', () => {
+    expect(parseOptions({}).apiBaseUrl).toBe(DEFAULT_API_BASE_URL);
+    expect(parseOptions(undefined).configError).toBeNull();
+  });
+
   it.each([
     ['https://api.example.test', 'https://api.example.test'],
     ['https://api.example.test/', 'https://api.example.test'],
@@ -14,6 +29,7 @@ describe('parseOptions apiBaseUrl', () => {
     ['http://[::1]:3001', 'http://[::1]:3001'],
   ])('accepts %s', (input, expected) => {
     expect(url(input)).toBe(expected);
+    expect(err(input)).toBeNull();
   });
 
   it.each([
@@ -25,14 +41,16 @@ describe('parseOptions apiBaseUrl', () => {
     'javascript:alert(1)',
     'ftp://localhost',
     'not a url',
-    '',
     42,
-    null,
-    undefined,
+    true,
+    {},
     'https://api.example.test/?x=1',
     'https://api.example.test/#f',
-  ])('rejects %j', (input) => {
-    expect(url(input)).toBe(DEFAULT_API_BASE_URL);
+  ])('treats a set but invalid %j as a config error, never the production default', (input) => {
+    const o = parseOptions({ apiBaseUrl: input });
+    expect(o.apiBaseUrl).toBeNull();
+    expect(o.configError).toMatch(/API URL .* not valid/);
+    expect(o.configError).not.toMatch(/api\.vesseltwin|example|evil|pw/);
   });
 });
 
