@@ -8,5 +8,6 @@ coverage/
 .DS_Store
 .signalk-dev/
 
-# Local-only agent notes (never commit)
+# Local-only agent notes (never commit); AGENTS.md is canonical, CLAUDE.md is a symlink to it
 CLAUDE.local.md
+AGENTS.override.md

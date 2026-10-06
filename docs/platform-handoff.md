@@ -116,7 +116,7 @@ if it is not running when the owner approves, the pairing simply expires and mus
   and again only by `credential/rotate`) and cannot be recovered.
 - Bound to one boat and to the owner who approved it. Write-scoped only; it cannot read VesselTwin data.
 - Use: `Authorization: Bearer vti_...` on every authenticated call, only in that header.
-- Store it as the README and `CLAUDE.md` require: `0600` file in the plugin data dir, never in settings.
+- Store it as the README and `AGENTS.md` (also readable as `CLAUDE.md`) require: `0600` file in the plugin data dir, never in settings.
 - The owner can revoke it at any time in VesselTwin. It is also ended automatically when the account is
   locked or deleted, the boat is archived or changes owner, or it goes **180 days unused**. Polling
   `status` or any authenticated call that is merely paused (see 403/503 below) counts as use, so a
