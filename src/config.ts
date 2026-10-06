@@ -1,13 +1,19 @@
 import type { Category } from './mapping';
 
 export interface PluginOptions {
-  apiBaseUrl: string;
+  /** Validated API base URL; null when the configured value is invalid (see `configError`). */
+  apiBaseUrl: string | null;
+  /** Neutral, user-facing copy when a SET setting is invalid. No network calls while this is set. */
+  configError: string | null;
   categories: Record<Category, boolean>;
   samplePeriodSeconds: number;
   queueMaxReadings: number;
 }
 
 export const DEFAULT_API_BASE_URL = 'https://api.vesseltwin.io';
+
+export const CONFIG_ERROR_API_URL =
+  'The VesselTwin API URL in the plugin settings is not valid. Fix it and restart the plugin.';
 
 /** Origin (scheme + host + port) of an API base URL; null if it does not parse. */
 export function apiOrigin(url: string): string | null {
@@ -65,24 +71,37 @@ function num(v: unknown, d: number, min: number, max: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : d;
 }
 
-/** Defensive: plugin settings arrive as untyped JSON. Unknown/invalid values fall back to defaults. */
+/**
+ * Unset (undefined, null or blank) means the production default. A SET value must be https (or http
+ * on localhost, 127.0.0.1, [::1]) with no credentials, query or hash; anything else is a config
+ * error and never silently falls back to production.
+ */
+function parseApiBaseUrl(v: unknown): { url: string | null; error: string | null } {
+  if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
+    return { url: DEFAULT_API_BASE_URL, error: null };
+  }
+  const bad = { url: null, error: CONFIG_ERROR_API_URL };
+  if (typeof v !== 'string') return bad;
+  try {
+    const u = new URL(v.trim());
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+    const clean = !u.username && !u.password && !u.search && !u.hash;
+    if (clean && (u.protocol === 'https:' || (u.protocol === 'http:' && local))) {
+      return { url: u.toString().replace(/\/$/, ''), error: null };
+    }
+  } catch {
+    // fall through
+  }
+  return bad;
+}
+
+/** Defensive: plugin settings arrive as untyped JSON. Unknown/invalid numbers and booleans fall back to defaults; an invalid API URL is an error. */
 export function parseOptions(raw: unknown): PluginOptions {
   const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-  let url = DEFAULT_API_BASE_URL;
-  if (typeof o.apiBaseUrl === 'string') {
-    try {
-      const u = new URL(o.apiBaseUrl);
-      const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-      const clean = !u.username && !u.password && !u.search && !u.hash;
-      if (clean && (u.protocol === 'https:' || (u.protocol === 'http:' && local))) {
-        url = u.toString().replace(/\/$/, '');
-      }
-    } catch {
-      // keep default
-    }
-  }
+  const { url, error } = parseApiBaseUrl(o.apiBaseUrl);
   return {
     apiBaseUrl: url,
+    configError: error,
     categories: {
       engineHours: bool(o.sendEngineHours, true),
       batteries: bool(o.sendBatteries, true),

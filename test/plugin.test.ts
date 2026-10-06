@@ -66,13 +66,11 @@ describe('plugin shell', () => {
 });
 
 describe('parseOptions', () => {
-  it('defaults safely and rejects non-https remote URLs', () => {
+  it('defaults safely and flags non-https remote URLs', () => {
     const d = parseOptions(undefined);
     expect(d.apiBaseUrl).toBe('https://api.vesseltwin.io');
     expect(d.categories.vesselInfo).toBe(false);
-    expect(parseOptions({ apiBaseUrl: 'http://evil.example' }).apiBaseUrl).toBe(
-      'https://api.vesseltwin.io',
-    );
+    expect(parseOptions({ apiBaseUrl: 'http://evil.example' }).apiBaseUrl).toBeNull();
     expect(parseOptions({ apiBaseUrl: 'http://localhost:3001' }).apiBaseUrl).toBe(
       'http://localhost:3001',
     );
@@ -392,6 +390,30 @@ describe('origin check without an Origin header', () => {
     await h.tick();
     expect((await h.call('GET /status')).status).toBe(200);
     expect((await h.call('GET /status', { 'user-agent': 'curl/8' })).status).toBe(200);
+    h.plugin.stop();
+  });
+});
+
+describe('config error', () => {
+  it('reports a neutral error and makes no network calls for an invalid API URL', async () => {
+    const h = harness();
+    h.plugin.start({ apiBaseUrl: 'http://evil.example' });
+    await h.tick();
+    expect(h.app.statuses.at(-1)).toMatch(/^ERR The VesselTwin API URL .* not valid/);
+    const r = await h.call('POST /pair');
+    expect(r.status).toBe(503);
+    await h.tick(10_000);
+    expect(h.calls).toEqual([]);
+    h.plugin.stop();
+  });
+
+  it('pairs through a base path in the API URL', async () => {
+    const h = harness();
+    h.plugin.start({ apiBaseUrl: 'https://h.example/api' });
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick();
+    expect(h.calls[0]).toBe('https://h.example/api/v1/integrations/pairing/start');
     h.plugin.stop();
   });
 });

@@ -39,6 +39,11 @@ export function retryAfterMs(headers: Headers, now: number = Date.now()): number
   return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
+/** Joins keeping any path in the base (https://h/api + /v1/x -> https://h/api/v1/x). */
+export function joinUrl(base: string, path: string): string {
+  return new URL(path.replace(/^\/+/, ''), base.replace(/\/?$/, '/')).toString();
+}
+
 export interface HttpClientOptions {
   baseUrl: string;
   fetch: FetchLike;
@@ -62,7 +67,7 @@ export class HttpClient {
   }
 
   async post(path: string, body: unknown, ro: RequestOptions = {}): Promise<HttpResult> {
-    const url = new URL(path, this.opts.baseUrl.replace(/\/?$/, '/')).toString();
+    const url = joinUrl(this.opts.baseUrl, path);
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       accept: 'application/json',

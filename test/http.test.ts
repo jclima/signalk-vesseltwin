@@ -4,6 +4,7 @@ import {
   BACKOFF_MIN_MS,
   HttpClient,
   HttpError,
+  joinUrl,
   backoffDelay,
   retryAfterMs,
 } from '../src/http';
@@ -37,6 +38,19 @@ describe('retryAfterMs', () => {
     ).toBe(6_000);
     expect(retryAfterMs(new Headers({ 'retry-after': 'soon' }))).toBeNull();
     expect(retryAfterMs(new Headers())).toBeNull();
+  });
+});
+
+describe('joinUrl', () => {
+  it.each([
+    ['https://h', '/v1/x', 'https://h/v1/x'],
+    ['https://h/', '/v1/x', 'https://h/v1/x'],
+    ['https://h/api', '/v1/x', 'https://h/api/v1/x'],
+    ['https://h/api/', 'v1/x', 'https://h/api/v1/x'],
+    ['https://h/a/b', '/v1/integrations/status', 'https://h/a/b/v1/integrations/status'],
+    ['http://localhost:3001', '/v1/x', 'http://localhost:3001/v1/x'],
+  ])('%s + %s', (base, path, expected) => {
+    expect(joinUrl(base, path)).toBe(expected);
   });
 });
 
@@ -94,5 +108,16 @@ describe('HttpClient', () => {
     const p = c.post('/v1/a', {}, { signal: ctl.signal });
     ctl.abort();
     await expect(p).rejects.toThrow('request cancelled');
+  });
+
+  it('keeps a base path when requesting', async () => {
+    let seen = '';
+    const fetchFn = (u: string) => {
+      seen = u;
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+    const c = new HttpClient({ baseUrl: 'https://h/api', fetch: fetchFn, userAgent: 'ua' });
+    await c.post('/v1/integrations/pairing/start', {});
+    expect(seen).toBe('https://h/api/v1/integrations/pairing/start');
   });
 });

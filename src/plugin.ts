@@ -69,9 +69,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let vesselLabel: string | null = null;
   let justUnpaired = false;
 
-  const client = () =>
+  const client = (baseUrl: string) =>
     new HttpClient({
-      baseUrl: options.apiBaseUrl,
+      baseUrl,
       fetch: deps.fetch ?? ((u, i) => fetch(u, i)),
       userAgent: `${PLUGIN_ID}/${PLUGIN_VERSION}`,
     });
@@ -102,14 +102,16 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   async function startPairing(): Promise<void> {
     if (!store || abort) return;
     const s = store;
-    const issuer = apiOrigin(options.apiBaseUrl);
+    const baseUrl = options.apiBaseUrl;
+    if (baseUrl === null) return; // config error: no network calls
+    const issuer = apiOrigin(baseUrl);
     const ctl = new AbortController();
     abort = ctl;
     // A run is current only while it is still the registered one (stop/unpair clear `abort`).
     const current = () => abort === ctl && !ctl.signal.aborted;
     try {
       const out = await runPairing({
-        http: client(),
+        http: client(baseUrl),
         clientName: PLUGIN_ID,
         clientVersion: PLUGIN_VERSION,
         deviceLabel: 'SignalK server',
@@ -180,6 +182,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     start(settings: unknown): void {
       options = parseOptions(settings);
       store = new CredentialStore(app.getDataDirPath());
+      if (options.configError !== null) {
+        app.setPluginError(options.configError);
+        return;
+      }
       store
         .read()
         .then((c) => {
@@ -218,6 +224,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             res
               .status(503)
               .json({ error: 'The VesselTwin plugin is not running. Enable it first.' });
+            return;
+          }
+          if (options.configError !== null) {
+            res.status(503).json({ error: options.configError });
             return;
           }
           if (paired) {
