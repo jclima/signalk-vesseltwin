@@ -122,7 +122,9 @@ publishing (OIDC, no long-lived npm token). **Releasing is a human step.**
 
 1. `pnpm build`, then `docker compose -f docker-compose.dev.yml up` (stock signalk-server with `plugin/`
    mounted read-only). Admin UI at http://localhost:3000; create the admin user, then enable the plugin
-   under Server > Plugin Config.
+   under Server > Plugin Config. A fresh server has security on, so the admin API (`/skServer/*`) and the
+   plugin's endpoints (`/plugins/signalk-vesseltwin/*`) return 401 until an admin user exists; for curl
+   or scripted testing, create the admin first and send its bearer token.
 2. Set the plugin's API URL to a local or staging VesselTwin API (`http://localhost:3001` is allowed).
    A server where the integration is not enabled for the account answers pairing with 503; the plugin
    should report "unavailable" rather than crash. Do not point tests at production.
