@@ -490,7 +490,7 @@ describe('label and token handling', () => {
     h.held[0]?.resolve(
       new Response(JSON.stringify({ ...tokenBody, credential: 'vti_short' }), { status: 200 }),
     );
-    await h.tick();
+    await h.until(() => /^ERR /.test(h.app.statuses.at(-1) ?? ''));
     await h.untilFiles([]);
     expect(h.app.statuses.at(-1)).toMatch(/^ERR /);
     h.plugin.stop();
@@ -688,7 +688,8 @@ describe('state machine', () => {
         { status: 200 },
       ),
     );
-    await h.tick();
+    await h.untilState('connected');
+    await h.until(() => h.statusCalls() === 3);
     expect(h.statusCalls()).toBe(3);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
     await h.until(async () =>
@@ -1296,7 +1297,7 @@ describe('unpair, cleanup and route hardening', () => {
         status: 200,
       }),
     );
-    await h.tick();
+    await h.untilState('connected');
     expect((await h.call('GET /status')).body.vesselLabel).toBe('Sea Hag');
     h.plugin.stop();
   });
