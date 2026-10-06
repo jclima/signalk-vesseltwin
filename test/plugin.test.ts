@@ -449,7 +449,7 @@ describe('label and token handling', () => {
         },
       ),
     );
-    await h.tick();
+    await h.untilState('connected');
     const line = h.app.statuses.at(-1) ?? '';
     expect(line).toMatch(/^Paired with Sea Hag x+\. /);
     expect(line).not.toContain('SIGNALK VESSEL NAME');
@@ -468,7 +468,7 @@ describe('label and token handling', () => {
     h.held[0]?.resolve(
       new Response(JSON.stringify({ ...tokenBody, vesselLabel: null }), { status: 200 }),
     );
-    await h.tick();
+    await h.untilState('connected');
     expect(h.app.statuses.at(-1)).toBe(
       'Paired with VesselTwin. Data upload is not available in this version.',
     );
@@ -1291,6 +1291,7 @@ describe('lifecycle races and the status line', () => {
     const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
     await seed(dir);
     const g = gate();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
     const read = CredentialStore.prototype.read;
     vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(async function (
       this: CredentialStore,
@@ -1324,6 +1325,7 @@ describe('lifecycle races and the status line', () => {
     const clearGate = gate();
     const readGate = gate();
     let clearCalled = false;
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
     const { write, clear, read } = CredentialStore.prototype;
     vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(async function (
       this: CredentialStore,
