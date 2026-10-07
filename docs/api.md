@@ -310,7 +310,7 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
 - `pairing` is `{ "userCode", "verificationUrl", "expiresAt", "expiresInSeconds" }` in state `pairing`
   (`expiresInSeconds` is the whole seconds left when the response is made, never negative; the web page
   counts down from it instead of comparing clocks), and
-  `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" | "local_failure" }` in
+  `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" | "unexpected_response" | "local_failure" }` in
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.

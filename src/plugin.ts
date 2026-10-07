@@ -42,7 +42,14 @@ export interface PluginDeps {
 }
 
 export type PairingFailure =
-  'expired' | 'denied' | 'unavailable' | 'busy' | 'update_required' | 'rejected' | 'local_failure';
+  | 'expired'
+  | 'denied'
+  | 'unavailable'
+  | 'busy'
+  | 'update_required'
+  | 'rejected'
+  | 'unexpected_response'
+  | 'local_failure';
 
 export type PluginState =
   | 'not_paired'
@@ -68,6 +75,8 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
   update_required: 'This plugin version is not supported by VesselTwin. Update the plugin.',
   rejected:
     'VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.',
+  unexpected_response:
+    'VesselTwin sent an unexpected answer. Remove this connection in VesselTwin, check for a plugin update, and pair again.',
   local_failure:
     'Pairing finished but the connection could not be saved. Check the plugin data folder permissions, then remove this connection in VesselTwin and pair again.',
 };
@@ -141,6 +150,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
    * `checking` so /status never shows `not_paired` mid-transition.
    */
   let finalizing = false;
+  let unpairing = false; // an unpair is clearing the store; no new pairing may start meanwhile
   let failure: PairingFailure | null = null;
   let credentialUnreadable = false;
   /** A credential file exists (it is kept in reauth_required until a new pairing overwrites it). */
@@ -418,6 +428,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       } else if (out.kind === 'cancelled') {
         report();
       } else {
+        if (out.kind === 'unexpected_response') app.debug('pairing/token response unusable');
         fail(out.kind);
       }
     } catch (err) {
@@ -564,8 +575,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             res.status(503).json({ error: options.configError });
             return;
           }
-          if (!loaded) {
-            // The stored credential has not been read yet: pairing now could overwrite it.
+          if (!loaded || unpairing) {
+            // The stored credential has not been read yet (or is being removed): pairing now could
+            // overwrite it or have it deleted under a new run.
             res.status(503).json({ error: COPY.starting });
             return;
           }
@@ -615,6 +627,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           // Before any await: a late approval, a racing credential load and a late 401 must all
           // lose against this unpair.
           epoch += 1;
+          unpairing = true;
           cancelPairing();
           stopMonitor();
           try {
@@ -631,6 +644,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           } catch (err) {
             app.debug(`unpair failed: ${redactError(err)}`);
             res.status(500).json({ error: COPY.unpairFailed });
+          } finally {
+            unpairing = false;
           }
         }),
       );

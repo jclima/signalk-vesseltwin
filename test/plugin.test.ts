@@ -351,7 +351,7 @@ describe('pairing lifecycle', () => {
     }
   });
 
-  it('shows distinct local-failure copy when the token response is malformed', async () => {
+  it('shows distinct unexpected-answer copy when the token response is malformed', async () => {
     const h = harness();
     h.plugin.start({});
     await h.tick();
@@ -360,9 +360,13 @@ describe('pairing lifecycle', () => {
     await h.resolveHeld(new Response(JSON.stringify({ credential: 'bad' }), { status: 200 }));
     await h.untilState('pairing_failed');
     const st = (await h.call('GET /status')).body;
-    expect(st.pairing).toEqual({ reason: 'local_failure' });
-    expect(st.message).toBe(FAILURE_COPY.local_failure);
-    expect(FAILURE_COPY.local_failure).not.toBe(FAILURE_COPY.unavailable);
+    expect(st.pairing).toEqual({ reason: 'unexpected_response' });
+    expect(st.message).toBe(FAILURE_COPY.unexpected_response);
+    expect(FAILURE_COPY.unexpected_response).not.toBe(FAILURE_COPY.unavailable);
+    expect(FAILURE_COPY.unexpected_response).not.toBe(FAILURE_COPY.local_failure);
+    const logged = (h.app.debug as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(logged).toContain('pairing/token response unusable');
+    expect(logged.join('\n')).not.toContain('bad');
     expect(String(st.message)).not.toMatch(/AAAA-AAAA|vesseltwin\.io\/connect/);
     h.plugin.stop();
   });
@@ -1314,6 +1318,35 @@ describe('unpair, cleanup and route hardening', () => {
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
     expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     h.plugin.stop();
+  });
+
+  it('refuses /pair while an unpair is still clearing the store', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const realClear = CredentialStore.prototype.clear.bind(new CredentialStore(dir));
+    const spy = vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async () => {
+      await gate;
+      return realClear();
+    });
+    try {
+      h.plugin.start({});
+      await h.tick();
+      const un = h.call('POST /unpair');
+      await h.tick();
+      const during = await h.call('POST /pair');
+      expect(during.status).toBe(503);
+      expect(during.body).toEqual({ error: COPY.starting });
+      release();
+      expect((await un).status).toBe(200);
+      expect((await h.call('POST /pair')).status).toBe(202);
+      h.plugin.stop();
+    } finally {
+      release();
+      spy.mockRestore();
+    }
   });
 
   it('logs, redacted, when the stale-run cleanup cannot clear the file', async () => {

@@ -170,14 +170,14 @@ describe('runPairing', () => {
     ]);
     const p = runPairing(base(http));
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(await p).toEqual({ kind: 'local_failure' });
+    expect(await p).toEqual({ kind: 'unexpected_response' });
   });
 
   it('rejects a non-string credentialId', async () => {
     const { http } = setup([json(200, { credential: `vti_${'x'.repeat(43)}`, credentialId: 7 })]);
     const p = runPairing(base(http));
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(await p).toEqual({ kind: 'local_failure' });
+    expect(await p).toEqual({ kind: 'unexpected_response' });
   });
 
   it('copies only known token fields', async () => {
@@ -363,11 +363,11 @@ describe('token poll network errors', () => {
     expect(post).toHaveBeenCalledTimes(2);
   });
 
-  it('a malformed 200 token response is a local failure, not a thrown error', async () => {
+  it('a malformed 200 token response is an unexpected response, not a thrown error', async () => {
     const http = flaky([json(200, { credential: 'nope' })]);
     const p = runPairing(base(http));
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(await p).toEqual({ kind: 'local_failure' });
+    expect(await p).toEqual({ kind: 'unexpected_response' });
   });
 });
 

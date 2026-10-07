@@ -16,6 +16,7 @@ export type PairingOutcome =
   | { kind: 'busy'; retryAfterMs: number | null }
   | { kind: 'update_required' }
   | { kind: 'rejected' }
+  | { kind: 'unexpected_response' }
   | { kind: 'local_failure' }
   | { kind: 'cancelled' };
 
@@ -229,7 +230,7 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
       try {
         return { kind: 'paired', token: parseToken(res.json) };
       } catch {
-        return { kind: 'local_failure' };
+        return { kind: 'unexpected_response' };
       }
     }
     const err = isObject(res.json) && typeof res.json.error === 'string' ? res.json.error : '';
