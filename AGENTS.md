@@ -102,10 +102,12 @@ repaired; acks rewrite via temp file + rename; segments rotate. Caps: 7 days and
 oldest dropped first and the drop count surfaced in status. Single writer. Each reading carries a
 UUIDv7 `clientReadingId` and its original `recordedAt` so replays are idempotent.
 
-**Not yet available.** The platform has no ingest endpoints yet. Do not build, guess or call any
-`/v1/integrations/signalk/*` route, and do not invent request shapes. The ingest JSON Schema and a new
-contract version will be published first; vendor that schema and add a contract test against it, then
-implement upload. Until then the plugin pairs, stores the credential, and reports that upload is
+**Upload not built yet.** The platform's ingest API is defined under a newer contract version than the
+plugin's current `CONTRACT_VERSION`. Do not build, guess or call any `/v1/integrations/signalk/*` route,
+and do not invent request shapes, bump `CONTRACT_VERSION`, or add a path to `src/mapping.ts`, until (1) the
+ingest JSON Schema for that contract version has been vendored into this repo with a contract test that
+validates fixtures against it, and (2) the owner explicitly says to start upload work in that session.
+Until then the plugin pairs, stores the credential, monitors status, and reports that upload is
 unavailable.
 
 ## Public repo hygiene
