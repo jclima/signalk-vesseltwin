@@ -6,6 +6,7 @@
   tests must not touch the network (inject `fetch`).
 - Add tests with every behavior change. Keep runtime dependencies at zero unless justified.
 - The wire contract is described in [docs/api.md](docs/api.md).
+- Maintainers: the release procedure is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Public-repo guard
 
