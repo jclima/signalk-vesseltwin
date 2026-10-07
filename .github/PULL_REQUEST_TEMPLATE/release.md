@@ -2,7 +2,7 @@
 
 - [ ] Version bumped in `package.json`, `PLUGIN_VERSION` (`src/plugin.ts`) and the README Status and Install text
 - [ ] `CHANGELOG.md` has a dated `## [X.Y.Z] - YYYY-MM-DD` section and an empty `## [Unreleased]`
-- [ ] `pnpm check:release --release X.Y.Z` prints `release-check: ok` (paste the last line below)
+- [ ] `pnpm check:release --release X.Y.Z` exits 0 (paste its last line below; the first release also shows a "no earlier release" warning)
 - [ ] README privacy section is unchanged, or updated in this PR together with the code that changed it
 - [ ] The plugin still reports that data upload is unavailable (or this release is explicitly approved to change that)
 - [ ] CI is green on Node 22 and 24

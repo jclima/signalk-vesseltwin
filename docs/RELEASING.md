@@ -63,7 +63,8 @@ On a branch `release/vX.Y.Z`:
   published. Keep the privacy section and the code in agreement (see `AGENTS.md`).
 - In `CHANGELOG.md`, move the `Unreleased` entries under `## [X.Y.Z] - YYYY-MM-DD` and leave an empty
   `## [Unreleased]` above it.
-- Run `pnpm preflight && pnpm check:release --release X.Y.Z`.
+- Commit the changes, then run `pnpm preflight && pnpm check:release --release X.Y.Z` (the check
+  needs a clean tree, so it reports `git/clean` until you commit).
 
 ## 3. Release PR
 
