@@ -94,7 +94,8 @@ version does not send readings.
 **Connected but not working right now (the plugin keeps checking by itself)**
 
 - _The connection is paused for your VesselTwin plan_ or _VesselTwin integrations are not available
-  for your account right now_: the integration is off or your account is not on the Pro plan.
+  for your account right now_: your VesselTwin plan doesn't include integrations right now, or
+  integrations are turned off for your account. The plugin keeps checking and resumes by itself.
 - _Cannot reach VesselTwin right now_: a network problem or VesselTwin is down. The plugin retries
   with growing pauses.
 
