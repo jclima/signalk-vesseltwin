@@ -26,9 +26,10 @@ not available in this version.
 ### Changed
 
 - Pairing now survives network errors while waiting for approval instead of giving up.
-- A failure to save the credential locally shows its own message instead of a pairing error.
+- A pairing that is approved but cannot be saved locally now gets its own message instead of 'VesselTwin is not available'.
+- An unusable answer from VesselTwin at the end of pairing now gets its own message (remove the connection in VesselTwin, check for a plugin update, pair again) instead of a data-folder permissions hint.
+- The vessel-details suggestion setting no longer covers the vessel name.
 - Settings that have no effect in this version are labelled as inactive.
-- The update hint is shown as a note rather than an error.
 
 ### Security
 

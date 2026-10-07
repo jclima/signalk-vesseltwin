@@ -32,6 +32,8 @@ Releasing is a maintainer step; contributors do not tag or publish.
    version.
 5. The environment reviewer approves the publish job; npm publishes with provenance.
 
+Protect `v*.*.*` tags with a repository ruleset so only maintainers can create or move them.
+
 The first release is planned as `v0.1.0`, after the open maintainer decisions are settled.
 
 ## Development
