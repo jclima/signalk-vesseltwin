@@ -193,6 +193,11 @@ function harness(opts: { dir?: string } = {}) {
   };
   const untilState = (state: string) =>
     until(async () => (await call('GET /status')).body.state === state);
+  /** Answer the first held (pairing poll) request once it has actually been issued. */
+  const resolveHeld = async (r: Response) => {
+    await until(() => held.length > 0);
+    held[0]?.resolve(r);
+  };
   const ok = () => new Response(JSON.stringify(tokenBody), { status: 200 });
   const files = () => readdirSync(dir);
   /** Wait for in-flight temp-file writes to settle, then assert the directory listing. */
@@ -209,6 +214,7 @@ function harness(opts: { dir?: string } = {}) {
     until,
     untilState,
     untilFiles,
+    resolveHeld,
     calls,
     held,
     ok,
@@ -237,7 +243,7 @@ describe('pairing lifecycle', () => {
       pairing: { userCode: 'AAAA-AAAA', verificationUrl: 'https://vesseltwin.io/connect' },
     });
     await h.tick(5_000);
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.untilState('connected');
     expect((await h.call('GET /status')).body).toMatchObject({
       state: 'connected',
@@ -286,7 +292,7 @@ describe('pairing lifecycle', () => {
       await h.tick();
       await h.call('POST /pair');
       await h.tick(5_000);
-      h.held[0]?.resolve(h.ok());
+      await h.resolveHeld(h.ok());
       await h.until(() => spy.mock.calls.length > 0); // the save is now held open
       const mid = (await h.call('GET /status')).body;
       expect(mid.state).toBe('checking');
@@ -314,7 +320,7 @@ describe('pairing lifecycle', () => {
     const un = await h.call('POST /unpair');
     expect(un.status).toBe(200);
     expect(String(un.body.message)).toMatch(/revoke the connection in VesselTwin/);
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.tick();
     await h.untilFiles([]);
     expect((await h.call('GET /status')).body).toMatchObject({
@@ -351,7 +357,7 @@ describe('pairing lifecycle', () => {
     await h.tick(5_000);
     expect(h.held).toHaveLength(1);
     h.plugin.stop();
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.tick();
     await h.untilFiles([]);
   });
@@ -379,7 +385,7 @@ describe('pairing lifecycle', () => {
     await h.tick();
     expect(h.calls.length).toBe(before); // no extra pairing/start
     h.plugin.stop();
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.tick();
     await h.untilFiles([]);
   });
@@ -447,7 +453,7 @@ describe('label and token handling', () => {
     await h.tick();
     await h.call('POST /pair');
     await h.tick(5_000);
-    h.held[0]?.resolve(
+    await h.resolveHeld(
       new Response(
         JSON.stringify({ ...tokenBody, vesselLabel: `Sea\u0007Hag\n${'x'.repeat(200)}` }),
         {
@@ -471,7 +477,7 @@ describe('label and token handling', () => {
     await h.tick();
     await h.call('POST /pair');
     await h.tick(5_000);
-    h.held[0]?.resolve(
+    await h.resolveHeld(
       new Response(JSON.stringify({ ...tokenBody, vesselLabel: null }), { status: 200 }),
     );
     await h.untilState('connected');
@@ -487,7 +493,7 @@ describe('label and token handling', () => {
     await h.tick();
     await h.call('POST /pair');
     await h.tick(5_000);
-    h.held[0]?.resolve(
+    await h.resolveHeld(
       new Response(JSON.stringify({ ...tokenBody, credential: 'vti_short' }), { status: 200 }),
     );
     await h.until(() => /^ERR /.test(h.app.statuses.at(-1) ?? ''));
@@ -590,7 +596,7 @@ describe('expired and denied copy', () => {
       await h.tick();
       await h.call('POST /pair');
       await h.tick(5_000);
-      h.held[0]?.resolve(new Response(JSON.stringify({ error }), { status: 400 }));
+      await h.resolveHeld(new Response(JSON.stringify({ error }), { status: 400 }));
       await h.tick();
       expect(h.app.statuses.at(-1)).toMatch(re);
       expect(h.app.statuses.at(-1)).not.toMatch(/expired_token|access_denied/);
@@ -637,7 +643,7 @@ describe('state machine', () => {
     await h.tick();
     expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
     await h.tick(5_000);
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.untilState('connected');
     expect(h.statusCalls()).toBe(1);
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
@@ -718,7 +724,7 @@ describe('state machine', () => {
     await h.tick(10 * MIN);
     expect(h.calls.filter((u) => u.endsWith('/pairing/token'))).toHaveLength(1); // only the old one
     expect(h.calls.filter((u) => u.endsWith('/pairing/start'))).toHaveLength(1);
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.tick();
     await h.untilFiles([]);
     h.plugin.stop();
@@ -785,7 +791,7 @@ describe('state machine', () => {
     // Reuse the rig: first pairing fails (a held reply is never used; make start fail via expiry).
     await h.call('POST /pair');
     await h.tick(5_000);
-    h.held[0]?.resolve(new Response(JSON.stringify({ error: 'expired_token' }), { status: 400 }));
+    await h.resolveHeld(new Response(JSON.stringify({ error: 'expired_token' }), { status: 400 }));
     await h.untilState('pairing_failed');
     expect(h.app.statuses.at(-1)).toBe(`ERR ${FAILURE_COPY.expired}`);
     const before = h.app.statuses.length;
@@ -808,7 +814,7 @@ describe('state machine', () => {
     // Re-pair and connect: the reauth error must not linger.
     await h.call('POST /pair');
     await h.tick(5_000);
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.untilState('connected');
     const i = h.app.statuses.lastIndexOf('ERR ');
     expect(i).toBeGreaterThan(-1);
@@ -964,7 +970,8 @@ describe('state machine', () => {
       const h = harness({ dir });
       h.statusReplies.push(r);
       h.plugin.start({});
-      await h.tick();
+      // The credential load (which precedes the first probe) must be done, or /pair answers 503.
+      await h.until(() => h.statusCalls() === 1);
       expect((await h.call('POST /pair')).status).toBe(409);
       expect(h.calls.some((u) => u.includes('/pairing/'))).toBe(false);
       h.plugin.stop();
@@ -1089,7 +1096,7 @@ describe('state machine', () => {
     await h.call('POST /pair');
     await h.tick(5_000);
     const pending = JSON.stringify((await h.call('GET /status')).body);
-    h.held[0]?.resolve(h.ok());
+    await h.resolveHeld(h.ok());
     await h.untilState('connected');
     const done = JSON.stringify((await h.call('GET /status')).body);
     for (const text of [pending, done, h.app.statuses.join('\n')]) {
@@ -1112,6 +1119,15 @@ describe('tombstone after a 401', () => {
     h.plugin.start({});
     await h.tick();
     expect(h.statusCalls()).toBe(1);
+    // The 401 handler rewrites the credential file asynchronously; wait for the tombstone to land.
+    await h.until(() => {
+      try {
+        const f = JSON.parse(readFileSync(credFile(dir), 'utf8')) as Record<string, unknown>;
+        return f.reauthRequired === true && !('credential' in f);
+      } catch {
+        return false;
+      }
+    });
     h.plugin.stop();
     return { dir, h };
   }
@@ -1134,7 +1150,9 @@ describe('tombstone after a 401', () => {
     const { dir } = await reachReauth();
     const h2 = harness({ dir });
     h2.plugin.start({});
-    await h2.tick();
+    // Wait for the restart's credential load to finish (state leaves its initial value), then let
+    // three hours of fake time pass so any timer that could trigger a probe has fired.
+    await h2.untilState('reauth_required');
     await h2.tick(3 * 60 * MIN);
     expect(h2.calls).toEqual([]);
     expect((await h2.call('GET /status')).body).toMatchObject({
@@ -1164,7 +1182,7 @@ describe('tombstone after a 401', () => {
     await h2.tick();
     expect((await h2.call('POST /pair')).status).toBe(202);
     await h2.tick(5_000);
-    h2.held[0]?.resolve(h2.ok());
+    await h2.resolveHeld(h2.ok());
     await h2.untilState('connected');
     expect((await h2.call('GET /status')).body).toMatchObject({ state: 'connected', paired: true });
     const file = JSON.parse(await readFile(credFile(dir), 'utf8')) as Record<string, unknown>;
@@ -1233,7 +1251,7 @@ describe('unpair, cleanup and route hardening', () => {
     try {
       await h.call('POST /pair');
       await h.tick(5_000);
-      h.held[0]?.resolve(h.ok());
+      await h.resolveHeld(h.ok());
       await h.until(() => clear.mock.calls.length > 0);
       await h.tick();
       expect(clear).toHaveBeenCalled();
@@ -1292,7 +1310,7 @@ describe('unpair, cleanup and route hardening', () => {
     await h.tick();
     await h.call('POST /pair');
     await h.tick(5_000);
-    h.held[0]?.resolve(
+    await h.resolveHeld(
       new Response(JSON.stringify({ ...tokenBody, vesselLabel: 'Sea\u202eHag\u200b\ufeff' }), {
         status: 200,
       }),
@@ -1433,7 +1451,7 @@ describe('lifecycle races and the status line', () => {
       return read.call(this);
     });
 
-    h.held[0]?.resolve(h.ok()); // approval arrives; the credential write is now pending
+    await h.resolveHeld(h.ok()); // approval arrives; the credential write is now pending
     await h.tick();
     h.plugin.stop();
     h.plugin.start({}); // the next lifecycle begins while the old write is pending
