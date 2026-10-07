@@ -19,7 +19,7 @@ const PRE_ID = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)';
 const SEMVER_RE = new RegExp(`^${NUM}\\.${NUM}\\.${NUM}(?:-(${PRE_ID}(?:\\.${PRE_ID})*))?$`);
 const NO_UPLOAD_COPY = 'Data upload is not available in this version.';
 const README_UPLOAD_COPY = [
-  'Sending readings is not available in this version yet',
+  'Sending readings is not available in this version',
   'Uploading is not available yet',
 ];
 const INGEST_ROUTE = '/v1/integrations/signalk/';

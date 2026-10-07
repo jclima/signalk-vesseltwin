@@ -41,7 +41,7 @@ const PLUGIN = (v: string) =>
   `export const PLUGIN_VERSION = '${v}';\nconst NO_UPLOAD = 'Data upload is not available in this version.';\n`;
 const MAPPING = 'export const PATH_RULES: readonly PathRule[] = [];\n';
 const README = (v: string, extra = '') =>
-  `# x\n\n> **Status: pre-release (${v}).** Connecting works. **Sending readings is not available\n> in this version yet**; the plugin says so. ${extra}\n\nUploading is not available yet.\n`;
+  `# x\n\n> **Status: pre-release (${v}).** Connecting works. **Sending readings is not available\n> in this version**; the plugin says so. ${extra}\n\nUploading is not available yet.\n`;
 const CHANGELOG_GOOD = `# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-06-01\n\n### Added\n\n- Pairing.\n`;
 
 describe('semver', () => {
