@@ -69,6 +69,16 @@ describe('runPairing', () => {
       requestedScopes: ['meters:write'],
     });
     expect(calls.filter((c) => c.url.endsWith('/pairing/token')).length).toBe(3);
+    // Everything sent at pairing. Changing this list requires updating the README privacy section
+    // in the same PR (AGENTS.md). No providerHints here: base() passes no SignalK self UUID.
+    expect(Object.keys(calls[0]?.body as object).sort()).toEqual([
+      'clientName',
+      'clientVersion',
+      'contractVersion',
+      'deviceLabel',
+      'provider',
+      'requestedScopes',
+    ]);
   });
 
   it('slow_down adds 5s to the interval', async () => {

@@ -23,6 +23,8 @@ pnpm typecheck     # tsc --noEmit over src + test
 pnpm test          # vitest run
 pnpm build         # rm -rf plugin && tsc -> plugin/ (gitignored)
 pnpm check:public  # public-repo guard alone (also part of lint)
+pnpm check:release --ci  # release-train consistency checks (also part of lint); see docs/RELEASING.md
+pnpm preflight     # lint, typecheck, test, build and pack check in one go
 node scripts/check-public.mjs --pack  # after build: asserts the npm tarball holds only plugin/, README, LICENSE, SECURITY, package.json
 pnpm hooks:install # optional pre-commit hook (runs the guard on staged files)
 pnpm format        # prettier --write .
@@ -44,6 +46,7 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 - `src/contract.ts` wire constants and types mirrored from the platform contract
 - `src/mapping.ts` permitted-path list, intentionally empty until upload ships; `src/ids.ts` UUIDv7
 - `scripts/check-public.mjs` public-repo guard (forbidden files, secrets, personal paths, tarball contents)
+- `scripts/release-check.mjs` release-train checks (version sync, changelog, upload honesty, tag, registry); `docs/RELEASING.md`
 - `test/*.test.ts` one file per module (vitest); `docs/api.md` wire contract
 - `dev/` mock API, docker rig and scripts for local testing (see `docs/TESTING.md`)
 
