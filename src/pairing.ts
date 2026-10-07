@@ -214,10 +214,14 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     let res: HttpResult;
     try {
       res = await p.http.post('/v1/integrations/pairing/token', { deviceCode: s.deviceCode }, ro);
-    } catch {
-      // Network error or timeout: never swallow cancellation; otherwise back off like a 5xx and
-      // keep polling until the code expires. The error is dropped on purpose (it is not logged).
+    } catch (err) {
+      // Never swallow cancellation. Only a transport failure (network error or timeout) is retried:
+      // back off like a 5xx and keep polling until the code expires. Anything else is a bug or a
+      // refusal and propagates (the plugin reports it as unavailable).
       if (p.signal?.aborted) return { kind: 'cancelled' };
+      if (!(err instanceof HttpError && (err.kind === 'network' || err.kind === 'timeout'))) {
+        throw err;
+      }
       intervalS = Math.min(MAX_INTERVAL_S, intervalS + SLOW_DOWN_STEP_S);
       continue;
     }

@@ -114,6 +114,7 @@ describe('HttpClient', () => {
     const p = c.post('/v1/a', {}, { signal: ctl.signal });
     ctl.abort();
     await expect(p).rejects.toThrow('request cancelled');
+    expect(await p.catch((e: unknown) => e)).toMatchObject({ kind: 'cancelled' });
   });
 
   it('keeps a base path when requesting', async () => {
@@ -173,6 +174,7 @@ describe('HttpClient.get', () => {
       });
     const c = new HttpClient({ baseUrl: 'https://h', fetch: hang, userAgent: 'ua', timeoutMs: 20 });
     await expect(c.get('/v1/a')).rejects.toThrow('timed out');
+    expect(await c.get('/v1/a').catch((e: unknown) => e)).toMatchObject({ kind: 'timeout' });
     const ctl = new AbortController();
     const p = new HttpClient({ baseUrl: 'https://h', fetch: hang, userAgent: 'ua' }).get('/v1/a', {
       signal: ctl.signal,
@@ -205,6 +207,7 @@ describe('HttpClient.get', () => {
     expect(init?.redirect).toBe('error');
     expect(err).toBeInstanceOf(HttpError);
     expect((err as Error).message).toBe('network error');
+    expect((err as HttpError).kind).toBe('network');
     const { seen, fetchFn } = capture();
     await new HttpClient({ baseUrl: 'https://h', fetch: fetchFn, userAgent: 'ua' }).post(
       '/v1/a',
@@ -234,6 +237,7 @@ describe('HttpClient.get', () => {
         .get('/v1/a', { credential: cred, ...(credentialOrigin ? { credentialOrigin } : {}) })
         .catch((e: unknown) => e);
       expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).kind).toBe('refused');
       expect((err as Error).message).not.toContain(cred);
       expect((err as Error).message).not.toContain('h:8443');
     }
