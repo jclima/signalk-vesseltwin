@@ -23,7 +23,7 @@ pnpm typecheck     # tsc --noEmit over src + test
 pnpm test          # vitest run
 pnpm build         # rm -rf plugin && tsc -> plugin/ (gitignored)
 pnpm check:public  # public-repo guard alone (also part of lint)
-node scripts/check-public.mjs --pack  # after build: asserts the npm tarball holds only plugin/, README, LICENSE, SECURITY, package.json
+node scripts/check-public.mjs --pack  # after build: asserts the npm tarball holds only plugin/, the 5 public/ page files, README, LICENSE, SECURITY, package.json
 pnpm hooks:install # optional pre-commit hook (runs the guard on staged files)
 pnpm format        # prettier --write .
 ```
@@ -32,7 +32,7 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 
 ## Layout
 
-- `src/plugin.ts` plugin factory (`createPlugin(app, deps)`), router endpoints `/status`, `/pair`, `/unpair`
+- `src/plugin.ts` plugin factory (`createPlugin(app, deps)`), router endpoints `/status`, `/pair`, `/pair/cancel`, `/unpair`
 - `src/index.ts` default export loaded by signalk-server
 - `src/pairing.ts` device-code pairing (start, poll with interval/slow_down handling)
 - `src/http.ts` HTTP client (headers, timeout, `backoffDelay`, `retryAfterMs`, `HttpError`)
@@ -44,6 +44,9 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 - `src/contract.ts` wire constants and types mirrored from the platform contract
 - `src/mapping.ts` permitted-path list, intentionally empty until upload ships; `src/ids.ts` UUIDv7
 - `scripts/check-public.mjs` public-repo guard (forbidden files, secrets, personal paths, tarball contents)
+- `web/` pairing page sources (`view.ts` and `controller.ts` are DOM-free logic, `app.ts` is DOM glue;
+  never import from `src/`); compiled by `tsc -p web` to `public/*.js` (gitignored)
+- `public/` static SignalK webapp: tracked `index.html` and `style.css`, built `app.js`, `view.js`, `controller.js`
 - `test/*.test.ts` one file per module (vitest); `docs/api.md` wire contract
 - `dev/` mock API, docker rig and scripts for local testing (see `docs/TESTING.md`)
 
@@ -51,6 +54,9 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 
 - Build output is **CommonJS** (`plugin/`), because signalk-server `require()`s plugins. Do not switch
   the build to ESM.
+- The pairing page (`web/`, `public/`) stays dependency-free and bundler-free. No `innerHTML`-style
+  APIs, `eval`, `console`, inline script or style, or storage; text goes in via `textContent`
+  (lint and `test/web-static.test.ts` enforce it). The CSP meta in `public/index.html` must not weaken.
 - **Zero runtime dependencies.** Use `node:` built-ins and global `fetch`. Anything else needs a
   written justification in the PR. It must install on a Raspberry Pi with no native build step.
 - TypeScript strict (incl. `noUncheckedIndexedAccess`); keep `SignalKApp` a minimal

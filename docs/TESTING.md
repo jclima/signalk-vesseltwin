@@ -200,6 +200,17 @@ After a successful pairing (either track), and before `down -v`:
 
 - [ ] The plugin settings (Server > Plugin Config) hold only the API URL and options, never the
       credential.
+- [ ] The webapp: with the plugin enabled, Webapps lists VesselTwin (with the plugin disabled it does
+      not). `GET /signalk-vesseltwin/` serves the page with no login (static files only);
+      `GET /plugins/signalk-vesseltwin/status` without a token still answers 401. Open
+      `/signalk-vesseltwin/` in a browser signed in as admin: Pair shows the code and a link, a
+      countdown runs, Cancel returns to Not paired, and Pair again plus approving on the mock ends in
+      Connected. Unpair asks for a second click before it acts. Signed out, the page says to sign in as
+      an administrator and links to the SignalK login. The honesty line "Data upload is not
+      available in this version." stays visible in every state.
+- [ ] Cancel racing an approval: if you approve in the mock (or VesselTwin) just as you press Cancel,
+      the connection may be created on the VesselTwin side while the page shows Not paired. Remove it
+      in VesselTwin (the plugin cannot revoke it).
 - [ ] Admin auth applies to the plugin routes: `GET /plugins/signalk-vesseltwin/status` without a
       token answers 401, with the admin token 200.
 - [ ] With SignalK security enabled and read-only or anonymous access allowed, confirm a non-admin
