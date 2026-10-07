@@ -148,9 +148,10 @@ describe('changelog', () => {
     expect(p.releases[0]).toMatchObject({ version: '0.1.0', date: '2026-06-01' });
   });
 
-  it('fails release mode on the repository CHANGELOG today', () => {
-    const p = parseChangelog(readFileSync(join(REAL_ROOT, 'CHANGELOG.md'), 'utf8'));
-    expect(ids(checkChangelog(p, '0.1.0', { now: NOW }))).toEqual([
+  it('fails release mode while entries are still under Unreleased', () => {
+    // Synthetic on purpose: a test that reads the real CHANGELOG would break on every release PR.
+    const unrolled = '# C\n\n## [Unreleased]\n\nPre-release.\n\n### Added\n\n- a\n';
+    expect(ids(checkChangelog(parseChangelog(unrolled), '0.1.0', { now: NOW }))).toEqual([
       'changelog/section',
       'changelog/unreleased',
     ]);
