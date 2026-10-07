@@ -20,6 +20,20 @@ Optional pre-commit hook that runs the guard on staged files: `pnpm hooks:instal
 Maintainers can add private deny patterns (one regex per line, `#` comments) to the gitignored
 `.public-guard.local`, or point `PUBLIC_GUARD_EXTRA_FILE` at a file of patterns.
 
+## Releasing
+
+Releasing is a maintainer step; contributors do not tag or publish.
+
+1. Bump `version` in `package.json` (it must equal `PLUGIN_VERSION`; the tests check this).
+2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new version heading and date.
+3. Open a PR to `main` and wait for CI (`check` on Node 22 and 24); squash-merge.
+4. After the merge, the maintainer tags the merge commit on `main` as `vX.Y.Z` (matching
+   `package.json`). The release workflow refuses tags that are not on `main` or do not match the
+   version.
+5. The environment reviewer approves the publish job; npm publishes with provenance.
+
+The first release is planned as `v0.1.0`, after the open maintainer decisions are settled.
+
 ## Development
 
 ```sh
