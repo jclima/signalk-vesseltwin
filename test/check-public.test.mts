@@ -129,6 +129,29 @@ describe('checkPackFiles', () => {
       ]),
     ).toEqual([]);
   });
+  it('accepts exactly the five pairing page files', () => {
+    expect(
+      checkPackFiles([
+        'plugin/index.js',
+        'public/index.html',
+        'public/style.css',
+        'public/app.js',
+        'public/view.js',
+        'public/controller.js',
+      ]),
+    ).toEqual([]);
+  });
+  it('rejects other files under public/', () => {
+    const bad = [
+      'public/x.js',
+      'public/app.js.map',
+      'public/app.d.ts',
+      'public/sub/app.js',
+      'public/',
+      'web/app.ts',
+    ];
+    expect(checkPackFiles(['plugin/index.js', ...bad]).map((f) => f.path)).toEqual(bad);
+  });
   it('rejects extras and an empty plugin dir', () => {
     expect(checkPackFiles(['plugin/index.js', 'docs/api.md']).map((f) => f.path)).toEqual([
       'docs/api.md',

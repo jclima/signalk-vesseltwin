@@ -163,11 +163,27 @@ export function scanCommitMessages(messages, extra = []) {
 
 export const PACK_ALLOWED_FILES = new Set(['README.md', 'LICENSE', 'SECURITY.md', 'package.json']);
 
-/** Assert an npm pack file list contains only plugin/**, README.md, LICENSE, SECURITY.md, package.json. */
+/**
+ * The pairing page served by SignalK as a webapp. Exactly these files, no `public/` prefix rule:
+ * source maps, declaration files and nested paths under public/ stay rejected.
+ */
+export const PACK_ALLOWED_UI_FILES = new Set([
+  'public/index.html',
+  'public/style.css',
+  'public/app.js',
+  'public/view.js',
+  'public/controller.js',
+]);
+
+/**
+ * Assert an npm pack file list contains only plugin/**, README.md, LICENSE, SECURITY.md,
+ * package.json and the five pairing page files in PACK_ALLOWED_UI_FILES.
+ */
 export function checkPackFiles(paths) {
   const findings = [];
   for (const p of paths) {
-    if (p.startsWith('plugin/') || PACK_ALLOWED_FILES.has(p)) continue;
+    if (p.startsWith('plugin/') || PACK_ALLOWED_FILES.has(p) || PACK_ALLOWED_UI_FILES.has(p))
+      continue;
     findings.push({ path: p, line: 0, rule: 'pack: unexpected file in npm tarball' });
   }
   if (!paths.some((p) => p.startsWith('plugin/'))) {

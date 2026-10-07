@@ -10,6 +10,7 @@ export interface Rule {
 }
 export const FORBIDDEN_PATHS: readonly Rule[];
 export const PACK_ALLOWED_FILES: ReadonlySet<string>;
+export const PACK_ALLOWED_UI_FILES: ReadonlySet<string>;
 export function isFiller(body: string): boolean;
 export function parseDenyPatterns(text: string, source?: string): Rule[];
 export function loadExtraPatterns(root: string, env?: Record<string, string | undefined>): Rule[];
