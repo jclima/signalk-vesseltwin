@@ -17,6 +17,7 @@ node dev/pair.mjs               # starts pairing, approves it on the mock, waits
 docker compose -f dev/docker-compose.yml down -v
 ```
 
+- The image is pinned to `signalk/signalk-server:v2.33.0` and all published ports bind to 127.0.0.1 only.
 - SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).

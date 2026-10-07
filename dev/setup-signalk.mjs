@@ -8,7 +8,7 @@
 //
 // Env: SK_PORT (3100)  SK_URL (overrides the URL)  SK_ADMIN_USER (dev-admin)
 //      SK_ADMIN_PASSWORD (dev-admin-password)  PLUGIN_API_URL (http://localhost:3001)
-// Developed against signalk-server 2.33.
+// Developed against signalk-server 2.33.0 (the image tag pinned in docker-compose.yml).
 import { saveToken } from './token-store.mjs';
 
 const base = process.env.SK_URL ?? `http://localhost:${process.env.SK_PORT ?? '3100'}`;

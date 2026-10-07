@@ -16,9 +16,9 @@
 name: ${COMPOSE_PROJECT_NAME:-vesseltwin-dev}
 services:
   signalk:
-    image: signalk/signalk-server:latest
+    image: signalk/signalk-server:v2.33.0
     ports:
-      - '${SK_PORT:-3100}:3000'
+      - '127.0.0.1:${SK_PORT:-3100}:3000'
     environment:
       - SIGNALK_NODE_SETTINGS=/home/node/.signalk/settings.json
     extra_hosts:
@@ -29,10 +29,10 @@ services:
       - ../package.json:/home/node/.signalk/node_modules/signalk-vesseltwin/package.json:ro
 
   mock:
-    image: signalk/signalk-server:latest # reused only because it already ships node
+    image: signalk/signalk-server:v2.33.0 # reused only because it already ships node
     entrypoint: ['node', '/mock/server.mjs']
     ports:
-      - '${MOCK_HOST_PORT:-3001}:3001'
+      - '127.0.0.1:${MOCK_HOST_PORT:-3001}:3001'
     environment:
       - MOCK_HOST=0.0.0.0
       - MOCK_PORT=3001
@@ -43,7 +43,7 @@ services:
 
   # Shares the signalk container's network namespace and forwards its port 3001 to the target.
   relay:
-    image: signalk/signalk-server:latest
+    image: signalk/signalk-server:v2.33.0
     network_mode: 'service:signalk'
     entrypoint: ['node', '/relay/relay.mjs']
     environment:
