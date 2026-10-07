@@ -506,7 +506,7 @@ describe('origin check', () => {
     h.plugin.start({});
     await h.tick();
     const evil = { origin: 'https://evil.example', host: 'boat:3000' };
-    for (const r of ['GET /status', 'POST /pair', 'POST /unpair']) {
+    for (const r of ['GET /status', 'POST /pair', 'POST /pair/cancel', 'POST /unpair']) {
       const out = await h.call(r, evil);
       expect(out.status).toBe(403);
       expect(JSON.stringify(out.body)).not.toMatch(/evil|origin/i);
@@ -1465,7 +1465,7 @@ describe('lifecycle races and the status line', () => {
     await h.call('POST /pair');
     await h.tick();
     expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
-    expect(COPY.pairingInProgress).toContain('/plugins/signalk-vesseltwin/status');
+    expect(COPY.pairingInProgress).toContain('Webapps');
     expect((await h.call('GET /status')).body.pairing).toMatchObject({ userCode: 'AAAA-AAAA' });
     for (const line of h.app.statuses) expect(line).not.toMatch(/AAAA|connect/);
     h.plugin.stop();
@@ -1588,5 +1588,234 @@ describe('lifecycle races and the status line', () => {
     h.plugin.start({});
     await h.until(() => h.app.statuses.at(-1) === COPY.notPaired);
     h.plugin.stop();
+  });
+});
+
+describe('cancel pairing', () => {
+  it('answers 409 with neutral copy when nothing is pending, without any network call', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    const out = await h.call('POST /pair/cancel');
+    expect(out.status).toBe(409);
+    expect(out.body).toEqual({ error: COPY.nothingToCancel });
+    expect(COPY.nothingToCancel).toBe('No pairing is waiting for approval.');
+    expect(h.calls).toEqual([]);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
+    h.plugin.stop();
+  });
+
+  it('cancels a pending pairing: idle state, status line reset, a late approval is ignored', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'pairing' });
+    const out = await h.call('POST /pair/cancel');
+    expect(out).toEqual({ status: 200, body: { cancelled: true } });
+    // The route reports by itself: no wait for the next poll.
+    expect(h.app.statuses.at(-1)).toBe(COPY.notPaired);
+    const st = (await h.call('GET /status')).body;
+    expect(st).toMatchObject({ state: 'not_paired', paired: false, pairing: null });
+    // The owner approves just as Cancel was pressed: nothing is saved or started.
+    await h.resolveHeld(h.ok());
+    await h.tick(10_000);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
+    expect(h.files()).toEqual([]);
+    expect(h.statusCalls()).toBe(0);
+    // A second cancel has nothing to cancel, and pairing can start again.
+    expect((await h.call('POST /pair/cancel')).status).toBe(409);
+    expect((await h.call('POST /pair')).status).toBe(202);
+    await h.tick();
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'pairing',
+      pairing: { userCode: 'BBBB-BBBB' },
+    });
+    h.plugin.stop();
+  });
+
+  it('answers 409 while the approved credential is being saved', async () => {
+    const h = harness();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+    const realWrite = CredentialStore.prototype.write;
+    const spy = vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(async function (
+      this: CredentialStore,
+      c,
+    ) {
+      await gate;
+      return realWrite.call(this, c);
+    });
+    try {
+      h.plugin.start({});
+      await h.tick();
+      await h.call('POST /pair');
+      await h.tick(5_000);
+      await h.resolveHeld(h.ok());
+      await h.until(() => spy.mock.calls.length > 0);
+      expect((await h.call('GET /status')).body.state).toBe('checking');
+      const out = await h.call('POST /pair/cancel');
+      expect(out).toEqual({ status: 409, body: { error: COPY.nothingToCancel } });
+      release();
+      await h.untilState('connected');
+      expect((await h.call('GET /status')).body).toMatchObject({ paired: true });
+      h.plugin.stop();
+    } finally {
+      release();
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps the re-pair marker: 409 without a pending pairing, and cancelling a re-pair leaves it', async () => {
+    const dir = tempDir();
+    const tomb = {
+      reauthRequired: true,
+      vesselLabel: 'Sea Hag',
+      apiOrigin: ORIGIN,
+      pairedAt: '2030-01-01T00:00:00.000Z',
+    };
+    await writeFile(join(dir, 'credential.json'), JSON.stringify(tomb));
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('reauth_required');
+    expect((await h.call('POST /pair/cancel')).status).toBe(409);
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'pairing' });
+    expect((await h.call('POST /pair/cancel')).status).toBe(200);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'reauth_required',
+      paired: false,
+    });
+    expect(JSON.parse(await readFile(join(dir, 'credential.json'), 'utf8'))).toEqual(tomb);
+    expect(h.statusCalls()).toBe(0);
+    h.plugin.stop();
+  });
+
+  it('is 503 when the plugin is not running', async () => {
+    const h = harness();
+    expect((await h.call('POST /pair/cancel')).status).toBe(503);
+  });
+});
+
+describe('pairing countdown and cancel before the code exists', () => {
+  const startBody = {
+    deviceCode: 'dc_AAAA-AAAA_abcdefghijklmnop',
+    userCode: 'AAAA-AAAA',
+    verificationUrl: 'https://vesseltwin.io/connect',
+    interval: 5,
+    expiresIn: 600,
+  };
+
+  function lazy() {
+    const app = fakeApp(tempDir());
+    let clock = 1_800_000_000_000;
+    let releaseStart: () => void = () => undefined;
+    const fetchFn = (url: string): Promise<Response> =>
+      url.endsWith('/pairing/start')
+        ? new Promise<Response>((resolve) => {
+            releaseStart = () => {
+              resolve(new Response(JSON.stringify(startBody), { status: 200 }));
+            };
+          })
+        : new Promise<Response>(() => undefined);
+    const plugin = createPlugin(app, { fetch: fetchFn, now: () => clock });
+    const routes: Record<string, RouteFn> = {};
+    plugin.registerWithRouter({
+      get: (p, h) => {
+        routes[`GET ${p}`] = h;
+      },
+      post: (p, h) => {
+        routes[`POST ${p}`] = h;
+      },
+    });
+    const call = async (route: string) => {
+      let status = 200;
+      let body: unknown;
+      const res: ResponseLike = {
+        status: (c) => {
+          status = c;
+          return res;
+        },
+        json: (b) => {
+          body = b;
+        },
+      };
+      await routes[route]?.({}, res);
+      return { status, body: body as Record<string, unknown> };
+    };
+    return {
+      plugin,
+      call,
+      release: () => {
+        releaseStart();
+      },
+      advance: (ms: number) => {
+        clock += ms;
+      },
+    };
+  }
+
+  it('reports whole seconds left at response time, never negative, only while pending', async () => {
+    const p = lazy();
+    p.plugin.start({});
+    await vi.waitFor(async () => {
+      expect((await p.call('POST /pair')).status).toBe(202);
+    });
+    expect((await p.call('GET /status')).body).toMatchObject({ pairing: null });
+    p.release();
+    await vi.waitFor(async () => {
+      expect((await p.call('GET /status')).body.state).toBe('pairing');
+    });
+    const read = async () =>
+      ((await p.call('GET /status')).body.pairing as Record<string, unknown>).expiresInSeconds;
+    expect(await read()).toBe(600);
+    p.advance(125_400);
+    expect(await read()).toBe(475);
+    p.advance(125_600);
+    expect(await read()).toBe(349);
+    p.advance(10_000_000);
+    expect(await read()).toBe(0);
+    const body = (await p.call('GET /status')).body.pairing as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual([
+      'expiresAt',
+      'expiresInSeconds',
+      'userCode',
+      'verificationUrl',
+    ]);
+    p.plugin.stop();
+  });
+
+  it('cancel in the window before the code arrives stops the run cleanly', async () => {
+    const p = lazy();
+    p.plugin.start({});
+    await vi.waitFor(async () => {
+      expect((await p.call('POST /pair')).status).toBe(202);
+    });
+    expect((await p.call('GET /status')).body.state).toBe('not_paired');
+    expect((await p.call('POST /pair/cancel')).status).toBe(200);
+    p.release(); // the start answer arrives late and must be ignored
+    await realPause(50);
+    expect((await p.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      pairing: null,
+    });
+    p.plugin.stop();
+  });
+});
+
+describe('page copy', () => {
+  it('points to the Webapps page and never carries the code or a route', () => {
+    expect(COPY.notPaired).toBe(
+      'Not paired. Open VesselTwin under Webapps in the SignalK admin UI to pair.',
+    );
+    expect(COPY.pairingInProgress).toBe(
+      'Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code.',
+    );
+    expect(COPY.pairingInProgress).not.toMatch(/\/plugins|status/);
   });
 });

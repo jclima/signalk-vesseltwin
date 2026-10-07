@@ -46,7 +46,7 @@ const get = async () => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // GET /status returns { state, paired, vesselLabel, apiOrigin, pairing, updateRecommended,
-// clockSkewWarning, lastCheckedAt, message }. `pairing` is { userCode, verificationUrl, expiresAt }
+// clockSkewWarning, lastCheckedAt, message }. `pairing` is { userCode, verificationUrl, expiresAt, expiresInSeconds }
 // in state "pairing" and { reason } in state "pairing_failed".
 const start = await fetch(`${plugin}/pair`, { method: 'POST', headers: h });
 console.log('POST /pair:', start.status);

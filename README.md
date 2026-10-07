@@ -37,6 +37,10 @@ Without a browser (headless servers), the same steps work over HTTP as an admin:
 `pairing.userCode` and `pairing.verificationUrl`. From a checkout of this repository,
 `node dev/pair.mjs --no-approve` does this for you.
 
+Choose **Cancel** on the page to abandon a pending pairing. If you approve in VesselTwin just as you
+press Cancel, the approval may still go through on the VesselTwin side. If VesselTwin then lists the
+connection but this page does not show the boat as paired, remove that connection in VesselTwin.
+
 The code expires after 10 minutes. If it does, start pairing again.
 
 The plugin's endpoints (`status`, `pair`, `unpair`) rely on the SignalK server's own access control

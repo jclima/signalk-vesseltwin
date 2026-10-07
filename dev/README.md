@@ -72,7 +72,7 @@ records the header and whether `User-Agent` was present in its log.
 
 All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the admin token:
 
-- `POST /pair` starts pairing (202). `GET /status` returns:
+- `POST /pair` starts pairing (202); `POST /pair/cancel` cancels a pending one (200, or 409 if none). `GET /status` returns:
 
 ```json
 {
@@ -83,12 +83,13 @@ All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the a
   "pairing": {
     "userCode": "ABCD-EFGH",
     "verificationUrl": "http://localhost:3001/connect",
-    "expiresAt": "2026-01-01T00:10:00.000Z"
+    "expiresAt": "2026-01-01T00:10:00.000Z",
+    "expiresInSeconds": 600
   },
   "updateRecommended": false,
   "clockSkewWarning": false,
   "lastCheckedAt": null,
-  "message": "Pairing in progress. Open /plugins/signalk-vesseltwin/status as an admin for the code."
+  "message": "Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code."
 }
 ```
 

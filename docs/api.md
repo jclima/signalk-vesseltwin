@@ -280,11 +280,12 @@ the browser also sends `Sec-Fetch-Site: same-origin` or `none` (this covers a re
 rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A request without
 `Origin` (curl, scripts) is allowed.
 
-| Route          | Response                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /status`  | `200` with the object below; `503` if the plugin is not running                                                                                |
-| `POST /pair`   | `202 { "started": true }`; `409` when already paired and working (or still checking); `503` if the plugin is not running or has a config error |
-| `POST /unpair` | `200 { "paired": false, "message": ... }` after deleting the local credential; `503` if not running; `500` if it cannot be deleted             |
+| Route               | Response                                                                                                                                                                                                                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /status`       | `200` with the object below; `503` if the plugin is not running                                                                                                                                                                                                                                                 |
+| `POST /pair`        | `202 { "started": true }`; `409` when already paired and working (or still checking); `503` if the plugin is not running or has a config error                                                                                                                                                                  |
+| `POST /pair/cancel` | `200 { "cancelled": true }` for a pairing waiting for approval (including just after `POST /pair`, before the code exists); `409 { "error": ... }` when none is pending, including while an approved credential is being saved; `503` if not running. Never touches the stored credential or the re-pair marker |
+| `POST /unpair`      | `200 { "paired": false, "message": ... }` after deleting the local credential; `503` if not running; `500` if it cannot be deleted                                                                                                                                                                              |
 
 `GET /status`:
 
@@ -306,13 +307,15 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   `offline`, `update_required`, `reauth_required`, `config_error`.
 - `paired` is true only while the stored credential is believed to work (false in
   `reauth_required`).
-- `pairing` is `{ "userCode", "verificationUrl", "expiresAt" }` in state `pairing`, and
+- `pairing` is `{ "userCode", "verificationUrl", "expiresAt", "expiresInSeconds" }` in state `pairing`
+  (`expiresInSeconds` is the whole seconds left when the response is made, never negative; the web page
+  counts down from it instead of comparing clocks), and
   `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" | "local_failure" }` in
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.
-- `message` is the same text as the plugin's status line. While pairing it is `Pairing in progress.
-Open /plugins/signalk-vesseltwin/status as an admin for the code.` `vesselLabel` comes from the server and is
+- `message` is the same text as the plugin's status line. While pairing it is `Pairing in progress. Open VesselTwin under Webapps, signed in as an
+administrator, to see the code.` `vesselLabel` comes from the server and is
   shortened and stripped of control characters.
 - `POST /pair` answers 503 until the stored credential has loaded (right after the plugin starts), and
   is allowed in `not_paired`, `pairing_failed` and `reauth_required`. It does nothing

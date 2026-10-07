@@ -4,9 +4,6 @@
 import { PairingController, type Snapshot } from './controller.js';
 import { describeStatus, remainingSeconds, type Action, type LinkInfo } from './view.js';
 
-/** Cancel arrives with the plugin's cancel route. */
-const CANCEL_ENABLED: boolean = false;
-
 function byId(id: string): HTMLElement {
   const e = document.getElementById(id);
   if (!e) throw new Error(`missing element ${id}`);
@@ -116,7 +113,6 @@ function buttonsFor(snap: Snapshot, controller: PairingController, actions: Acti
   }
   const out: Button[] = [];
   for (const a of actions) {
-    if (a.id === 'cancel' && !CANCEL_ENABLED) continue;
     const run = (): void => {
       if (a.id === 'pair') void controller.pair();
       else if (a.id === 'cancel') void controller.cancel();
