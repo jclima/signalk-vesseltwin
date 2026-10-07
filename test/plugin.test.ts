@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,10 +10,21 @@ import {
   COPY,
   createPlugin,
   FAILURE_COPY,
+  PLUGIN_VERSION,
   type RequestLike,
   type ResponseLike,
   type SignalKApp,
 } from '../src/plugin';
+
+const tempDirs: string[] = [];
+const tempDir = (): string => {
+  const d = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+  tempDirs.push(d);
+  return d;
+};
+afterEach(() => {
+  for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 3 });
+});
 
 const fakeApp = (dir: string): SignalKApp & { statuses: string[] } => {
   const statuses: string[] = [];
@@ -30,7 +41,7 @@ const fakeApp = (dir: string): SignalKApp & { statuses: string[] } => {
 
 describe('plugin shell', () => {
   it('exposes the SignalK plugin shape and reports unpaired status', async () => {
-    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const app = fakeApp(tempDir());
     const p = createPlugin(app);
     expect(p.id).toBe('signalk-vesseltwin');
     expect(p.schema().properties.apiBaseUrl.default).toBe('https://api.vesseltwin.io');
@@ -42,7 +53,7 @@ describe('plugin shell', () => {
   });
 
   it('shows neutral busy copy when pairing is throttled', async () => {
-    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const app = fakeApp(tempDir());
     const fetchFn = () =>
       Promise.resolve(new Response('{}', { status: 429, headers: { 'retry-after': '60' } }));
     const p = createPlugin(app, { fetch: fetchFn });
@@ -73,8 +84,17 @@ describe('plugin shell', () => {
   });
 });
 
+describe('PLUGIN_VERSION', () => {
+  it('matches package.json', () => {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    expect(PLUGIN_VERSION).toBe(pkg.version);
+  });
+});
+
 describe('parseOptions', () => {
-  it('defaults safely and flags non-https remote URLs', () => {
+  it('defaults safely, flags non-https remote URLs and clamps the queue cap', () => {
     const d = parseOptions(undefined);
     expect(d.apiBaseUrl).toBe('https://api.vesseltwin.io');
     expect(d.categories.vesselInfo).toBe(false);
@@ -118,7 +138,7 @@ const okStatusBody = () => ({
 
 function harness(opts: { dir?: string } = {}) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-  const dir = opts.dir ?? mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+  const dir = opts.dir ?? tempDir();
   const app = fakeApp(dir);
   const calls: string[] = [];
   const held: Deferred[] = [];
@@ -310,6 +330,46 @@ describe('pairing lifecycle', () => {
     }
   });
 
+  it('shows distinct local-failure copy when the token response is malformed', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    await h.resolveHeld(new Response(JSON.stringify({ credential: 'bad' }), { status: 200 }));
+    await h.untilState('pairing_failed');
+    const st = (await h.call('GET /status')).body;
+    expect(st.pairing).toEqual({ reason: 'local_failure' });
+    expect(st.message).toBe(FAILURE_COPY.local_failure);
+    expect(FAILURE_COPY.local_failure).not.toBe(FAILURE_COPY.unavailable);
+    expect(String(st.message)).not.toMatch(/AAAA-AAAA|vesseltwin\.io\/connect/);
+    h.plugin.stop();
+  });
+
+  it('shows distinct local-failure copy when the credential cannot be saved, without logging it', async () => {
+    const h = harness();
+    const spy = vi
+      .spyOn(CredentialStore.prototype, 'write')
+      .mockRejectedValue(new Error(`EACCES ${FAKE_CRED}`));
+    try {
+      h.plugin.start({});
+      await h.tick();
+      await h.call('POST /pair');
+      await h.tick(5_000);
+      await h.resolveHeld(h.ok());
+      await h.untilState('pairing_failed');
+      const st = (await h.call('GET /status')).body;
+      expect(st).toMatchObject({ paired: false, pairing: { reason: 'local_failure' } });
+      expect(st.message).toBe(FAILURE_COPY.local_failure);
+      const logged = (h.app.debug as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      expect(logged.join('\n')).not.toContain(FAKE_CRED);
+      expect(h.app.statuses.join('\n')).not.toContain(FAKE_CRED);
+      h.plugin.stop();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('unpair during a pending pairing wins over a late approval', async () => {
     const h = harness();
     h.plugin.start({});
@@ -335,7 +395,7 @@ describe('pairing lifecycle', () => {
   });
 
   it('answers 500 with neutral copy when the credential cannot be removed', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const h = harness({ dir });
     h.plugin.start({});
     await h.tick();
@@ -391,7 +451,7 @@ describe('pairing lifecycle', () => {
   });
 
   it('refuses /pair when already paired, with no pairing requests', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await writeFile(
       join(dir, 'credential.json'),
       JSON.stringify({
@@ -541,7 +601,7 @@ describe('config error', () => {
 describe('pairing failure copy', () => {
   async function run(startReply: () => Response) {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const app = fakeApp(tempDir());
     const plugin = createPlugin(app, { fetch: () => Promise.resolve(startReply()) });
     const routes: Record<string, RouteFn> = {};
     plugin.registerWithRouter({
@@ -736,7 +796,7 @@ describe('state machine', () => {
   ])(
     'a credential with a %s origin goes to reauth_required with zero network calls',
     async (_n, origin, copy) => {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir, { apiOrigin: origin });
       const h = harness({ dir });
       h.plugin.start({});
@@ -762,7 +822,7 @@ describe('state machine', () => {
   });
 
   it('a changed API URL after pairing shows the origin copy', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'https://other.example' });
@@ -773,7 +833,7 @@ describe('state machine', () => {
   });
 
   it('a real 401 keeps the generic re-pair copy, not the origin copy', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
@@ -803,7 +863,7 @@ describe('state machine', () => {
   });
 
   it('a stale reauth error is cleared once re-paired and connected', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
@@ -824,7 +884,7 @@ describe('state machine', () => {
   });
 
   it('a credential issued for a configured non-default origin works against it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir, { apiOrigin: 'https://h.example' });
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'https://h.example/api' });
@@ -911,7 +971,7 @@ describe('state machine', () => {
     ],
   ];
   it.each(lines)('status line and /status for %s', async (_n, r, line, body, isError) => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(r);
@@ -927,7 +987,7 @@ describe('state machine', () => {
   });
 
   it('shows the checking line until the first probe returns', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const app = fakeApp(dir);
     const plugin = createPlugin(app, { fetch: () => new Promise<Response>(() => undefined) });
@@ -941,7 +1001,7 @@ describe('state machine', () => {
   });
 
   it('keeps probing hourly while paused or offline, never faster than Retry-After', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(
@@ -965,7 +1025,7 @@ describe('state machine', () => {
       reply(426, {}),
       () => new Response(JSON.stringify(okStatusBody()), { status: 200 }),
     ]) {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir);
       const h = harness({ dir });
       h.statusReplies.push(r);
@@ -980,7 +1040,7 @@ describe('state machine', () => {
 
   it('pairing_failed exposes the reason, and /pair can start again', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const app = fakeApp(dir);
     let n = 0;
     const plugin = createPlugin(app, {
@@ -1045,7 +1105,7 @@ describe('state machine', () => {
 
   it('/unpair stops the monitor and stop() clears its timer: no probes afterwards', async () => {
     for (const how of ['unpair', 'stop'] as const) {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir);
       const h = harness({ dir });
       h.plugin.start({});
@@ -1060,7 +1120,7 @@ describe('state machine', () => {
   });
 
   it('a config error with a stored credential makes no calls and reads nothing', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'ftp://nope' });
@@ -1075,7 +1135,7 @@ describe('state machine', () => {
   });
 
   it('an unreadable credential file is reported neutrally as config_error', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const { mkdirSync } = await import('node:fs');
     mkdirSync(join(dir, 'credential.json'));
     const h = harness({ dir });
@@ -1112,7 +1172,7 @@ describe('tombstone after a 401', () => {
   const credFile = (dir: string) => join(dir, 'credential.json');
 
   async function reachReauth() {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
@@ -1165,7 +1225,7 @@ describe('tombstone after a 401', () => {
   });
 
   it('a hand-made tombstone is also reauth_required with zero calls', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await writeFile(credFile(dir), JSON.stringify({ reauthRequired: true, apiOrigin: ORIGIN }));
     const h = harness({ dir });
     h.plugin.start({});
@@ -1204,7 +1264,7 @@ describe('tombstone after a 401', () => {
   });
 
   it('an origin mismatch (no call made) does not tombstone the credential', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir, { apiOrigin: 'https://elsewhere.test' });
     const h = harness({ dir });
     h.plugin.start({});
@@ -1222,7 +1282,7 @@ function readFileSyncText(file: string): string {
 
 describe('unpair, cleanup and route hardening', () => {
   it('unpair bumps the epoch first: a racing credential load cannot start a monitor', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({}); // the credential read is now in flight
@@ -1321,7 +1381,7 @@ describe('unpair, cleanup and route hardening', () => {
   });
 
   it('a pairing start with an unsafe verification URL is rejected without showing it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const app = fakeApp(dir);
     const fetchFn = () =>
       Promise.resolve(
@@ -1391,7 +1451,7 @@ describe('lifecycle races and the status line', () => {
   });
 
   it('POST /pair is refused until the stored credential has loaded, with zero network calls', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const g = gate();
     // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
@@ -1475,7 +1535,7 @@ describe('lifecycle races and the status line', () => {
 
   it('an unrecognised 401 stops probing but keeps the credential file untouched', async () => {
     for (const body of [{}, { code: 'something_else' }]) {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir);
       const before = await readFile(join(dir, 'credential.json'), 'utf8');
       const h = harness({ dir });
@@ -1496,7 +1556,7 @@ describe('lifecycle races and the status line', () => {
   });
 
   it('keeps the revoke reminder after unpair until the next start or pairing', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({});

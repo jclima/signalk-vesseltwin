@@ -42,7 +42,7 @@ export interface PluginDeps {
 }
 
 export type PairingFailure =
-  'expired' | 'denied' | 'unavailable' | 'busy' | 'update_required' | 'rejected';
+  'expired' | 'denied' | 'unavailable' | 'busy' | 'update_required' | 'rejected' | 'local_failure';
 
 export type PluginState =
   | 'not_paired'
@@ -68,6 +68,8 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
   update_required: 'This plugin version is not supported by VesselTwin. Update the plugin.',
   rejected:
     'VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.',
+  local_failure:
+    'Pairing finished but the connection could not be saved. Check the plugin data folder permissions, then remove this connection in VesselTwin and pair again.',
 };
 
 export const COPY = {
@@ -159,7 +161,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
    * it before reading, so a pairing that outlived stop() cannot delete a credential the next
    * lifecycle just loaded, or leave a file behind that the next lifecycle did not see.
    */
-  let persisting: Promise<boolean> | null = null;
+  let persisting: Promise<'kept' | 'stale' | 'failed'> | null = null;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -373,27 +375,36 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         const pairedAt = new Date().toISOString();
         await tombstoneWrite; // a late tombstone must not overwrite the new credential
         if (!current()) return;
-        const saved = (async () => {
-          await s.write({
-            credential: out.token.credential,
-            credentialId: out.token.credentialId,
-            vesselLabel: out.token.vesselLabel,
-            pairedAt,
-            apiOrigin: issuer,
-          });
-          if (current()) return true;
+        const saved = (async (): Promise<'kept' | 'stale' | 'failed'> => {
+          try {
+            await s.write({
+              credential: out.token.credential,
+              credentialId: out.token.credentialId,
+              vesselLabel: out.token.vesselLabel,
+              pairedAt,
+              apiOrigin: issuer,
+            });
+          } catch (err) {
+            app.debug(`saving the credential failed: ${redactError(err)}`);
+            return 'failed';
+          }
+          if (current()) return 'kept';
           try {
             await s.clear(); // cancelled while the file was being written
           } catch (err) {
             app.debug(`stale pairing cleanup failed: ${redactError(err)}`);
           }
-          return false;
+          return 'stale';
         })();
         persisting = saved;
         const keep = await saved.finally(() => {
           if (persisting === saved) persisting = null;
         });
-        if (!keep) return;
+        if (keep === 'failed') {
+          if (current()) fail('local_failure');
+          return;
+        }
+        if (keep === 'stale') return;
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
