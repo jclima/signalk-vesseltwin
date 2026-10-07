@@ -131,21 +131,21 @@ pnpm check:release --verify-published X.Y.Z
 
 ## What the checks guard
 
-| Check id                                               | Guards                                                                     |
-| ------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `version-sync/plugin`                                  | `PLUGIN_VERSION` equals the `package.json` version                         |
-| `version-sync/readme`                                  | versions in the README Status line equal the `package.json` version        |
-| `changelog/bump-has-section`                           | a bumped version has a dated changelog section                             |
-| `contract/doc`                                         | `docs/api.md` states the same contract as `CONTRACT_VERSION`               |
-| `upload/mapping-empty`, `upload/no-ingest-route`       | upload stays unbuilt until it is approved (see `AGENTS.md`)                |
-| `upload/status-copy`, `upload/readme`                  | the status line and README keep saying that upload is unavailable          |
-| `release/version-arg`                                  | the release version is strict `X.Y.Z`, not a prerelease, and matches       |
-| `release/bump`                                         | the version is the next patch, minor or major after the baseline           |
-| `changelog/section`                                    | topmost, dated (not in the future), non-empty section, releases descending |
-| `changelog/unreleased`                                 | `Unreleased` is empty at release time                                      |
-| `readme/released-copy`                                 | no "not yet published" wording left in the README or release notes         |
-| `git/clean`                                            | no uncommitted changes                                                     |
-| `git/at-origin-main`, `git/tag-absent`                 | tagging from the merged commit, and the tag does not exist yet             |
-| `tag/match`, `tag/on-main`                             | the tag equals `v` plus the version and is reachable from `origin/main`    |
-| `registry/not-published`, `registry/bump` (`--online`) | the version is not on npm yet and is above the npm latest                  |
-| `verify/present`, `verify/latest`, `verify/provenance` | after publishing: version on npm, tagged `latest`, provenance (warning)    |
+| Check id                                               | Guards                                                                                                                                       |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version-sync/plugin`                                  | `PLUGIN_VERSION` equals the `package.json` version                                                                                           |
+| `version-sync/readme`                                  | versions in the README Status line equal the `package.json` version                                                                          |
+| `changelog/bump-has-section`                           | `--release` and `--tag`: the version has a dated changelog section; `--ci`: the version is newer than every dated section and local `v*` tag |
+| `contract/doc`                                         | `docs/api.md` states the same contract as `CONTRACT_VERSION`                                                                                 |
+| `upload/mapping-empty`, `upload/no-ingest-route`       | upload stays unbuilt until it is approved (see `AGENTS.md`)                                                                                  |
+| `upload/status-copy`, `upload/readme`                  | the status line and README keep saying that upload is unavailable                                                                            |
+| `release/version-arg`                                  | the release version is strict `X.Y.Z`, not a prerelease, and matches                                                                         |
+| `release/bump`                                         | the version is the next patch, minor or major after the baseline                                                                             |
+| `changelog/section`                                    | topmost, dated (not in the future), non-empty section, releases descending                                                                   |
+| `changelog/unreleased`                                 | `Unreleased` is empty at release time                                                                                                        |
+| `readme/released-copy`                                 | no "not yet published" wording left in the README or release notes                                                                           |
+| `git/clean`                                            | no uncommitted changes                                                                                                                       |
+| `git/at-origin-main`, `git/tag-absent`                 | tagging from the merged commit, and the tag does not exist yet                                                                               |
+| `tag/match`, `tag/on-main`                             | the tag equals `v` plus the version and is reachable from `origin/main`                                                                      |
+| `registry/not-published`, `registry/bump` (`--online`) | the version is not on npm yet and is above the npm latest                                                                                    |
+| `verify/present`, `verify/latest`, `verify/provenance` | after publishing: version on npm, tagged `latest`, provenance (warning)                                                                      |

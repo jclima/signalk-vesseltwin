@@ -189,15 +189,37 @@ function validDate(s) {
 
 const CL = 'CHANGELOG.md';
 
-export function checkChangelogDated(parsed, pkgVersion) {
+/**
+ * Strict mode (release, tag): the package version needs a dated changelog section.
+ * Lenient mode (--ci, runs on every PR): a not-yet-released version has no dated section, so only
+ * require that it is newer than every dated section and every local release tag (no stale or
+ * duplicate version). A dated section for the package version always passes.
+ */
+export function checkChangelogDated(parsed, pkgVersion, { strict = true, tags = [] } = {}) {
   if (pkgVersion === '0.0.0') return [];
   const r = parsed.releases.find((x) => x.version === pkgVersion);
-  if (!r || validDate(r.date) === null) {
+  if (r && validDate(r.date) !== null) return [];
+  if (strict) {
     return [
       err(
         'changelog/bump-has-section',
         CL,
         `package version ${sv(pkgVersion)} needs a dated "## [${sv(pkgVersion)}] - YYYY-MM-DD" section`,
+        r?.line,
+      ),
+    ];
+  }
+  const known = [
+    ...parsed.releases.filter((x) => validDate(x.date) !== null).map((x) => x.version),
+    ...tags.filter((t) => /^v/.test(t)).map((t) => t.slice(1)),
+  ].filter((v) => parseSemver(v));
+  const stale = known.find((v) => compareSemver(pkgVersion, v) <= 0);
+  if (stale !== undefined) {
+    return [
+      err(
+        'changelog/bump-has-section',
+        CL,
+        `package version ${sv(pkgVersion)} is not newer than already released ${sv(stale)}`,
         r?.line,
       ),
     ];
@@ -607,10 +629,10 @@ function loadContext(root) {
   };
 }
 
-function ciFindings(ctx, parsed) {
+function ciFindings(ctx, parsed, { strict, tags = [] }) {
   return [
     ...checkVersionSync(ctx),
-    ...checkChangelogDated(parsed, ctx.pkgVersion),
+    ...checkChangelogDated(parsed, ctx.pkgVersion, { strict, tags }),
     ...checkContractDoc(ctx),
     ...checkUploadHonesty(ctx),
   ];
@@ -709,7 +731,7 @@ async function runPlan(ctx, parsed, opts, deps, git) {
 async function runRelease(ctx, parsed, opts, deps, git) {
   const { target, mode } = opts;
   const now = deps.now();
-  const f = [...ciFindings(ctx, parsed)];
+  const f = [...ciFindings(ctx, parsed, { strict: true })];
   f.push(...checkVersionArg(target, ctx.pkgVersion));
   if (mode === 'tag') f.push(...checkTagMatch(opts.tag, ctx.pkgVersion));
   const reg = opts.online ? await registryLatestFor(ctx, deps) : null;
@@ -825,7 +847,13 @@ export async function main(argv, deps = {}) {
     const git = makeGit(d);
     let findings;
     if (mode.kind === 'ci') {
-      findings = ciFindings(ctx, parsed);
+      let tags = [];
+      try {
+        tags = listTags(git);
+      } catch {
+        // --ci works without git; the tag comparison is then skipped
+      }
+      findings = ciFindings(ctx, parsed, { strict: false, tags });
     } else if (mode.kind === 'plan') {
       return await runPlan(ctx, parsed, o, d, git);
     } else if (mode.kind === 'print-notes') {

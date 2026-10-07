@@ -191,6 +191,25 @@ describe('changelog', () => {
       'changelog/bump-has-section',
     ]);
   });
+
+  it('lenient mode (--ci) only needs a version newer than everything released', () => {
+    const lenient = (cl: string, v: string, tags: string[] = []) =>
+      ids(checkChangelogDated(parseChangelog(cl), v, { strict: false, tags }));
+    const released = '## [Unreleased]\n\n## [0.1.0] - 2026-06-01\n\n- a\n';
+    expect(lenient('## [Unreleased]\n\n- a\n', '0.1.0')).toEqual([]); // not released yet
+    expect(lenient(released, '0.1.0')).toEqual([]); // dated section present
+    expect(lenient(released, '0.1.1')).toEqual([]);
+    expect(lenient(released, '0.0.9')).toEqual(['changelog/bump-has-section']); // stale
+    expect(lenient('## [0.1.0]\n\n- a\n## [0.0.5] - 2026-01-01\n\n- b\n', '0.0.5')).toEqual([]);
+    expect(lenient('## [Unreleased]\n', '0.1.0', ['v0.1.0'])).toEqual([
+      'changelog/bump-has-section',
+    ]);
+    expect(lenient('## [Unreleased]\n', '0.2.0', ['v0.1.0', 'vjunk'])).toEqual([]);
+    expect(lenient('## [Unreleased]\n', '0.0.0', ['v0.1.0'])).toEqual([]);
+    expect(ids(checkChangelogDated(parseChangelog('## [Unreleased]\n'), '0.1.0'))).toEqual([
+      'changelog/bump-has-section', // strict stays strict
+    ]);
+  });
 });
 
 describe('version sync', () => {
@@ -527,6 +546,16 @@ describe('main --ci', () => {
     const code = await main(['--ci'], { root: REAL_ROOT, stdout: (s) => out.push(s) });
     expect(out.join('\n')).toBe('release-check: ok');
     expect(code).toBe(0);
+  });
+
+  it('accepts an unreleased version, rejects one at or below an existing tag', async () => {
+    mkRepo('0.1.0', { changelog: '# Changelog\n\n## [Unreleased]\n\n- a\n' });
+    expect((await run(['--ci'])).code).toBe(0);
+    git('tag', 'v0.1.0');
+    const r = await run(['--ci']);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ERROR changelog/bump-has-section');
+    expect((await run(['--release', '0.1.0'])).out).toContain('changelog/bump-has-section');
   });
 
   it('exits 3 when a file is missing', async () => {

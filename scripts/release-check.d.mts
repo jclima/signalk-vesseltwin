@@ -49,7 +49,11 @@ export function nextVersions(base: string | Semver): {
 export function formatFindings(findings: Finding[]): string;
 export function normaliseReadme(text: string): string;
 export function parseChangelog(text: string): ParsedChangelog;
-export function checkChangelogDated(parsed: ParsedChangelog, pkgVersion: string): Finding[];
+export function checkChangelogDated(
+  parsed: ParsedChangelog,
+  pkgVersion: string,
+  opts?: { strict?: boolean; tags?: string[] },
+): Finding[];
 export function checkChangelog(
   parsed: ParsedChangelog,
   target: string,
