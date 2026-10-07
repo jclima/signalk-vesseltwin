@@ -165,8 +165,8 @@ SignalK security before you pair.
 
 ## Troubleshooting
 
-- **"Unavailable" while pairing, or a paused connection.** The integration is off right now, or the
-  account is not on the Pro plan. The plugin keeps working and checks again later; try pairing again
+- **"Unavailable" while pairing, or a paused connection.** Your VesselTwin plan doesn't include
+  integrations right now, or integrations are turned off for your account. The plugin keeps working and checks again later; try pairing again
   later.
 - **Disconnect or revoke.** Unpair removes the stored connection on this server; also revoke it in
   VesselTwin.
