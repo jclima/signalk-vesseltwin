@@ -97,6 +97,7 @@ export class CredentialStore {
     try {
       const fh = await fs.open(tmp, 'wx', 0o600);
       try {
+        await fh.chmod(0o600); // correct mode before the secret can appear under its final name
         await fh.writeFile(JSON.stringify(c));
         await fh.sync();
       } finally {
@@ -107,7 +108,6 @@ export class CredentialStore {
       await fs.rm(tmp, { force: true }).catch(() => undefined);
       throw err;
     }
-    await fs.chmod(this.file, 0o600);
     await this.syncDir();
   }
 

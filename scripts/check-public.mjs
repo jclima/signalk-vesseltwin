@@ -56,6 +56,7 @@ const CONTENT_RULES = [
   { rule: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{30,}/g },
   { rule: 'github-pat', re: /github_pat_[A-Za-z0-9_]{30,}/g },
   { rule: 'npm-token', re: /npm_[A-Za-z0-9]{30,}/g },
+  { rule: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g },
   {
     rule: 'vti-credential-like',
     re: /vti_([A-Za-z0-9_-]{20,})/g,
@@ -163,12 +164,35 @@ export function scanCommitMessages(messages, extra = []) {
 
 export const PACK_ALLOWED_FILES = new Set(['README.md', 'LICENSE', 'SECURITY.md', 'package.json']);
 
-/** Assert an npm pack file list contains only plugin/**, README.md, LICENSE, SECURITY.md, package.json. */
+/**
+ * The pairing page served by SignalK as a webapp. Exactly these files, no `public/` prefix rule:
+ * source maps, declaration files and nested paths under public/ stay rejected.
+ */
+export const PACK_ALLOWED_UI_FILES = new Set([
+  'public/index.html',
+  'public/style.css',
+  'public/app.js',
+  'public/view.js',
+  'public/controller.js',
+]);
+
+/**
+ * Assert an npm pack file list contains only plugin/**, README.md, LICENSE, SECURITY.md,
+ * package.json and the five pairing page files in PACK_ALLOWED_UI_FILES.
+ */
 export function checkPackFiles(paths) {
   const findings = [];
   for (const p of paths) {
-    if (p.startsWith('plugin/') || PACK_ALLOWED_FILES.has(p)) continue;
+    if (p.startsWith('plugin/') || PACK_ALLOWED_FILES.has(p) || PACK_ALLOWED_UI_FILES.has(p))
+      continue;
     findings.push({ path: p, line: 0, rule: 'pack: unexpected file in npm tarball' });
+  }
+  if (!paths.includes('public/index.html')) {
+    findings.push({
+      path: 'public/index.html',
+      line: 0,
+      rule: 'pack: tarball has no public/index.html (run pnpm build first)',
+    });
   }
   if (!paths.some((p) => p.startsWith('plugin/'))) {
     findings.push({

@@ -6,7 +6,7 @@ import {
   SCOPES,
   type Scope,
 } from './contract';
-import { HttpClient, HttpError, MAX_TIMER_MS, retryAfterMs } from './http';
+import { HttpClient, HttpError, type HttpResult, MAX_TIMER_MS, retryAfterMs } from './http';
 
 export type PairingOutcome =
   | { kind: 'paired'; token: PairingTokenResponse }
@@ -16,6 +16,8 @@ export type PairingOutcome =
   | { kind: 'busy'; retryAfterMs: number | null }
   | { kind: 'update_required' }
   | { kind: 'rejected' }
+  | { kind: 'unexpected_response' }
+  | { kind: 'local_failure' }
   | { kind: 'cancelled' };
 
 export interface PairingParams {
@@ -210,13 +212,26 @@ export async function runPairing(p: PairingParams): Promise<PairingOutcome> {
     if (p.signal?.aborted) return { kind: 'cancelled' };
     if (now() >= expiresAt) return { kind: 'expired' };
 
-    const res = await p.http.post(
-      '/v1/integrations/pairing/token',
-      { deviceCode: s.deviceCode },
-      ro,
-    );
+    let res: HttpResult;
+    try {
+      res = await p.http.post('/v1/integrations/pairing/token', { deviceCode: s.deviceCode }, ro);
+    } catch (err) {
+      // Never swallow cancellation. Only a transport failure (network error or timeout) is retried:
+      // back off like a 5xx and keep polling until the code expires. Anything else is a bug or a
+      // refusal and propagates (the plugin reports it as unavailable).
+      if (p.signal?.aborted) return { kind: 'cancelled' };
+      if (!(err instanceof HttpError && (err.kind === 'network' || err.kind === 'timeout'))) {
+        throw err;
+      }
+      intervalS = Math.min(MAX_INTERVAL_S, intervalS + SLOW_DOWN_STEP_S);
+      continue;
+    }
     if (res.status === 200 || res.status === 201) {
-      return { kind: 'paired', token: parseToken(res.json) };
+      try {
+        return { kind: 'paired', token: parseToken(res.json) };
+      } catch {
+        return { kind: 'unexpected_response' };
+      }
     }
     const err = isObject(res.json) && typeof res.json.error === 'string' ? res.json.error : '';
     if (res.status === 400 || res.status === 403) {

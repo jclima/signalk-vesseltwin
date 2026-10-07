@@ -14,6 +14,8 @@ export class HttpError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** Set only for transport-level failures, so callers can tell them from programming errors. */
+    readonly kind?: 'network' | 'timeout' | 'cancelled' | 'refused',
   ) {
     super(redact(message));
     this.name = 'HttpError';
@@ -104,7 +106,11 @@ export class HttpClient {
         origin = null;
       }
       if (ro.credentialOrigin === undefined || origin === null || origin !== ro.credentialOrigin) {
-        throw new HttpError('request refused: credential is not valid for this server');
+        throw new HttpError(
+          'request refused: credential is not valid for this server',
+          undefined,
+          'refused',
+        );
       }
       headers.authorization = `Bearer ${ro.credential}`;
     }
@@ -130,8 +136,12 @@ export class HttpClient {
     } catch (err) {
       // Never forward the raw error: undici messages can embed request details.
       const aborted = err instanceof Error && err.name === 'AbortError';
-      if (aborted && ro.signal?.aborted) throw new HttpError('request cancelled');
-      throw new HttpError(aborted ? 'request timed out' : 'network error');
+      if (aborted && ro.signal?.aborted) {
+        throw new HttpError('request cancelled', undefined, 'cancelled');
+      }
+      throw aborted
+        ? new HttpError('request timed out', undefined, 'timeout')
+        : new HttpError('network error', undefined, 'network');
     } finally {
       clearTimeout(timer);
     }

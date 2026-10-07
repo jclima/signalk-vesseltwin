@@ -86,10 +86,11 @@ describe('mock status vs the plugin status parser', () => {
     });
     expect(out.kind).toBe('connected');
     if (out.kind !== 'connected') return;
-    expect(out.updateRecommended).toBe(false);
+    // The mock mirrors the real server window (min 1, latest 2): a contract-1 plugin is nudged.
+    expect(out.updateRecommended).toBe(true);
     expect(out.clockSkewWarning).toBe(false);
     expect(out.info.minContract).toBe(1);
-    expect(out.info.latestContract).toBe(1);
+    expect(out.info.latestContract).toBe(2);
     expect(out.info.serverTime).not.toBeNull();
   });
 
@@ -239,7 +240,7 @@ describe('mock server vs the plugin pairing parsers', () => {
     expect(Number.isInteger(body.latestContract)).toBe(true);
     expect(body.minContract).toBeLessThanOrEqual(CONTRACT_VERSION);
     expect(body.latestContract).toBeGreaterThanOrEqual(CONTRACT_VERSION);
-    expect(body.pluginUpdateRecommended).toBe(false);
+    expect(body.pluginUpdateRecommended).toBe(CONTRACT_VERSION < body.latestContract);
     expect(Number.isNaN(Date.parse(body.serverTime))).toBe(false);
     expect(body.summary === null || typeof body.summary === 'object').toBe(true);
   });

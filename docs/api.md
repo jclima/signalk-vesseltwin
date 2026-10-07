@@ -11,7 +11,7 @@ Stability labels used below:
 - **PENDING**: not available yet. It will be published (as JSON Schema, with a new contract version)
   before the plugin implements it. Do not guess these shapes.
 
-The integration requires a paid (Pro) plan. When the integration is off for an account, or off right now, the API answers `503`.
+The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` when the integration is off for the account. On authenticated calls the two cases differ: a plan problem is `403` `integration_paused_plan`, and a feature-flag problem is `503` `integration_feature_unavailable`.
 
 ## Conventions (STABLE)
 
@@ -167,15 +167,18 @@ outside the window here, so an outdated plugin can still learn it must update. R
 {
   "provider": "signalk",
   "minContract": 1,
-  "latestContract": 1,
-  "pluginUpdateRecommended": false,
+  "latestContract": 2,
+  "pluginUpdateRecommended": true,
   "serverTime": "2026-01-01T00:00:00.000Z",
-  "summary": null
+  "summary": { "channels": 0, "awaitingSetup": 0, "held": 0 }
 }
 ```
 
+The example is what a contract-1 plugin receives from the current server (contracts 1 and 2 are
+accepted, 2 is the latest), so the update hint is expected until the plugin moves to contract 2.
+
 `pluginUpdateRecommended` is true when the plugin's contract is below `latestContract` (or missing).
-`serverTime` can be used to warn about clock skew. `summary` is provider-specific and may be `null`.
+`serverTime` can be used to warn about clock skew. `summary` is provider-specific (a small object of counts for this provider) and may be `null`; the plugin ignores it.
 Unknown fields are ignored.
 
 #### Status probe (how the plugin uses it)
@@ -218,6 +221,8 @@ portal) enters `reauth_required` and stops probing but leaves `credential.json` 
 restart probes once more.
 
 ### `POST /v1/integrations/credential/rotate`
+
+**Server capability; this plugin version does not call it.** Documented for completeness.
 
 Empty body. Same headers. Response `200` (plaintext shown once):
 
@@ -269,16 +274,18 @@ are transient: back off with jitter.
 
 The plugin registers three routes on the SignalK server, at `/plugins/signalk-vesseltwin`. They sit
 behind the server's own admin authentication (a fresh server has security on; send an admin bearer
-token). A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
+token). Admin-only is the server default for plugin routes, verified on signalk-server 2.33; the
+plugin never calls `router.access` to relax it. A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
 the browser also sends `Sec-Fetch-Site: same-origin` or `none` (this covers a reverse proxy that
 rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A request without
 `Origin` (curl, scripts) is allowed.
 
-| Route          | Response                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /status`  | `200` with the object below; `503` if the plugin is not running                                                                                |
-| `POST /pair`   | `202 { "started": true }`; `409` when already paired and working (or still checking); `503` if the plugin is not running or has a config error |
-| `POST /unpair` | `200 { "paired": false, "message": ... }` after deleting the local credential; `503` if not running; `500` if it cannot be deleted             |
+| Route               | Response                                                                                                                                                                                                                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /status`       | `200` with the object below; `503` if the plugin is not running                                                                                                                                                                                                                                                 |
+| `POST /pair`        | `202 { "started": true }`; `409` when already paired and working (or still checking); `503` if the plugin is not running or has a config error                                                                                                                                                                  |
+| `POST /pair/cancel` | `200 { "cancelled": true }` for a pairing waiting for approval (including just after `POST /pair`, before the code exists); `409 { "error": ... }` when none is pending, including while an approved credential is being saved; `503` if not running. Never touches the stored credential or the re-pair marker |
+| `POST /unpair`      | `200 { "paired": false, "message": ... }` after deleting the local credential; `503` if not running; `500` if it cannot be deleted                                                                                                                                                                              |
 
 `GET /status`:
 
@@ -300,13 +307,15 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   `offline`, `update_required`, `reauth_required`, `config_error`.
 - `paired` is true only while the stored credential is believed to work (false in
   `reauth_required`).
-- `pairing` is `{ "userCode", "verificationUrl", "expiresAt" }` in state `pairing`, and
-  `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" }` in
+- `pairing` is `{ "userCode", "verificationUrl", "expiresAt", "expiresInSeconds" }` in state `pairing`
+  (`expiresInSeconds` is the whole seconds left when the response is made, never negative; the web page
+  counts down from it instead of comparing clocks), and
+  `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" | "unexpected_response" | "local_failure" }` in
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.
-- `message` is the same text as the plugin's status line. While pairing it is `Pairing in progress.
-Open /plugins/signalk-vesseltwin/status as an admin for the code.` `vesselLabel` comes from the server and is
+- `message` is the same text as the plugin's status line. While pairing it is `Pairing in progress. Open VesselTwin under Webapps, signed in as an
+administrator, to see the code.` `vesselLabel` comes from the server and is
   shortened and stripped of control characters.
 - `POST /pair` answers 503 until the stored credential has loaded (right after the plugin starts), and
   is allowed in `not_paired`, `pairing_failed` and `reauth_required`. It does nothing

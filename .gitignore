@@ -1,5 +1,6 @@
 node_modules/
 plugin/
+/public/*.js
 coverage/
 *.tgz
 .env

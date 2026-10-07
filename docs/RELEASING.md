@@ -12,15 +12,18 @@ step: nothing here runs without a maintainer pushing a tag.
   it). Add required reviewers there if you want an approval before each publish.
 - Release workflow gate: `release.yml` only runs its publish job when the repository variable
   `NPM_TRUSTED_PUBLISHING` is `true`. Leave it unset until the trusted publisher is configured.
+- A repository ruleset protects `v*.*.*` tags, so only maintainers can create or move them.
+- Branch protection on `main` requires the `check (22)` and `check (24)` CI checks.
 
 ## Pre-release checklist
 
 - [ ] `README.md` "Status" and "Install" wording matches what this release actually does and where
       it is published.
 - [ ] `CHANGELOG.md`: move `Unreleased` entries under the new version heading with the date.
-- [ ] `package.json` `version` is bumped to the new version.
+- [ ] `package.json` `version` is bumped to the new version. It must equal `PLUGIN_VERSION`
+      (`test/` checks this).
 - [ ] Privacy section in the README and the code agree (see `AGENTS.md`).
-- [ ] CI is green on `main`.
+- [ ] CI is green on `main` (`check` on Node 22 and 24).
 
 ## First publish
 
@@ -41,7 +44,10 @@ rely on pre-configuration. Publish the first version manually:
    npm publish --access public
    ```
 
-   This first version has no provenance attestation; that is expected.
+   `pnpm check:pack` asserts the tarball holds only `plugin/`, the five pairing page files in
+   `public/` (`index.html`, `style.css`, `app.js`, `view.js`, `controller.js`), `README.md`,
+   `LICENSE`, `SECURITY.md` and `package.json`. `npm publish` runs `prepack`, which rebuilds. This
+   first version has no provenance attestation; that is expected.
 
 2. On npmjs.com, open the package settings > Trusted Publisher and add GitHub Actions with owner
    `jclima`, repository `signalk-vesseltwin`, workflow filename `release.yml` and environment
@@ -52,9 +58,14 @@ rely on pre-configuration. Publish the first version manually:
 ## Routine releases
 
 1. In a PR, bump `version` in `package.json` and update `CHANGELOG.md`. Merge it.
-2. Tag the merge commit on `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. The `Release` workflow checks that the tag equals the `package.json` version, runs lint,
-   typecheck, tests, build and the tarball check, then runs `npm publish --provenance`.
+2. Tag the merge commit on `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tagged commit
+   must be on `main`.
+3. The `Release` workflow (when the `NPM_TRUSTED_PUBLISHING` gate is on) checks that the tagged
+   commit is an ancestor of `main`, that the tag equals the `package.json` version and that npm is
+   at least 11.5.1 (required for trusted publishing). It then runs lint, typecheck, tests, build
+   and the tarball check, and publishes with
+   `npm publish --provenance --access public --ignore-scripts` (`--ignore-scripts` skips `prepack`,
+   so the tarball is exactly the build that was just checked).
 4. If the `npm-publish` environment has reviewers, approve the run.
 
 ## After publishing

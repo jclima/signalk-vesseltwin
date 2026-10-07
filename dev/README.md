@@ -17,6 +17,7 @@ node dev/pair.mjs               # starts pairing, approves it on the mock, waits
 docker compose -f dev/docker-compose.yml down -v
 ```
 
+- The image is pinned to `signalk/signalk-server:v2.33.0` and all published ports bind to 127.0.0.1 only.
 - SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).
@@ -71,7 +72,7 @@ records the header and whether `User-Agent` was present in its log.
 
 All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the admin token:
 
-- `POST /pair` starts pairing (202). `GET /status` returns:
+- `POST /pair` starts pairing (202); `POST /pair/cancel` cancels a pending one (200, or 409 if none). `GET /status` returns:
 
 ```json
 {
@@ -82,12 +83,13 @@ All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the a
   "pairing": {
     "userCode": "ABCD-EFGH",
     "verificationUrl": "http://localhost:3001/connect",
-    "expiresAt": "2026-01-01T00:10:00.000Z"
+    "expiresAt": "2026-01-01T00:10:00.000Z",
+    "expiresInSeconds": 600
   },
   "updateRecommended": false,
   "clockSkewWarning": false,
   "lastCheckedAt": null,
-  "message": "Pairing in progress. Open /plugins/signalk-vesseltwin/status as an admin for the code."
+  "message": "Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code."
 }
 ```
 

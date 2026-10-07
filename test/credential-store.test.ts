@@ -132,6 +132,19 @@ describe('CredentialStore', () => {
       expect(await readdir(dir)).toEqual([]);
     });
 
+    it('the temp file is 0600 before the rename and a chmod failure cannot fail the write', async () => {
+      const realRename = fsp.rename.bind(fsp);
+      let modeAtRename = 0;
+      vi.spyOn(fsp, 'rename').mockImplementationOnce(async (from, to) => {
+        modeAtRename = (await stat(String(from))).mode & 0o777;
+        return realRename(from, to);
+      });
+      vi.spyOn(fsp, 'chmod').mockRejectedValue(new Error('EPERM'));
+      await expect(new CredentialStore(dir).write(cred)).resolves.toBeUndefined();
+      if (process.platform !== 'win32') expect(modeAtRename).toBe(0o600);
+      expect(await new CredentialStore(dir).read()).toMatchObject({ credential: cred.credential });
+    });
+
     it('writing or syncing the temp file fails', async () => {
       const realOpen = fsp.open.bind(fsp);
       vi.spyOn(fsp, 'open').mockImplementationOnce(async (...a: Parameters<typeof fsp.open>) => {

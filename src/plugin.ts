@@ -31,7 +31,7 @@ export interface ResponseLike {
 }
 
 export const PLUGIN_ID = 'signalk-vesseltwin';
-export const PLUGIN_VERSION = '0.0.0';
+export const PLUGIN_VERSION = '0.1.0';
 
 export interface PluginDeps {
   fetch?: FetchLike;
@@ -42,7 +42,14 @@ export interface PluginDeps {
 }
 
 export type PairingFailure =
-  'expired' | 'denied' | 'unavailable' | 'busy' | 'update_required' | 'rejected';
+  | 'expired'
+  | 'denied'
+  | 'unavailable'
+  | 'busy'
+  | 'update_required'
+  | 'rejected'
+  | 'unexpected_response'
+  | 'local_failure';
 
 export type PluginState =
   | 'not_paired'
@@ -68,17 +75,23 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
   update_required: 'This plugin version is not supported by VesselTwin. Update the plugin.',
   rejected:
     'VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.',
+  unexpected_response:
+    'VesselTwin sent an unexpected answer. Remove this connection in VesselTwin, check for a plugin update, and pair again.',
+  local_failure:
+    'Pairing finished but the connection could not be saved. Check the plugin data folder permissions, then remove this connection in VesselTwin and pair again.',
 };
 
 export const COPY = {
-  notPaired: 'Not paired. Start pairing with VesselTwin (see the plugin README).',
+  notPaired: 'Not paired. Open VesselTwin under Webapps in the SignalK admin UI to pair.',
   reauth: `Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
   reauthOrigin: `The VesselTwin API address changed since pairing. Pair again, or restore the previous address. ${NO_UPLOAD}`,
   credentialUnreadable:
     'Cannot read the stored VesselTwin connection. Check the permissions of the plugin data folder.',
   notRunning: 'The VesselTwin plugin is not running. Enable it first.',
   starting: 'The VesselTwin plugin is starting. Try again in a moment.',
-  pairingInProgress: `Pairing in progress. Open /plugins/${PLUGIN_ID}/status as an admin for the code.`,
+  pairingInProgress:
+    'Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code.',
+  nothingToCancel: 'No pairing is waiting for approval.',
   alreadyPaired: 'Already paired. Unpair first to pair again.',
   unpairFailed: 'Could not remove the stored connection. Try again.',
   unpaired:
@@ -129,6 +142,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   /** Bumped by start() and stop(); late async results of an older lifecycle are ignored. */
   let epoch = 0;
   let loaded = false;
+  const now = deps.now ?? Date.now;
   let abort: AbortController | null = null;
   let pairing: PendingPairing | null = null;
   /**
@@ -136,6 +150,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
    * `checking` so /status never shows `not_paired` mid-transition.
    */
   let finalizing = false;
+  let unpairing = false; // an unpair is clearing the store; no new pairing may start meanwhile
   let failure: PairingFailure | null = null;
   let credentialUnreadable = false;
   /** A credential file exists (it is kept in reauth_required until a new pairing overwrites it). */
@@ -159,7 +174,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
    * it before reading, so a pairing that outlived stop() cannot delete a credential the next
    * lifecycle just loaded, or leave a file behind that the next lifecycle did not see.
    */
-  let persisting: Promise<boolean> | null = null;
+  let persisting: Promise<'kept' | 'stale' | 'failed'> | null = null;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -364,6 +379,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           report();
         },
         signal: ctl.signal,
+        ...(deps.now ? { now: deps.now } : {}),
       });
       if (!current()) return;
       pairing = null;
@@ -373,27 +389,36 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         const pairedAt = new Date().toISOString();
         await tombstoneWrite; // a late tombstone must not overwrite the new credential
         if (!current()) return;
-        const saved = (async () => {
-          await s.write({
-            credential: out.token.credential,
-            credentialId: out.token.credentialId,
-            vesselLabel: out.token.vesselLabel,
-            pairedAt,
-            apiOrigin: issuer,
-          });
-          if (current()) return true;
+        const saved = (async (): Promise<'kept' | 'stale' | 'failed'> => {
+          try {
+            await s.write({
+              credential: out.token.credential,
+              credentialId: out.token.credentialId,
+              vesselLabel: out.token.vesselLabel,
+              pairedAt,
+              apiOrigin: issuer,
+            });
+          } catch (err) {
+            app.debug(`saving the credential failed: ${redactError(err)}`);
+            return 'failed';
+          }
+          if (current()) return 'kept';
           try {
             await s.clear(); // cancelled while the file was being written
           } catch (err) {
             app.debug(`stale pairing cleanup failed: ${redactError(err)}`);
           }
-          return false;
+          return 'stale';
         })();
         persisting = saved;
         const keep = await saved.finally(() => {
           if (persisting === saved) persisting = null;
         });
-        if (!keep) return;
+        if (keep === 'failed') {
+          if (current()) fail('local_failure');
+          return;
+        }
+        if (keep === 'stale') return;
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
@@ -403,6 +428,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       } else if (out.kind === 'cancelled') {
         report();
       } else {
+        if (out.kind === 'unexpected_response') app.debug('pairing/token response unusable');
         fail(out.kind);
       }
     } catch (err) {
@@ -442,6 +468,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
               userCode: pairing.userCode,
               verificationUrl: pairing.verificationUrl,
               expiresAt: new Date(pairing.expiresAt).toISOString(),
+              // Seconds left when this response is made, so the page needs no clock comparison.
+              expiresInSeconds: Math.max(0, Math.round((pairing.expiresAt - now()) / 1000)),
             }
           : st === 'pairing_failed' && failure
             ? { reason: failure }
@@ -524,6 +552,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     },
 
     registerWithRouter(router: RouterLike): void {
+      // Routes must stay admin-only: never call router.access(...). SignalK serves /plugins/<id>/*
+      // to admins only unless a plugin lowers that, and /status exposes the pairing user code.
       router.get(
         '/status',
         guarded((_req, res) => {
@@ -545,8 +575,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             res.status(503).json({ error: options.configError });
             return;
           }
-          if (!loaded) {
-            // The stored credential has not been read yet: pairing now could overwrite it.
+          if (!loaded || unpairing) {
+            // The stored credential has not been read yet (or is being removed): pairing now could
+            // overwrite it or have it deleted under a new run.
             res.status(503).json({ error: COPY.starting });
             return;
           }
@@ -566,6 +597,26 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         }),
       );
       router.post(
+        '/pair/cancel',
+        guarded((_req, res) => {
+          if (!store) {
+            res.status(503).json({ error: COPY.notRunning });
+            return;
+          }
+          // Pending means a pairing run is in flight and the owner has not approved yet. That
+          // includes the moment before the code exists, but not the credential save that follows
+          // an approval. The stored credential or reauth marker is never touched here.
+          if (!abort || finalizing) {
+            res.status(409).json({ error: COPY.nothingToCancel });
+            return;
+          }
+          cancelPairing();
+          failure = null;
+          report();
+          res.json({ cancelled: true });
+        }),
+      );
+      router.post(
         '/unpair',
         guarded(async (_req, res) => {
           const s = store;
@@ -576,6 +627,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           // Before any await: a late approval, a racing credential load and a late 401 must all
           // lose against this unpair.
           epoch += 1;
+          unpairing = true;
           cancelPairing();
           stopMonitor();
           try {
@@ -592,6 +644,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           } catch (err) {
             app.debug(`unpair failed: ${redactError(err)}`);
             res.status(500).json({ error: COPY.unpairFailed });
+          } finally {
+            unpairing = false;
           }
         }),
       );

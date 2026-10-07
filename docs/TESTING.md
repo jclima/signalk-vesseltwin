@@ -9,10 +9,13 @@ Needs Docker and Node >= 22. Run everything from the repository root.
 
 ## How you drive the plugin
 
-- The plugin has no page or button. Pairing starts with `POST /plugins/signalk-vesseltwin/pair`
-  (`node dev/pair.mjs` does this). The code appears in the admin-only `GET /plugins/signalk-vesseltwin/status` response
-  under `pairing.userCode`. The status line (SignalK admin UI, Server > Plugin Config) only says
-  "Pairing in progress" and points to that route, because it is broadcast to every client.
+- The plugin adds a **VesselTwin** page to the SignalK admin UI (Webapps, served at
+  `/signalk-vesseltwin/`). Open <http://localhost:3100/signalk-vesseltwin/> after signing in at
+  `/admin/`. The page shows the pairing code and buttons. The same flow also works over HTTP:
+  `POST /plugins/signalk-vesseltwin/pair` starts pairing (`node dev/pair.mjs` does this) and the code is
+  in the admin-only `GET /plugins/signalk-vesseltwin/status` response under `pairing.userCode`. The
+  status line (SignalK admin UI, Server > Plugin Config) only says "Pairing in progress" and points to
+  the page, because it is broadcast to every client.
 - These routes sit behind the server's admin login. `node dev/setup-signalk.mjs` creates a throwaway
   admin, saves a bearer token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700; the script never prints
   it) and enables the plugin.
@@ -83,8 +86,9 @@ final status: {"state":"connected","paired":true,"vesselLabel":"Mock Boat", ... 
 PAIRED (state: connected)
 ```
 
-The status line (admin UI) reads `Paired with Mock Boat. Data upload is not available in this
-version.` The mock log shows `POST pairing/start`, `POST pairing/token`, then `GET status` (200, with
+The status line (admin UI) reads `Paired with Mock Boat. A plugin update is available. Data upload is
+not available in this version.` The mock mirrors the real server's contract window (min 1, latest 2),
+so the update hint is expected for this contract-1 plugin. The mock log shows `POST pairing/start`, `POST pairing/token`, then `GET status` (200, with
 auth).
 
 ### Fault injections
@@ -100,7 +104,7 @@ Inject with `fault`, restart the plugin (see above), then check `st` and `mlog`.
 | `{"status":426,"minContract":2}`                    | `update_required` | same as above                                                                                              |
 | `{"status":401}`                                    | `reauth_required` | `Pairing with VesselTwin is no longer valid. Pair again. ...` (no `Paired with` prefix)                    |
 | `{"status":429,"retryAfter":30}` or `5xx`           | `offline`         | `Cannot reach VesselTwin right now. The plugin will keep trying. ...`                                      |
-| `{"status":200,"minContract":1,"latestContract":2}` | `connected`       | `A plugin update is available.` before the upload note; `updateRecommended` is `true`                      |
+| `{"status":200,"minContract":1,"latestContract":1}` | `connected`       | no update hint (a window the plugin's contract already matches); `updateRecommended` is `false`            |
 
 Every line also ends with `Data upload is not available in this version.` unless noted.
 
@@ -196,6 +200,17 @@ After a successful pairing (either track), and before `down -v`:
 
 - [ ] The plugin settings (Server > Plugin Config) hold only the API URL and options, never the
       credential.
+- [ ] The webapp: with the plugin enabled, Webapps lists VesselTwin (with the plugin disabled it does
+      not). `GET /signalk-vesseltwin/` serves the page with no login (static files only);
+      `GET /plugins/signalk-vesseltwin/status` without a token still answers 401. Open
+      `/signalk-vesseltwin/` in a browser signed in as admin: Pair shows the code and a link, a
+      countdown runs, Cancel returns to Not paired, and Pair again plus approving on the mock ends in
+      Connected. Unpair asks for a second click before it acts. Signed out, the page says to sign in as
+      an administrator and links to the SignalK login. The honesty line "Data upload is not
+      available in this version." stays visible in every state.
+- [ ] Cancel racing an approval: if you approve in the mock (or VesselTwin) just as you press Cancel,
+      the connection may be created on the VesselTwin side while the page shows Not paired. Remove it
+      in VesselTwin (the plugin cannot revoke it).
 - [ ] Admin auth applies to the plugin routes: `GET /plugins/signalk-vesseltwin/status` without a
       token answers 401, with the admin token 200.
 - [ ] With SignalK security enabled and read-only or anonymous access allowed, confirm a non-admin
