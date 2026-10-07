@@ -6,7 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Pre-release (`0.0.0`); nothing is published to npm yet. Uploading engine, battery and tank readings
+The next release will be 0.1.0 (`package.json` already says so); the date is added when it is
+published. Nothing is published to npm yet. Uploading engine, battery and tank readings
 is not built: the plugin pairs, stores its credential, monitors status, and says that data upload is
 not available in this version.
 
