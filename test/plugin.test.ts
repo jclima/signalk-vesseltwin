@@ -39,6 +39,27 @@ const fakeApp = (dir: string): SignalKApp & { statuses: string[] } => {
   };
 };
 
+describe('router access', () => {
+  it('never lowers the admin-only default on the plugin router', () => {
+    const plugin = createPlugin(fakeApp(tempDir()), {
+      fetch: () => Promise.reject(new Error('x')),
+    });
+    const calls: string[] = [];
+    const access = vi.fn();
+    plugin.registerWithRouter({
+      get: (p) => {
+        calls.push(`GET ${p}`);
+      },
+      post: (p) => {
+        calls.push(`POST ${p}`);
+      },
+      access,
+    } as Parameters<typeof plugin.registerWithRouter>[0]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(access).not.toHaveBeenCalled();
+  });
+});
+
 describe('plugin shell', () => {
   it('exposes the SignalK plugin shape and reports unpaired status', async () => {
     const app = fakeApp(tempDir());

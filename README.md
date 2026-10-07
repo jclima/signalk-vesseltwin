@@ -57,7 +57,7 @@ for you.
 ## Security
 
 Pair from the SignalK admin UI with **SignalK security enabled**. With security enabled the plugin's
-endpoints are admin-only by default in SignalK 2.x. With security off, anyone who can reach your
+endpoints are admin-only by default (verified on signalk-server 2.33), and the plugin never lowers that. With security off, anyone who can reach your
 server can read the pairing code and start pairing, and the plugin's browser same-origin check does
 not protect against non-browser clients. The plugin does not block pairing in that case, so enable
 SignalK security before you pair.

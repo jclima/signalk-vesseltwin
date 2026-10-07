@@ -535,6 +535,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     },
 
     registerWithRouter(router: RouterLike): void {
+      // Routes must stay admin-only: never call router.access(...). SignalK serves /plugins/<id>/*
+      // to admins only unless a plugin lowers that, and /status exposes the pairing user code.
       router.get(
         '/status',
         guarded((_req, res) => {

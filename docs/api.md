@@ -274,7 +274,8 @@ are transient: back off with jitter.
 
 The plugin registers three routes on the SignalK server, at `/plugins/signalk-vesseltwin`. They sit
 behind the server's own admin authentication (a fresh server has security on; send an admin bearer
-token). A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
+token). Admin-only is the server default for plugin routes, verified on signalk-server 2.33; the
+plugin never calls `router.access` to relax it. A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
 the browser also sends `Sec-Fetch-Site: same-origin` or `none` (this covers a reverse proxy that
 rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A request without
 `Origin` (curl, scripts) is allowed.
