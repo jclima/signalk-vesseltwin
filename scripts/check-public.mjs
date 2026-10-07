@@ -56,6 +56,7 @@ const CONTENT_RULES = [
   { rule: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{30,}/g },
   { rule: 'github-pat', re: /github_pat_[A-Za-z0-9_]{30,}/g },
   { rule: 'npm-token', re: /npm_[A-Za-z0-9]{30,}/g },
+  { rule: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g },
   {
     rule: 'vti-credential-like',
     re: /vti_([A-Za-z0-9_-]{20,})/g,

@@ -19,6 +19,13 @@ const LINUX_HOME = ['', 'home', 'someone', 'x'].join('/');
 const AKIA = 'AK' + 'IA' + 'ABCDEFGHIJKLMNOP';
 const REAL_LOOKING_VTI = 'vti_' + 'Q7x9ZkLm3Pw2RtYv8NaB5cDe1FgH4JsU6';
 
+// A JWT-shaped value: base64url header and payload ({"alg"...}, {"sub"...}) plus a signature.
+const JWT = [
+  'ey' + 'JhbGciOiJIUzI1NiJ9',
+  'ey' + 'JzdWIiOiIxMjM0NTY3ODkwIn0',
+  'c2lnbmF0dXJlX3ZhbHVl',
+].join('.');
+
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'check-public-'));
@@ -38,6 +45,13 @@ describe('scanText', () => {
       'vti-credential-like',
     );
     expect(scanText('a.md', `Authorization: Bearer ${REAL_LOOKING_VTI}`).length).toBeGreaterThan(0);
+  });
+
+  it('flags JWT-shaped tokens but not a lone base64 header', () => {
+    expect(scanText('a.md', `token ${JWT}`).map((f) => f.rule)).toContain('jwt');
+    expect(scanText('a.md', `Authorization: ${JWT}`).length).toBeGreaterThan(0);
+    expect(scanText('a.md', 'ey' + 'JhbGciOiJIUzI1NiJ9 alone').length).toBe(0);
+    expect(formatFindings(scanText('a.md', JWT))).not.toContain(JWT);
   });
 
   it('reports line numbers and never the matched value', () => {
