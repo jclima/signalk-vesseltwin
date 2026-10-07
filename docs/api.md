@@ -332,10 +332,11 @@ Position, tracks, MMSI, callsign, AIS data, crew or owner names, free text, or a
 the documented pairing fields. The server rejects such fields, but the plugin must not read them in the
 first place. See the privacy section of the README.
 
-## Ingest (PENDING, not available)
+## Ingest (not built yet)
 
-Routes for uploading readings (batches of engine hours, battery and tank values), their request and
-response shapes, per-item result codes, vessel-info suggestions, and the idempotency rules are **not
-published**. They will ship as JSON Schema attached to a release, together with a new contract version.
-Until then the plugin does not call them, and reports that upload is not available. Do not infer
+Uploading readings (batches of engine hours, battery and tank values), per-item result codes,
+vessel-info suggestions and the idempotency rules are defined by the platform under a newer contract
+version than this plugin's `CONTRACT_VERSION`. The plugin does not implement or call them yet: the ingest
+JSON Schema still has to be vendored into this repo with a contract test, and upload work has to be
+started explicitly by the owner. Until then the plugin reports that upload is not available. Do not infer
 shapes from the pairing types above.

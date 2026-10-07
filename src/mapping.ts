@@ -1,7 +1,7 @@
 /**
  * SignalK path registry. INTENTIONALLY EMPTY in this release: no readings are
- * collected or uploaded until the VesselTwin ingest API is published and the
- * exact path conventions are verified against a live server.
+ * collected or uploaded until the ingest JSON Schema is vendored into this repo, the
+ * owner approves upload work, and the exact path conventions are verified against a live server.
  *
  * Planned allowlist (SI units are sent raw; conversion happens server-side):
  *   TODO propulsion.<id>.runTime                         (s)   engine hours

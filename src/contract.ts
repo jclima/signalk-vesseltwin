@@ -1,6 +1,7 @@
 /**
  * Wire contract constants and types for the VesselTwin integrations API (see docs/api.md).
- * The JSON Schema for the ingest contract will be published before upload is implemented.
+ * Upload is not built yet: the ingest JSON Schema for a newer contract version must be vendored here,
+ * with a contract test, before upload work starts (see AGENTS.md).
  */
 
 export const PROVIDER = 'signalk' as const;
