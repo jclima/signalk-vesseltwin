@@ -6,6 +6,7 @@
   tests must not touch the network (inject `fetch`).
 - Add tests with every behavior change. Keep runtime dependencies at zero unless justified.
 - The wire contract is described in [docs/api.md](docs/api.md).
+- Maintainers: the release procedure is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Public-repo guard
 
@@ -22,19 +23,8 @@ Maintainers can add private deny patterns (one regex per line, `#` comments) to 
 
 ## Releasing
 
-Releasing is a maintainer step; contributors do not tag or publish.
-
-1. Bump `version` in `package.json` (it must equal `PLUGIN_VERSION`; the tests check this).
-2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new version heading and date.
-3. Open a PR to `main` and wait for CI (`check` on Node 22 and 24); squash-merge.
-4. After the merge, the maintainer tags the merge commit on `main` as `vX.Y.Z` (matching
-   `package.json`). The release workflow refuses tags that are not on `main` or do not match the
-   version.
-5. The environment reviewer approves the publish job; npm publishes with provenance.
-
-Protect `v*.*.*` tags with a repository ruleset so only maintainers can create or move them.
-
-The first release is planned as `v0.1.0`, after the open maintainer decisions are settled.
+Releasing is a maintainer step; contributors do not tag or publish. The procedure is in
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Development
 
