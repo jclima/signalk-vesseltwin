@@ -11,7 +11,7 @@ Stability labels used below:
 - **PENDING**: not available yet. It will be published (as JSON Schema, with a new contract version)
   before the plugin implements it. Do not guess these shapes.
 
-The integration requires a paid (Pro) plan. When the integration is off for an account, or off right now, the API answers `503`.
+The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` when the integration is off for the account. On authenticated calls the two cases differ: a plan problem is `403` `integration_paused_plan`, and a feature-flag problem is `503` `integration_feature_unavailable`.
 
 ## Conventions (STABLE)
 
@@ -167,15 +167,18 @@ outside the window here, so an outdated plugin can still learn it must update. R
 {
   "provider": "signalk",
   "minContract": 1,
-  "latestContract": 1,
-  "pluginUpdateRecommended": false,
+  "latestContract": 2,
+  "pluginUpdateRecommended": true,
   "serverTime": "2026-01-01T00:00:00.000Z",
-  "summary": null
+  "summary": { "channels": 0, "awaitingSetup": 0, "held": 0 }
 }
 ```
 
+The example is what a contract-1 plugin receives from the current server (contracts 1 and 2 are
+accepted, 2 is the latest), so the update hint is expected until the plugin moves to contract 2.
+
 `pluginUpdateRecommended` is true when the plugin's contract is below `latestContract` (or missing).
-`serverTime` can be used to warn about clock skew. `summary` is provider-specific and may be `null`.
+`serverTime` can be used to warn about clock skew. `summary` is provider-specific (a small object of counts for this provider) and may be `null`; the plugin ignores it.
 Unknown fields are ignored.
 
 #### Status probe (how the plugin uses it)
@@ -218,6 +221,8 @@ portal) enters `reauth_required` and stops probing but leaves `credential.json` 
 restart probes once more.
 
 ### `POST /v1/integrations/credential/rotate`
+
+**Server capability; this plugin version does not call it.** Documented for completeness.
 
 Empty body. Same headers. Response `200` (plaintext shown once):
 
@@ -301,7 +306,7 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
 - `paired` is true only while the stored credential is believed to work (false in
   `reauth_required`).
 - `pairing` is `{ "userCode", "verificationUrl", "expiresAt" }` in state `pairing`, and
-  `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" }` in
+  `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" | "local_failure" }` in
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.

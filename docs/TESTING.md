@@ -83,8 +83,9 @@ final status: {"state":"connected","paired":true,"vesselLabel":"Mock Boat", ... 
 PAIRED (state: connected)
 ```
 
-The status line (admin UI) reads `Paired with Mock Boat. Data upload is not available in this
-version.` The mock log shows `POST pairing/start`, `POST pairing/token`, then `GET status` (200, with
+The status line (admin UI) reads `Paired with Mock Boat. A plugin update is available. Data upload is
+not available in this version.` The mock mirrors the real server's contract window (min 1, latest 2),
+so the update hint is expected for this contract-1 plugin. The mock log shows `POST pairing/start`, `POST pairing/token`, then `GET status` (200, with
 auth).
 
 ### Fault injections
@@ -100,7 +101,7 @@ Inject with `fault`, restart the plugin (see above), then check `st` and `mlog`.
 | `{"status":426,"minContract":2}`                    | `update_required` | same as above                                                                                              |
 | `{"status":401}`                                    | `reauth_required` | `Pairing with VesselTwin is no longer valid. Pair again. ...` (no `Paired with` prefix)                    |
 | `{"status":429,"retryAfter":30}` or `5xx`           | `offline`         | `Cannot reach VesselTwin right now. The plugin will keep trying. ...`                                      |
-| `{"status":200,"minContract":1,"latestContract":2}` | `connected`       | `A plugin update is available.` before the upload note; `updateRecommended` is `true`                      |
+| `{"status":200,"minContract":1,"latestContract":1}` | `connected`       | no update hint (a window the plugin's contract already matches); `updateRecommended` is `false`            |
 
 Every line also ends with `Data upload is not available in this version.` unless noted.
 

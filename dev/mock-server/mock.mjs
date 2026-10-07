@@ -14,6 +14,7 @@ const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // codes module: 
 const PAIRING_TTL_S = 600; // codes module: PAIRING_TTL_MS = 10 min
 const ROTATION_GRACE_MS = 10 * 60 * 1000; // types: INTEGRATION_ROTATION_GRACE_MS
 const RETRY_AFTER_UNAVAILABLE_S = 3600; // types: INTEGRATION_RETRY_AFTER_S
+const MOCK_LATEST_CONTRACT = 2; // real server window: min 1, latest 2
 const MAX_BODY_BYTES = 64 * 1024;
 const CREDENTIAL_RE = /^vti_[A-Za-z0-9_-]{43}$/; // codes module: CREDENTIAL_PATTERN
 
@@ -160,7 +161,7 @@ export function createMock(o = {}) {
     // 426 and 400 carry the contract window
     if (f.status === 426 || f.status === 400 || f.minContract !== undefined) {
       body.minContract = f.minContract ?? 1;
-      body.latestContract = f.latestContract ?? Math.max(1, f.minContract ?? 1);
+      body.latestContract = f.latestContract ?? Math.max(MOCK_LATEST_CONTRACT, f.minContract ?? 1);
     }
     return { status: f.status, body, headers };
   }
@@ -175,7 +176,7 @@ export function createMock(o = {}) {
   /** Status with an injected 200: lets a tester see the plugin react to a raised minimum contract. */
   function statusWithWindow(f, contract) {
     const min = f.minContract ?? 1;
-    const latest = f.latestContract ?? Math.max(1, min);
+    const latest = f.latestContract ?? Math.max(MOCK_LATEST_CONTRACT, min);
     return {
       status: 200,
       headers: {},
@@ -300,12 +301,12 @@ export function createMock(o = {}) {
     return {
       status: 200,
       headers: {},
-      // Contract window is [1, 1].
+      // Contract window is [1, 2], like the real server: a contract-1 plugin is told an update exists.
       body: {
         provider: PROVIDER,
         minContract: 1,
-        latestContract: 1,
-        pluginUpdateRecommended: contract === null || contract < 1,
+        latestContract: MOCK_LATEST_CONTRACT,
+        pluginUpdateRecommended: contract === null || contract < MOCK_LATEST_CONTRACT,
         serverTime: new Date(now()).toISOString(),
         summary: null, // the provider's statusSummary is optional; null when absent
       },
