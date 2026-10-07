@@ -66,8 +66,8 @@ SignalK security before you pair.
 
 - **Never sent: position, tracks, MMSI, callsign, vessel or crew names, or any AIS data.** The plugin
   does not read those paths.
-- **Pairing** sends only: the plugin name and version, the contract version, the fixed device label
-  "SignalK server", the requested scope, and optionally your SignalK server's own random install
+- **Pairing** sends only: the provider (`"signalk"`), the plugin name and version, the contract
+  version, the fixed device label "SignalK server", the requested scope, and optionally your SignalK server's own random install
   UUID, which is the vessel's SignalK self id (`urn:mrn:signalk:uuid:...`). A random UUID like this
   does not identify you or the boat by itself. It is sent only if the self id is a UUID (bare or
   with that prefix); an MMSI-based id or anything else is left out. Nothing else is sent before you
