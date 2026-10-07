@@ -26,6 +26,7 @@ services:
     volumes:
       - signalk-data:/home/node/.signalk
       - ../plugin:/home/node/.signalk/node_modules/signalk-vesseltwin/plugin:ro
+      - ../public:/home/node/.signalk/node_modules/signalk-vesseltwin/public:ro
       - ../package.json:/home/node/.signalk/node_modules/signalk-vesseltwin/package.json:ro
 
   mock:

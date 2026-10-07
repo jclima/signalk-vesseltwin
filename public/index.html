@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>VesselTwin</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>VesselTwin</h1>
+      <p class="lead">
+        Pair this boat's SignalK server with VesselTwin. You approve the pairing in the VesselTwin
+        web app.
+      </p>
+
+      <section aria-labelledby="state-title" class="card">
+        <div id="live" aria-live="polite" aria-atomic="true">
+          <h2 id="state-title">Loading…</h2>
+          <p id="state-message">
+            Loading the status. If this stays, open this page with a trailing slash:
+            /signalk-vesseltwin/
+          </p>
+        </div>
+        <p id="state-hint" hidden></p>
+        <div id="code-block" hidden>
+          <p class="label" id="code-label">Pairing code</p>
+          <p id="code" class="code" aria-labelledby="code-label"></p>
+          <button id="copy" type="button" hidden>Copy code</button>
+        </div>
+        <p id="countdown" hidden></p>
+        <p><a id="link" hidden></a></p>
+        <p id="notice" role="status" hidden></p>
+        <p id="confirm-text" hidden>Remove this connection from this server?</p>
+        <div id="actions" class="actions"></div>
+        <p id="api-hint" class="small" hidden></p>
+      </section>
+
+      <p id="upload-notice" class="small">Data upload is not available in this version.</p>
+      <noscript><p>This page needs JavaScript.</p></noscript>
+    </main>
+  </body>
+</html>

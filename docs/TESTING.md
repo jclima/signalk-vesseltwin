@@ -9,10 +9,13 @@ Needs Docker and Node >= 22. Run everything from the repository root.
 
 ## How you drive the plugin
 
-- The plugin has no page or button. Pairing starts with `POST /plugins/signalk-vesseltwin/pair`
-  (`node dev/pair.mjs` does this). The code appears in the admin-only `GET /plugins/signalk-vesseltwin/status` response
-  under `pairing.userCode`. The status line (SignalK admin UI, Server > Plugin Config) only says
-  "Pairing in progress" and points to that route, because it is broadcast to every client.
+- The plugin adds a **VesselTwin** page to the SignalK admin UI (Webapps, served at
+  `/signalk-vesseltwin/`). Open <http://localhost:3100/signalk-vesseltwin/> after signing in at
+  `/admin/`. The page shows the pairing code and buttons. The same flow also works over HTTP:
+  `POST /plugins/signalk-vesseltwin/pair` starts pairing (`node dev/pair.mjs` does this) and the code is
+  in the admin-only `GET /plugins/signalk-vesseltwin/status` response under `pairing.userCode`. The
+  status line (SignalK admin UI, Server > Plugin Config) only says "Pairing in progress" and points to
+  the page, because it is broadcast to every client.
 - These routes sit behind the server's admin login. `node dev/setup-signalk.mjs` creates a throwaway
   admin, saves a bearer token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700; the script never prints
   it) and enables the plugin.

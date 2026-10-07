@@ -19,27 +19,29 @@ Connecting requires a VesselTwin account ([sign up at vesseltwin.io](https://ves
 **Pro plan**. Accounts on other plans cannot pair, and the integration may not be available to every
 account yet.
 
-The plugin has no page or button of its own. Pairing is started with a request to the plugin's
-endpoint, and an admin reads the code from the plugin's `status` endpoint. **Pair as an admin, with
-SignalK security enabled** (see below).
+The plugin adds a **VesselTwin** page to the SignalK admin UI. **Pair as an admin, with SignalK
+security enabled** (see below).
 
 1. Enable the plugin under Server > Plugin Config in the SignalK admin UI.
-2. Start pairing with `POST /plugins/signalk-vesseltwin/pair` (an admin request; the SignalK admin
-   login applies). From a checkout of this repository, `node dev/pair.mjs --no-approve` does this
-   for you.
-3. The plugin's status line (Server > Plugin Config, the plugin's entry) says "Pairing in progress".
-   As an admin, open `GET /plugins/signalk-vesseltwin/status`: `pairing.userCode` is a short code such
-   as `ABCD-EFGH` and `pairing.verificationUrl` is the web address to open. The code is not in the
-   status line on purpose: SignalK shows the status line to every client, including read-only and
-   anonymous ones.
-4. Open that address, sign in to VesselTwin, enter the code, choose your boat, and approve.
-5. The plugin picks up the approval within a few seconds and then checks the connection. The status
-   line shows `Paired with ...` once that works.
+2. Open **Webapps > VesselTwin** (the VesselTwin tile appears once the plugin is enabled). Sign in to
+   SignalK as an administrator if the page asks you to.
+3. Choose **Pair**. The page shows a short code such as `ABCD-EFGH` and a link to VesselTwin. The code
+   is shown only on this admin-only page and not in the plugin's status line on purpose: SignalK
+   shows the status line to every client, including read-only and anonymous ones.
+4. Open the link, sign in to VesselTwin, enter the code, choose your boat, and approve.
+5. The plugin picks up the approval within a few seconds and then checks the connection. The page
+   and the status line show `Paired with ...` once that works.
+
+Without a browser (headless servers), the same steps work over HTTP as an admin: `POST
+/plugins/signalk-vesseltwin/pair` starts pairing and `GET /plugins/signalk-vesseltwin/status` returns
+`pairing.userCode` and `pairing.verificationUrl`. From a checkout of this repository,
+`node dev/pair.mjs --no-approve` does this for you.
 
 The code expires after 10 minutes. If it does, start pairing again.
 
 The plugin's endpoints (`status`, `pair`, `unpair`) rely on the SignalK server's own access control
-(see Security below).
+(see Security below). The page's own files (HTML, CSS, scripts) are public static files and contain
+no secrets; every request to the plugin needs the admin login.
 
 Other things the status line can tell you: the connection is paused, VesselTwin cannot be reached
 right now (the plugin keeps trying), the plugin version is not supported (update the plugin), or the
@@ -50,7 +52,7 @@ it does not try the old credential again after a restart. An unexpected rejectio
 from VesselTwin itself (for example from a proxy) also stops the checks, but leaves the stored
 connection in place.
 
-**Unpair** (`POST /plugins/signalk-vesseltwin/unpair`) only removes the stored connection on this
+**Unpair** (on the page, with a confirmation step, or `POST /plugins/signalk-vesseltwin/unpair`) only removes the stored connection on this
 server. Also revoke the connection in VesselTwin so it stops working there; the plugin cannot do that
 for you.
 

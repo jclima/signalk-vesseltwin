@@ -122,6 +122,7 @@ describe('checkPackFiles', () => {
       checkPackFiles([
         'plugin/index.js',
         'plugin/a/b.d.ts',
+        'public/index.html',
         'README.md',
         'LICENSE',
         'SECURITY.md',
@@ -150,13 +151,25 @@ describe('checkPackFiles', () => {
       'public/',
       'web/app.ts',
     ];
-    expect(checkPackFiles(['plugin/index.js', ...bad]).map((f) => f.path)).toEqual(bad);
+    expect(
+      checkPackFiles(['plugin/index.js', 'public/index.html', ...bad]).map((f) => f.path),
+    ).toEqual(bad);
   });
   it('rejects extras and an empty plugin dir', () => {
-    expect(checkPackFiles(['plugin/index.js', 'docs/api.md']).map((f) => f.path)).toEqual([
-      'docs/api.md',
+    expect(
+      checkPackFiles(['plugin/index.js', 'public/index.html', 'docs/api.md']).map((f) => f.path),
+    ).toEqual(['docs/api.md']);
+    expect(checkPackFiles(['README.md', 'public/index.html']).length).toBe(1);
+  });
+  it('requires public/index.html', () => {
+    const f = checkPackFiles(['plugin/index.js', 'public/style.css']);
+    expect(f).toEqual([
+      {
+        path: 'public/index.html',
+        line: 0,
+        rule: 'pack: tarball has no public/index.html (run pnpm build first)',
+      },
     ]);
-    expect(checkPackFiles(['README.md']).length).toBe(1);
   });
 });
 

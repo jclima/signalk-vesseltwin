@@ -186,6 +186,13 @@ export function checkPackFiles(paths) {
       continue;
     findings.push({ path: p, line: 0, rule: 'pack: unexpected file in npm tarball' });
   }
+  if (!paths.includes('public/index.html')) {
+    findings.push({
+      path: 'public/index.html',
+      line: 0,
+      rule: 'pack: tarball has no public/index.html (run pnpm build first)',
+    });
+  }
   if (!paths.some((p) => p.startsWith('plugin/'))) {
     findings.push({
       path: 'plugin/',
