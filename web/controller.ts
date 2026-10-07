@@ -124,7 +124,8 @@ export class PairingController {
     if (this.running) return;
     this.running = true;
     this.generation += 1;
-    if (!this.d.isHidden()) void this.poll();
+    // One initial fetch even when the tab starts hidden; schedule() then pauses while hidden.
+    void this.poll();
   }
 
   stop(): void {

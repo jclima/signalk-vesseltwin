@@ -138,12 +138,18 @@ describe('polling', () => {
     t.c.stop();
   });
 
-  it('does not poll at all when started hidden', async () => {
+  it('loads status once when started hidden, then stays paused until visible', async () => {
     const t = setup();
+    t.always('GET /status', { status: 200, body: status('pairing') });
     t.setHidden(true);
     t.c.start();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(t.gets()).toBe(0);
+    expect(t.gets()).toBe(1);
+    expect(t.c.snapshot().status?.state).toBe('pairing');
+    t.setHidden(false);
+    t.c.visibilityChanged();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.gets()).toBe(2);
     t.c.stop();
   });
 
