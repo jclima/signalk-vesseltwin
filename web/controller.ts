@@ -74,6 +74,7 @@ const STARTED_STATES: ReadonlySet<string> = new Set([
 
 export const NOTICE_PAIR_FAILED = 'Could not start pairing.';
 export const NOTICE_CANCEL_FAILED = 'Could not cancel pairing.';
+export const NOTICE_ALREADY_APPROVED = 'Pairing was already approved. Use Unpair to remove it.';
 export const NOTICE_UNPAIR_FAILED = 'Could not remove the connection. Try again.';
 
 /** Backoff after `failures` consecutive failed polls: 2 s, 4 s, ... capped at 30 s. */
@@ -176,6 +177,19 @@ export class PairingController {
     }
     this.set({ busy: false, starting: false });
     await this.poll();
+    if (res.status === 409) {
+      // Cancel lost: tell the user only if the refreshed status shows the pairing was approved.
+      const st = this.snap.status?.state;
+      if (
+        st === 'checking' ||
+        st === 'connected' ||
+        st === 'paused' ||
+        st === 'offline' ||
+        st === 'update_required'
+      ) {
+        this.set({ notice: NOTICE_ALREADY_APPROVED });
+      }
+    }
   }
 
   /** First step: ask for confirmation. Nothing is sent. */

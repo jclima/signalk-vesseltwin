@@ -3,6 +3,7 @@ import {
   BACKOFF_MAX_MS,
   BACKOFF_MIN_MS,
   FAST_POLL_MS,
+  NOTICE_ALREADY_APPROVED,
   NOTICE_PAIR_FAILED,
   NOTICE_UNPAIR_FAILED,
   PairingController,
@@ -297,6 +298,19 @@ describe('actions', () => {
     );
     expect(t.c.snapshot().status?.state).toBe('not_paired');
     expect(t.c.snapshot().starting).toBe(false);
+  });
+
+  it('cancel that lost to an approval says so; otherwise a 409 stays quiet', async () => {
+    const t = setup();
+    t.always('GET /status', { status: 200, body: status('connected', { paired: true }) });
+    t.reply('POST /pair/cancel', { status: 409, body: { error: 'x' } });
+    await t.c.cancel();
+    expect(t.c.snapshot().notice).toBe(NOTICE_ALREADY_APPROVED);
+    const q = setup();
+    q.always('GET /status', { status: 200, body: status('not_paired') });
+    q.reply('POST /pair/cancel', { status: 409, body: { error: 'x' } });
+    await q.c.cancel();
+    expect(q.c.snapshot().notice).toBeNull();
   });
 
   it('unpair needs a second, explicit confirmation', async () => {
