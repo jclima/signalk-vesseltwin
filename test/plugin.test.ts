@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,10 +10,21 @@ import {
   COPY,
   createPlugin,
   FAILURE_COPY,
+  PLUGIN_VERSION,
   type RequestLike,
   type ResponseLike,
   type SignalKApp,
 } from '../src/plugin';
+
+const tempDirs: string[] = [];
+const tempDir = (): string => {
+  const d = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+  tempDirs.push(d);
+  return d;
+};
+afterEach(() => {
+  for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 3 });
+});
 
 const fakeApp = (dir: string): SignalKApp & { statuses: string[] } => {
   const statuses: string[] = [];
@@ -28,9 +39,30 @@ const fakeApp = (dir: string): SignalKApp & { statuses: string[] } => {
   };
 };
 
+describe('router access', () => {
+  it('never lowers the admin-only default on the plugin router', () => {
+    const plugin = createPlugin(fakeApp(tempDir()), {
+      fetch: () => Promise.reject(new Error('x')),
+    });
+    const calls: string[] = [];
+    const access = vi.fn();
+    plugin.registerWithRouter({
+      get: (p) => {
+        calls.push(`GET ${p}`);
+      },
+      post: (p) => {
+        calls.push(`POST ${p}`);
+      },
+      access,
+    } as Parameters<typeof plugin.registerWithRouter>[0]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(access).not.toHaveBeenCalled();
+  });
+});
+
 describe('plugin shell', () => {
   it('exposes the SignalK plugin shape and reports unpaired status', async () => {
-    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const app = fakeApp(tempDir());
     const p = createPlugin(app);
     expect(p.id).toBe('signalk-vesseltwin');
     expect(p.schema().properties.apiBaseUrl.default).toBe('https://api.vesseltwin.io');
@@ -42,7 +74,7 @@ describe('plugin shell', () => {
   });
 
   it('shows neutral busy copy when pairing is throttled', async () => {
-    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const app = fakeApp(tempDir());
     const fetchFn = () =>
       Promise.resolve(new Response('{}', { status: 429, headers: { 'retry-after': '60' } }));
     const p = createPlugin(app, { fetch: fetchFn });
@@ -73,8 +105,17 @@ describe('plugin shell', () => {
   });
 });
 
+describe('PLUGIN_VERSION', () => {
+  it('matches package.json', () => {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    expect(PLUGIN_VERSION).toBe(pkg.version);
+  });
+});
+
 describe('parseOptions', () => {
-  it('defaults safely and flags non-https remote URLs', () => {
+  it('defaults safely, flags non-https remote URLs and clamps the queue cap', () => {
     const d = parseOptions(undefined);
     expect(d.apiBaseUrl).toBe('https://api.vesseltwin.io');
     expect(d.categories.vesselInfo).toBe(false);
@@ -118,7 +159,7 @@ const okStatusBody = () => ({
 
 function harness(opts: { dir?: string } = {}) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-  const dir = opts.dir ?? mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+  const dir = opts.dir ?? tempDir();
   const app = fakeApp(dir);
   const calls: string[] = [];
   const held: Deferred[] = [];
@@ -310,6 +351,50 @@ describe('pairing lifecycle', () => {
     }
   });
 
+  it('shows distinct unexpected-answer copy when the token response is malformed', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    await h.resolveHeld(new Response(JSON.stringify({ credential: 'bad' }), { status: 200 }));
+    await h.untilState('pairing_failed');
+    const st = (await h.call('GET /status')).body;
+    expect(st.pairing).toEqual({ reason: 'unexpected_response' });
+    expect(st.message).toBe(FAILURE_COPY.unexpected_response);
+    expect(FAILURE_COPY.unexpected_response).not.toBe(FAILURE_COPY.unavailable);
+    expect(FAILURE_COPY.unexpected_response).not.toBe(FAILURE_COPY.local_failure);
+    const logged = (h.app.debug as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(logged).toContain('pairing/token response unusable');
+    expect(logged.join('\n')).not.toContain('bad');
+    expect(String(st.message)).not.toMatch(/AAAA-AAAA|vesseltwin\.io\/connect/);
+    h.plugin.stop();
+  });
+
+  it('shows distinct local-failure copy when the credential cannot be saved, without logging it', async () => {
+    const h = harness();
+    const spy = vi
+      .spyOn(CredentialStore.prototype, 'write')
+      .mockRejectedValue(new Error(`EACCES ${FAKE_CRED}`));
+    try {
+      h.plugin.start({});
+      await h.tick();
+      await h.call('POST /pair');
+      await h.tick(5_000);
+      await h.resolveHeld(h.ok());
+      await h.untilState('pairing_failed');
+      const st = (await h.call('GET /status')).body;
+      expect(st).toMatchObject({ paired: false, pairing: { reason: 'local_failure' } });
+      expect(st.message).toBe(FAILURE_COPY.local_failure);
+      const logged = (h.app.debug as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      expect(logged.join('\n')).not.toContain(FAKE_CRED);
+      expect(h.app.statuses.join('\n')).not.toContain(FAKE_CRED);
+      h.plugin.stop();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('unpair during a pending pairing wins over a late approval', async () => {
     const h = harness();
     h.plugin.start({});
@@ -335,7 +420,7 @@ describe('pairing lifecycle', () => {
   });
 
   it('answers 500 with neutral copy when the credential cannot be removed', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const h = harness({ dir });
     h.plugin.start({});
     await h.tick();
@@ -391,7 +476,7 @@ describe('pairing lifecycle', () => {
   });
 
   it('refuses /pair when already paired, with no pairing requests', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await writeFile(
       join(dir, 'credential.json'),
       JSON.stringify({
@@ -425,7 +510,7 @@ describe('origin check', () => {
     h.plugin.start({});
     await h.tick();
     const evil = { origin: 'https://evil.example', host: 'boat:3000' };
-    for (const r of ['GET /status', 'POST /pair', 'POST /unpair']) {
+    for (const r of ['GET /status', 'POST /pair', 'POST /pair/cancel', 'POST /unpair']) {
       const out = await h.call(r, evil);
       expect(out.status).toBe(403);
       expect(JSON.stringify(out.body)).not.toMatch(/evil|origin/i);
@@ -541,7 +626,7 @@ describe('config error', () => {
 describe('pairing failure copy', () => {
   async function run(startReply: () => Response) {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const app = fakeApp(mkdtempSync(join(tmpdir(), 'vt-plugin-')));
+    const app = fakeApp(tempDir());
     const plugin = createPlugin(app, { fetch: () => Promise.resolve(startReply()) });
     const routes: Record<string, RouteFn> = {};
     plugin.registerWithRouter({
@@ -736,7 +821,7 @@ describe('state machine', () => {
   ])(
     'a credential with a %s origin goes to reauth_required with zero network calls',
     async (_n, origin, copy) => {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir, { apiOrigin: origin });
       const h = harness({ dir });
       h.plugin.start({});
@@ -762,7 +847,7 @@ describe('state machine', () => {
   });
 
   it('a changed API URL after pairing shows the origin copy', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'https://other.example' });
@@ -773,7 +858,7 @@ describe('state machine', () => {
   });
 
   it('a real 401 keeps the generic re-pair copy, not the origin copy', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
@@ -803,7 +888,7 @@ describe('state machine', () => {
   });
 
   it('a stale reauth error is cleared once re-paired and connected', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
@@ -824,7 +909,7 @@ describe('state machine', () => {
   });
 
   it('a credential issued for a configured non-default origin works against it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir, { apiOrigin: 'https://h.example' });
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'https://h.example/api' });
@@ -911,7 +996,7 @@ describe('state machine', () => {
     ],
   ];
   it.each(lines)('status line and /status for %s', async (_n, r, line, body, isError) => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(r);
@@ -927,7 +1012,7 @@ describe('state machine', () => {
   });
 
   it('shows the checking line until the first probe returns', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const app = fakeApp(dir);
     const plugin = createPlugin(app, { fetch: () => new Promise<Response>(() => undefined) });
@@ -941,7 +1026,7 @@ describe('state machine', () => {
   });
 
   it('keeps probing hourly while paused or offline, never faster than Retry-After', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(
@@ -965,7 +1050,7 @@ describe('state machine', () => {
       reply(426, {}),
       () => new Response(JSON.stringify(okStatusBody()), { status: 200 }),
     ]) {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir);
       const h = harness({ dir });
       h.statusReplies.push(r);
@@ -980,7 +1065,7 @@ describe('state machine', () => {
 
   it('pairing_failed exposes the reason, and /pair can start again', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const app = fakeApp(dir);
     let n = 0;
     const plugin = createPlugin(app, {
@@ -1045,7 +1130,7 @@ describe('state machine', () => {
 
   it('/unpair stops the monitor and stop() clears its timer: no probes afterwards', async () => {
     for (const how of ['unpair', 'stop'] as const) {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir);
       const h = harness({ dir });
       h.plugin.start({});
@@ -1060,7 +1145,7 @@ describe('state machine', () => {
   });
 
   it('a config error with a stored credential makes no calls and reads nothing', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'ftp://nope' });
@@ -1075,7 +1160,7 @@ describe('state machine', () => {
   });
 
   it('an unreadable credential file is reported neutrally as config_error', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const { mkdirSync } = await import('node:fs');
     mkdirSync(join(dir, 'credential.json'));
     const h = harness({ dir });
@@ -1112,7 +1197,7 @@ describe('tombstone after a 401', () => {
   const credFile = (dir: string) => join(dir, 'credential.json');
 
   async function reachReauth() {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.statusReplies.push(reply(401, { code: 'integration_unauthorized' }));
@@ -1165,7 +1250,7 @@ describe('tombstone after a 401', () => {
   });
 
   it('a hand-made tombstone is also reauth_required with zero calls', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await writeFile(credFile(dir), JSON.stringify({ reauthRequired: true, apiOrigin: ORIGIN }));
     const h = harness({ dir });
     h.plugin.start({});
@@ -1204,7 +1289,7 @@ describe('tombstone after a 401', () => {
   });
 
   it('an origin mismatch (no call made) does not tombstone the credential', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir, { apiOrigin: 'https://elsewhere.test' });
     const h = harness({ dir });
     h.plugin.start({});
@@ -1222,7 +1307,7 @@ function readFileSyncText(file: string): string {
 
 describe('unpair, cleanup and route hardening', () => {
   it('unpair bumps the epoch first: a racing credential load cannot start a monitor', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({}); // the credential read is now in flight
@@ -1233,6 +1318,35 @@ describe('unpair, cleanup and route hardening', () => {
     expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
     expect(h.app.statuses.at(-1)).toBe(COPY.unpaired);
     h.plugin.stop();
+  });
+
+  it('refuses /pair while an unpair is still clearing the store', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const realClear = CredentialStore.prototype.clear.bind(new CredentialStore(dir));
+    const spy = vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async () => {
+      await gate;
+      return realClear();
+    });
+    try {
+      h.plugin.start({});
+      await h.tick();
+      const un = h.call('POST /unpair');
+      await h.tick();
+      const during = await h.call('POST /pair');
+      expect(during.status).toBe(503);
+      expect(during.body).toEqual({ error: COPY.starting });
+      release();
+      expect((await un).status).toBe(200);
+      expect((await h.call('POST /pair')).status).toBe(202);
+      h.plugin.stop();
+    } finally {
+      release();
+      spy.mockRestore();
+    }
   });
 
   it('logs, redacted, when the stale-run cleanup cannot clear the file', async () => {
@@ -1321,7 +1435,7 @@ describe('unpair, cleanup and route hardening', () => {
   });
 
   it('a pairing start with an unsafe verification URL is rejected without showing it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     const app = fakeApp(dir);
     const fetchFn = () =>
       Promise.resolve(
@@ -1384,14 +1498,14 @@ describe('lifecycle races and the status line', () => {
     await h.call('POST /pair');
     await h.tick();
     expect(h.app.statuses.at(-1)).toBe(COPY.pairingInProgress);
-    expect(COPY.pairingInProgress).toContain('/plugins/signalk-vesseltwin/status');
+    expect(COPY.pairingInProgress).toContain('Webapps');
     expect((await h.call('GET /status')).body.pairing).toMatchObject({ userCode: 'AAAA-AAAA' });
     for (const line of h.app.statuses) expect(line).not.toMatch(/AAAA|connect/);
     h.plugin.stop();
   });
 
   it('POST /pair is refused until the stored credential has loaded, with zero network calls', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const g = gate();
     // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
@@ -1475,7 +1589,7 @@ describe('lifecycle races and the status line', () => {
 
   it('an unrecognised 401 stops probing but keeps the credential file untouched', async () => {
     for (const body of [{}, { code: 'something_else' }]) {
-      const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+      const dir = tempDir();
       await seed(dir);
       const before = await readFile(join(dir, 'credential.json'), 'utf8');
       const h = harness({ dir });
@@ -1496,7 +1610,7 @@ describe('lifecycle races and the status line', () => {
   });
 
   it('keeps the revoke reminder after unpair until the next start or pairing', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
+    const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
     h.plugin.start({});
@@ -1507,5 +1621,234 @@ describe('lifecycle races and the status line', () => {
     h.plugin.start({});
     await h.until(() => h.app.statuses.at(-1) === COPY.notPaired);
     h.plugin.stop();
+  });
+});
+
+describe('cancel pairing', () => {
+  it('answers 409 with neutral copy when nothing is pending, without any network call', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    const out = await h.call('POST /pair/cancel');
+    expect(out.status).toBe(409);
+    expect(out.body).toEqual({ error: COPY.nothingToCancel });
+    expect(COPY.nothingToCancel).toBe('No pairing is waiting for approval.');
+    expect(h.calls).toEqual([]);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
+    h.plugin.stop();
+  });
+
+  it('cancels a pending pairing: idle state, status line reset, a late approval is ignored', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'pairing' });
+    const out = await h.call('POST /pair/cancel');
+    expect(out).toEqual({ status: 200, body: { cancelled: true } });
+    // The route reports by itself: no wait for the next poll.
+    expect(h.app.statuses.at(-1)).toBe(COPY.notPaired);
+    const st = (await h.call('GET /status')).body;
+    expect(st).toMatchObject({ state: 'not_paired', paired: false, pairing: null });
+    // The owner approves just as Cancel was pressed: nothing is saved or started.
+    await h.resolveHeld(h.ok());
+    await h.tick(10_000);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
+    expect(h.files()).toEqual([]);
+    expect(h.statusCalls()).toBe(0);
+    // A second cancel has nothing to cancel, and pairing can start again.
+    expect((await h.call('POST /pair/cancel')).status).toBe(409);
+    expect((await h.call('POST /pair')).status).toBe(202);
+    await h.tick();
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'pairing',
+      pairing: { userCode: 'BBBB-BBBB' },
+    });
+    h.plugin.stop();
+  });
+
+  it('answers 409 while the approved credential is being saved', async () => {
+    const h = harness();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+    const realWrite = CredentialStore.prototype.write;
+    const spy = vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(async function (
+      this: CredentialStore,
+      c,
+    ) {
+      await gate;
+      return realWrite.call(this, c);
+    });
+    try {
+      h.plugin.start({});
+      await h.tick();
+      await h.call('POST /pair');
+      await h.tick(5_000);
+      await h.resolveHeld(h.ok());
+      await h.until(() => spy.mock.calls.length > 0);
+      expect((await h.call('GET /status')).body.state).toBe('checking');
+      const out = await h.call('POST /pair/cancel');
+      expect(out).toEqual({ status: 409, body: { error: COPY.nothingToCancel } });
+      release();
+      await h.untilState('connected');
+      expect((await h.call('GET /status')).body).toMatchObject({ paired: true });
+      h.plugin.stop();
+    } finally {
+      release();
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps the re-pair marker: 409 without a pending pairing, and cancelling a re-pair leaves it', async () => {
+    const dir = tempDir();
+    const tomb = {
+      reauthRequired: true,
+      vesselLabel: 'Sea Hag',
+      apiOrigin: ORIGIN,
+      pairedAt: '2030-01-01T00:00:00.000Z',
+    };
+    await writeFile(join(dir, 'credential.json'), JSON.stringify(tomb));
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('reauth_required');
+    expect((await h.call('POST /pair/cancel')).status).toBe(409);
+    await h.call('POST /pair');
+    await h.tick(5_000);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'pairing' });
+    expect((await h.call('POST /pair/cancel')).status).toBe(200);
+    expect((await h.call('GET /status')).body).toMatchObject({
+      state: 'reauth_required',
+      paired: false,
+    });
+    expect(JSON.parse(await readFile(join(dir, 'credential.json'), 'utf8'))).toEqual(tomb);
+    expect(h.statusCalls()).toBe(0);
+    h.plugin.stop();
+  });
+
+  it('is 503 when the plugin is not running', async () => {
+    const h = harness();
+    expect((await h.call('POST /pair/cancel')).status).toBe(503);
+  });
+});
+
+describe('pairing countdown and cancel before the code exists', () => {
+  const startBody = {
+    deviceCode: 'dc_AAAA-AAAA_abcdefghijklmnop',
+    userCode: 'AAAA-AAAA',
+    verificationUrl: 'https://vesseltwin.io/connect',
+    interval: 5,
+    expiresIn: 600,
+  };
+
+  function lazy() {
+    const app = fakeApp(tempDir());
+    let clock = 1_800_000_000_000;
+    let releaseStart: () => void = () => undefined;
+    const fetchFn = (url: string): Promise<Response> =>
+      url.endsWith('/pairing/start')
+        ? new Promise<Response>((resolve) => {
+            releaseStart = () => {
+              resolve(new Response(JSON.stringify(startBody), { status: 200 }));
+            };
+          })
+        : new Promise<Response>(() => undefined);
+    const plugin = createPlugin(app, { fetch: fetchFn, now: () => clock });
+    const routes: Record<string, RouteFn> = {};
+    plugin.registerWithRouter({
+      get: (p, h) => {
+        routes[`GET ${p}`] = h;
+      },
+      post: (p, h) => {
+        routes[`POST ${p}`] = h;
+      },
+    });
+    const call = async (route: string) => {
+      let status = 200;
+      let body: unknown;
+      const res: ResponseLike = {
+        status: (c) => {
+          status = c;
+          return res;
+        },
+        json: (b) => {
+          body = b;
+        },
+      };
+      await routes[route]?.({}, res);
+      return { status, body: body as Record<string, unknown> };
+    };
+    return {
+      plugin,
+      call,
+      release: () => {
+        releaseStart();
+      },
+      advance: (ms: number) => {
+        clock += ms;
+      },
+    };
+  }
+
+  it('reports whole seconds left at response time, never negative, only while pending', async () => {
+    const p = lazy();
+    p.plugin.start({});
+    await vi.waitFor(async () => {
+      expect((await p.call('POST /pair')).status).toBe(202);
+    });
+    expect((await p.call('GET /status')).body).toMatchObject({ pairing: null });
+    p.release();
+    await vi.waitFor(async () => {
+      expect((await p.call('GET /status')).body.state).toBe('pairing');
+    });
+    const read = async () =>
+      ((await p.call('GET /status')).body.pairing as Record<string, unknown>).expiresInSeconds;
+    expect(await read()).toBe(600);
+    p.advance(125_400);
+    expect(await read()).toBe(475);
+    p.advance(125_600);
+    expect(await read()).toBe(349);
+    p.advance(10_000_000);
+    expect(await read()).toBe(0);
+    const body = (await p.call('GET /status')).body.pairing as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual([
+      'expiresAt',
+      'expiresInSeconds',
+      'userCode',
+      'verificationUrl',
+    ]);
+    p.plugin.stop();
+  });
+
+  it('cancel in the window before the code arrives stops the run cleanly', async () => {
+    const p = lazy();
+    p.plugin.start({});
+    await vi.waitFor(async () => {
+      expect((await p.call('POST /pair')).status).toBe(202);
+    });
+    expect((await p.call('GET /status')).body.state).toBe('not_paired');
+    expect((await p.call('POST /pair/cancel')).status).toBe(200);
+    p.release(); // the start answer arrives late and must be ignored
+    await realPause(50);
+    expect((await p.call('GET /status')).body).toMatchObject({
+      state: 'not_paired',
+      pairing: null,
+    });
+    p.plugin.stop();
+  });
+});
+
+describe('page copy', () => {
+  it('points to the Webapps page and never carries the code or a route', () => {
+    expect(COPY.notPaired).toBe(
+      'Not paired. Open VesselTwin under Webapps in the SignalK admin UI to pair.',
+    );
+    expect(COPY.pairingInProgress).toBe(
+      'Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code.',
+    );
+    expect(COPY.pairingInProgress).not.toMatch(/\/plugins|status/);
   });
 });

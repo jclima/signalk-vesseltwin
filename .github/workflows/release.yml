@@ -14,26 +14,35 @@ jobs:
     # Opt-in gate: flip the repo variable, no code change needed.
     if: vars.NPM_TRUSTED_PUBLISHING == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: npm-publish
     permissions:
       contents: read
       id-token: write # OIDC for trusted publishing + provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0 # tags and history for the release checks
-      - name: Ensure origin/main exists
-        run: git fetch origin main:refs/remotes/origin/main
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+          fetch-depth: 0 # full history for the ancestry check
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24 # trusted publishing needs npm >= 11.5.1
           registry-url: https://registry.npmjs.org
-          cache: pnpm
-      - name: Release checks
+          # No package-manager cache here: a release must not restore a cache that other runs can write.
+      - name: Require npm >= 11.5.1 (trusted publishing)
+        run: |
+          npm --version
+          node -e "const [a,b,c]=process.argv[1].split('.').map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)" "$(npm --version)" \
+            || { echo "::error::npm >= 11.5.1 is required for trusted publishing"; exit 1; }
+      - name: Fetch origin/main for the ancestry check
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Release checks (tag matches version, tagged commit is on main, changelog, registry)
         env:
           TAG: ${{ github.ref_name }}
         run: node scripts/release-check.mjs --tag "$TAG" --online
       - run: pnpm install --frozen-lockfile
+      # preflight = lint + typecheck + test + build + check:pack, so the tarball below is the checked build.
       - run: pnpm preflight
-      - run: npm publish --provenance --access public
+      # --ignore-scripts skips prepack so the tarball is exactly the build that was just checked.
+      - run: npm publish --provenance --access public --ignore-scripts

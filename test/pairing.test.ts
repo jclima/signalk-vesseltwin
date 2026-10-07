@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HttpClient } from '../src/http';
+import { HttpClient, HttpError } from '../src/http';
 import { cleanSelfUuid, defaultSleep, runPairing } from '../src/pairing';
 
 const startBody = {
@@ -179,16 +179,15 @@ describe('runPairing', () => {
       json(200, { credential, credentialId: 'c1', scopes: [], vesselLabel: null, provider: 'x' }),
     ]);
     const p = runPairing(base(http));
-    const caught = p.catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
+    expect(await p).toEqual({ kind: 'unexpected_response' });
   });
 
   it('rejects a non-string credentialId', async () => {
     const { http } = setup([json(200, { credential: `vti_${'x'.repeat(43)}`, credentialId: 7 })]);
-    const caught = runPairing(base(http)).catch((e: unknown) => e);
+    const p = runPairing(base(http));
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(String(await caught)).toMatch(/unexpected pairing\/token response/);
+    expect(await p).toEqual({ kind: 'unexpected_response' });
   });
 
   it('copies only known token fields', async () => {
@@ -269,6 +268,116 @@ describe('runPairing', () => {
       const { http } = setup([], json(status, {}));
       await expect(runPairing(base(http))).rejects.toThrow('pairing/start failed');
     }
+  });
+});
+
+describe('token poll network errors', () => {
+  const token = {
+    credential: `vti_${'x'.repeat(43)}`,
+    credentialId: 'c1',
+    scopes: ['meters:write'],
+    vesselLabel: null,
+    provider: 'signalk',
+  };
+  /** Token replies: a Response, or 'net' for a rejected fetch (network error). */
+  function flaky(replies: (Response | 'net')[], onToken?: () => void) {
+    const queue = [...replies];
+    const fetchFn = (url: string) => {
+      if (url.endsWith('/pairing/start')) return Promise.resolve(json(200, startBody));
+      onToken?.();
+      const next = queue.shift();
+      if (next === 'net') return Promise.reject(new TypeError('fetch failed vti_secret'));
+      return Promise.resolve(next ?? json(400, { error: 'authorization_pending' }));
+    };
+    return new HttpClient({ baseUrl: 'https://api.test', fetch: fetchFn, userAgent: 'ua' });
+  }
+
+  it('survives a network error mid-poll and still pairs', async () => {
+    const http = flaky(['net', json(200, token)]);
+    const p = runPairing(base(http));
+    await vi.advanceTimersByTimeAsync(5_000); // first poll fails
+    await vi.advanceTimersByTimeAsync(10_000); // interval widened to 10s; second poll pairs
+    expect(await p).toEqual({ kind: 'paired', token });
+  });
+
+  it('ends as expired when the errors persist until the code expires', async () => {
+    const http = flaky(Array.from({ length: 1000 }, () => 'net' as const));
+    const p = runPairing(base(http));
+    await vi.advanceTimersByTimeAsync(700_000);
+    expect(await p).toEqual({ kind: 'expired' });
+  });
+
+  it('returns cancelled, not an error, when aborted during the failing request', async () => {
+    const ac = new AbortController();
+    const http = flaky(['net'], () => {
+      ac.abort();
+    });
+    const p = runPairing({ ...base(http), signal: ac.signal });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await p).toEqual({ kind: 'cancelled' });
+  });
+
+  /** A client whose token POST rejects with `error` (start succeeds); counts token calls. */
+  function throwing(error: unknown) {
+    const state = { tokenCalls: 0 };
+    const fetchFn = (url: string) => {
+      if (url.endsWith('/pairing/start')) return Promise.resolve(json(200, startBody));
+      state.tokenCalls += 1;
+      return Promise.reject(error instanceof Error ? error : new Error('x'));
+    };
+    return {
+      state,
+      http: new HttpClient({ baseUrl: 'https://api.test', fetch: fetchFn, userAgent: 'ua' }),
+    };
+  }
+
+  it('retries a timeout mid-poll like a network error', async () => {
+    const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const { http, state } = throwing(abortErr);
+    const p = runPairing(base(http));
+    const settled = p.then(
+      (v) => v,
+      (e: unknown) => e,
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(state.tokenCalls).toBeGreaterThan(1);
+    await vi.advanceTimersByTimeAsync(700_000);
+    expect(await settled).toEqual({ kind: 'expired' });
+  });
+
+  it('a non-HttpError thrown by post mid-poll propagates at once, without retrying', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, headers: new Headers(), json: startBody })
+      .mockRejectedValue(new TypeError('boom'));
+    const http = { post } as unknown as HttpClient;
+    const p = runPairing(base(http));
+    const settled = p.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await settled).toBeInstanceOf(TypeError);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(post).toHaveBeenCalledTimes(2); // start + exactly one token poll
+  });
+
+  it('an HttpError of kind refused propagates without retrying', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, headers: new Headers(), json: startBody })
+      .mockRejectedValue(new HttpError('request refused', undefined, 'refused'));
+    const http = { post } as unknown as HttpClient;
+    const settled = runPairing(base(http)).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await settled).toMatchObject({ kind: 'refused' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('a malformed 200 token response is an unexpected response, not a thrown error', async () => {
+    const http = flaky([json(200, { credential: 'nope' })]);
+    const p = runPairing(base(http));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await p).toEqual({ kind: 'unexpected_response' });
   });
 });
 

@@ -10,7 +10,7 @@
  *   TODO electrical.batteries.<id>.capacity.stateOfCharge (0-1)
  *   TODO tanks.<type>.<id>.currentLevel                  (0-1)
  *   TODO tanks.<type>.<id>.currentVolume                 (m3)
- *   TODO name, design.length.overall, design.beam, design.draft.maximum,
+ *   TODO design.length.overall, design.beam, design.draft.maximum,
  *        design.airHeight                                 (vessel-info suggestions)
  *
  * NEVER added: navigation.position*, mmsi, communication.callsign*, anything

@@ -16,6 +16,10 @@ unavailable). Exit 3 is never a pass. `pnpm lint` runs its `--ci` mode on every 
   reviewers there if you want an approval before each publish.
 - `release.yml` only runs its publish job when the repository variable `NPM_TRUSTED_PUBLISHING` is
   `true`. Leave it unset until the trusted publisher is configured.
+- A repository ruleset protects `v*.*.*` tags, so only maintainers can create or move them.
+- Branch protection on `main` requires the `check (22)` and `check (24)` CI checks.
+- The package version is already `0.1.0` on `main` (not yet published). The first release is `0.1.0`
+  and needs no further version bump.
 
 The npm trusted-publishing documentation (<https://docs.npmjs.com/trusted-publishers>) does not state
 whether a trusted publisher can be configured for a package that does not exist yet, and a new
@@ -32,7 +36,11 @@ manually:
    npm publish --access public
    ```
 
-   This first version has no provenance attestation; that is expected.
+   Use npm >= 11.5.1 for trusted publishing (the workflow checks this; the first manual publish does
+   not use OIDC). `pnpm check:pack` asserts the tarball holds only `plugin/`, the five pairing page files in
+   `public/` (`index.html`, `style.css`, `app.js`, `view.js`, `controller.js`), `README.md`,
+   `LICENSE`, `SECURITY.md` and `package.json`. `npm publish` runs `prepack`, which rebuilds. This
+   first version has no provenance attestation; that is expected.
 
 2. On npmjs.com, open the package settings > Trusted Publisher and add GitHub Actions with owner
    `jclima`, repository `signalk-vesseltwin`, workflow filename `release.yml` and environment
@@ -58,7 +66,10 @@ rejected by the checks for now.
 
 On a branch `release/vX.Y.Z`:
 
-- Bump `version` in `package.json` and `PLUGIN_VERSION` in `src/plugin.ts`.
+- Bump `version` in `package.json` and `PLUGIN_VERSION` in `src/plugin.ts`. They must be equal
+  (`test/` and `release-check` both enforce it). For the first release no bump is needed: `main` is
+  already at `0.1.0` (unpublished), so the release PR mainly dates the CHANGELOG section and fixes
+  the README Status and Install copy, if that is not already done.
 - Update the README Status line and Install text to match what this release does and where it is
   published. Keep the privacy section and the code in agreement (see `AGENTS.md`).
 - In `CHANGELOG.md`, move the `Unreleased` entries under `## [X.Y.Z] - YYYY-MM-DD` and leave an empty
@@ -72,7 +83,7 @@ On a branch `release/vX.Y.Z`:
 gh pr create --template release.md
 ```
 
-Wait for CI on Node 22 and 24, then squash-merge.
+Wait for CI (`check (22)` and `check (24)`, required by branch protection), then squash-merge.
 
 ## 4. Tag (maintainer only)
 
@@ -87,9 +98,14 @@ git push origin vX.Y.Z
 
 ## 5. Publish
 
-Pushing the tag starts the `Release` workflow. It runs `release-check --tag --online`, then
-`pnpm preflight`, then `npm publish --provenance --access public`. Approve the `npm-publish`
-environment if it has reviewers. If a run fails for infrastructure reasons, re-run it. Never move or
+Pushing the tag starts the `Release` workflow (only when `NPM_TRUSTED_PUBLISHING` is `true`; tags
+matching `v*.*.*` are protected by a ruleset). On Node 24 it requires npm >= 11.5.1, fetches
+`origin/main`, runs `release-check --tag --online` (tag equals `v` plus the `package.json` version, and
+the tagged commit must be on `main`), then `pnpm preflight` (lint, typecheck including `tsc -p web`,
+tests, build, tarball check), then `npm publish --provenance --access public --ignore-scripts`.
+`--ignore-scripts` skips `prepack`, so the tarball is exactly the build that was just checked. The
+tarball holds only `plugin/`, the five `public/` files, README, LICENSE, SECURITY and `package.json`.
+Approve the `npm-publish` environment if it has reviewers. If a run fails for infrastructure reasons, re-run it. Never move or
 delete a pushed tag; if the tag is wrong, fix forward with a new version.
 
 ## 6. Verify

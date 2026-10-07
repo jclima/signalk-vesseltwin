@@ -19,6 +19,13 @@ const LINUX_HOME = ['', 'home', 'someone', 'x'].join('/');
 const AKIA = 'AK' + 'IA' + 'ABCDEFGHIJKLMNOP';
 const REAL_LOOKING_VTI = 'vti_' + 'Q7x9ZkLm3Pw2RtYv8NaB5cDe1FgH4JsU6';
 
+// A JWT-shaped value: base64url header and payload ({"alg"...}, {"sub"...}) plus a signature.
+const JWT = [
+  'ey' + 'JhbGciOiJIUzI1NiJ9',
+  'ey' + 'JzdWIiOiIxMjM0NTY3ODkwIn0',
+  'c2lnbmF0dXJlX3ZhbHVl',
+].join('.');
+
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'check-public-'));
@@ -38,6 +45,13 @@ describe('scanText', () => {
       'vti-credential-like',
     );
     expect(scanText('a.md', `Authorization: Bearer ${REAL_LOOKING_VTI}`).length).toBeGreaterThan(0);
+  });
+
+  it('flags JWT-shaped tokens but not a lone base64 header', () => {
+    expect(scanText('a.md', `token ${JWT}`).map((f) => f.rule)).toContain('jwt');
+    expect(scanText('a.md', `Authorization: ${JWT}`).length).toBeGreaterThan(0);
+    expect(scanText('a.md', 'ey' + 'JhbGciOiJIUzI1NiJ9 alone').length).toBe(0);
+    expect(formatFindings(scanText('a.md', JWT))).not.toContain(JWT);
   });
 
   it('reports line numbers and never the matched value', () => {
@@ -122,6 +136,7 @@ describe('checkPackFiles', () => {
       checkPackFiles([
         'plugin/index.js',
         'plugin/a/b.d.ts',
+        'public/index.html',
         'README.md',
         'LICENSE',
         'SECURITY.md',
@@ -129,11 +144,46 @@ describe('checkPackFiles', () => {
       ]),
     ).toEqual([]);
   });
+  it('accepts exactly the five pairing page files', () => {
+    expect(
+      checkPackFiles([
+        'plugin/index.js',
+        'public/index.html',
+        'public/style.css',
+        'public/app.js',
+        'public/view.js',
+        'public/controller.js',
+      ]),
+    ).toEqual([]);
+  });
+  it('rejects other files under public/', () => {
+    const bad = [
+      'public/x.js',
+      'public/app.js.map',
+      'public/app.d.ts',
+      'public/sub/app.js',
+      'public/',
+      'web/app.ts',
+    ];
+    expect(
+      checkPackFiles(['plugin/index.js', 'public/index.html', ...bad]).map((f) => f.path),
+    ).toEqual(bad);
+  });
   it('rejects extras and an empty plugin dir', () => {
-    expect(checkPackFiles(['plugin/index.js', 'docs/api.md']).map((f) => f.path)).toEqual([
-      'docs/api.md',
+    expect(
+      checkPackFiles(['plugin/index.js', 'public/index.html', 'docs/api.md']).map((f) => f.path),
+    ).toEqual(['docs/api.md']);
+    expect(checkPackFiles(['README.md', 'public/index.html']).length).toBe(1);
+  });
+  it('requires public/index.html', () => {
+    const f = checkPackFiles(['plugin/index.js', 'public/style.css']);
+    expect(f).toEqual([
+      {
+        path: 'public/index.html',
+        line: 0,
+        rule: 'pack: tarball has no public/index.html (run pnpm build first)',
+      },
     ]);
-    expect(checkPackFiles(['README.md']).length).toBe(1);
   });
 });
 
