@@ -4,7 +4,7 @@
 [SignalK](https://signalk.org) server plugin connects your boat's SignalK server to your VesselTwin
 account so engine hours, battery readings and tank levels can feed that record once uploading is available.
 
-> **Status: version 0.1.0.** Connecting your boat works. **Sending readings is
+> **Status: version 0.1.1.** Connecting your boat works. **Sending readings is
 > not available in this version**; the plugin says so in its status line. It is published on npm;
 > the SignalK Appstore listing can take a while to appear.
 

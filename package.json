@@ -1,6 +1,6 @@
 {
   "name": "signalk-vesseltwin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SignalK server plugin that pairs a boat with VesselTwin and (in a future release) uploads engine hours, battery and tank readings to its maintenance record.",
   "license": "Apache-2.0",
   "author": "VesselTwin contributors",
