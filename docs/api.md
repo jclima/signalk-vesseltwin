@@ -175,7 +175,8 @@ outside the window here, so an outdated plugin can still learn it must update. R
 ```
 
 The example is what a contract-1 plugin receives from the current server (contracts 1 and 2 are
-accepted, 2 is the latest), so the update hint is expected until the plugin moves to contract 2.
+accepted, 2 is the latest). That only says the server supports a newer contract; it does not mean a
+newer plugin has been released.
 
 `pluginUpdateRecommended` is true when the plugin's contract is below `latestContract` (or missing).
 `serverTime` can be used to warn about clock skew. `summary` is provider-specific (a small object of counts for this provider) and may be `null`; the plugin ignores it.
@@ -195,7 +196,7 @@ Outcome table (`src/status.ts`):
 
 | Response                                                                                                                          | State shown       | Next probe                            |
 | --------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------- |
-| `200`, plugin contract within `minContract`; update if `latestContract` is higher or `pluginUpdateRecommended`                    | `connected`       | hourly, with jitter                   |
+| `200`, plugin contract within `minContract`; informational hint only if `latestContract` is higher or `pluginUpdateRecommended`   | `connected`       | hourly, with jitter                   |
 | `200` with `minContract` above the plugin's contract                                                                              | `update_required` | hourly (an updated plugin would pass) |
 | `200` body that is not this provider's status (`provider` is not `signalk`, or `minContract` / `latestContract` are not integers) | `offline`         | backoff                               |
 | `401`                                                                                                                             | `reauth_required` | none (see below)                      |
@@ -206,8 +207,14 @@ Outcome table (`src/status.ts`):
 | `429`, `5xx`, network error, timeout, anything else                                                                               | `offline`         | backoff, at least `Retry-After`       |
 
 If the server clock and the device clock differ by more than 5 minutes, the `connected` status line
-adds a note to check the date and time. A `connected` response also sets "a plugin update is
-available" when `pluginUpdateRecommended` is true or `latestContract` exceeds the plugin's contract.
+adds a note to check the date and time.
+
+`pluginUpdateRecommended` and `latestContract` are surfaced only as an informational
+`updateRecommended` hint in the admin-only `/status` response (true when `pluginUpdateRecommended` is
+true or `latestContract` exceeds the plugin's contract). The broadcast status line does not claim an
+update exists, because the plugin cannot tell a newer server contract from a released plugin (and
+must not contact npm). Plugin updates appear in the SignalK Appstore. Only when the plugin's
+contract is below `minContract`, or on a `426`, does the plugin say "Update the plugin".
 
 Any `401` stops all authenticated calls and moves to `reauth_required`; the plugin tells the user to
 pair again. It does not loop. Only a `401` whose body has `code: "integration_unauthorized"` is the

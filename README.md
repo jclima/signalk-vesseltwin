@@ -83,10 +83,11 @@ version does not send readings.
 - _Paired with (your boat)_ (or _Paired with VesselTwin_): the connection is valid and is re-checked
   about once an hour.
 - _Checking the connection_: shown briefly after pairing and after a restart.
-- _A plugin update is available._ This line is expected with this version. It only means VesselTwin
-  knows a newer plugin contract than this one. Nothing is wrong and nothing needs to be done now.
 - _This device's clock differs from VesselTwin's. Check the date and time._ Fix the clock on the
   server.
+
+Plugin updates are announced in the SignalK Appstore when released; the status line does not
+announce them.
 
 **Connected but not working right now (the plugin keeps checking by itself)**
 
