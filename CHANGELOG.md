@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-07
+
 ### Fixed
 
 - The status line no longer says a plugin update is available when none has been released; plugin
