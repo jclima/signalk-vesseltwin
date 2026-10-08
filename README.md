@@ -99,7 +99,7 @@ version does not send readings.
 **Needs your action**
 
 - _This plugin version is not supported by VesselTwin. Update the plugin._ Update it from the
-  SignalK Appstore (or install a newer tarball) and restart.
+  SignalK Appstore (or install the newer version from npm) and restart.
 - _Pairing with VesselTwin is no longer valid. Pair again._ VesselTwin no longer accepts the stored
   connection (revoked, expired, or removed). See "Unpair and pair again" below.
 - _The VesselTwin API address changed since pairing._ The stored connection was issued for another
