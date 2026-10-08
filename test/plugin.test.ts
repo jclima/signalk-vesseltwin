@@ -931,7 +931,7 @@ describe('state machine', () => {
       false,
     ],
     [
-      'connected with update and clock skew',
+      'connected with update hint and clock skew (hint stays out of the line)',
       () =>
         new Response(
           JSON.stringify({
@@ -941,8 +941,15 @@ describe('state machine', () => {
           }),
           { status: 200 },
         ),
-      `Paired with Sea Hag. A plugin update is available. This device's clock differs from VesselTwin's. Check the date and time. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This device's clock differs from VesselTwin's. Check the date and time. ${NO_UPLOAD}`,
       { state: 'connected', updateRecommended: true, clockSkewWarning: true },
+      false,
+    ],
+    [
+      'connected with a newer server contract (no update claim in the line)',
+      () => new Response(JSON.stringify({ ...okStatusBody(), latestContract: 2 }), { status: 200 }),
+      `Paired with Sea Hag. ${NO_UPLOAD}`,
+      { state: 'connected', updateRecommended: true, clockSkewWarning: false },
       false,
     ],
     [

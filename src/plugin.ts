@@ -291,8 +291,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         if (finalizing) return `Pairing approved. Saving the connection. ${NO_UPLOAD}`;
         return `${lead}. Checking the connection. ${NO_UPLOAD}`;
       case 'connected': {
+        // `updateRecommended` is only an informational hint in the admin /status response. A newer
+        // server contract does not mean a newer plugin exists, so the broadcast line never claims it.
         const extras = [
-          snap?.updateRecommended ? 'A plugin update is available.' : '',
           snap?.clockSkewWarning
             ? "This device's clock differs from VesselTwin's. Check the date and time."
             : '',

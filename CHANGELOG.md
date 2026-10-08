@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The status line no longer says a plugin update is available when none has been released; plugin
+  updates appear in the SignalK Appstore.
+
 ## [0.1.0] - 2026-10-07
 
 Uploading engine, battery and tank readings is not built: the plugin pairs, stores its
