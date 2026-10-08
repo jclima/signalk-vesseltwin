@@ -41,9 +41,11 @@
   "scripts": {
     "build": "rm -rf plugin public/*.js && tsc -p tsconfig.build.json && tsc -p web",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "lint": "eslint . && prettier --check . && node scripts/check-public.mjs",
+    "lint": "eslint . && prettier --check . && node scripts/check-public.mjs && node scripts/release-check.mjs --ci",
     "check:public": "node scripts/check-public.mjs",
     "check:pack": "node scripts/check-public.mjs --pack",
+    "check:release": "node scripts/release-check.mjs",
+    "preflight": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:pack",
     "hooks:install": "git config core.hooksPath .githooks",
     "format": "prettier --write .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web --noEmit",
