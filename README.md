@@ -4,22 +4,19 @@
 [SignalK](https://signalk.org) server plugin connects your boat's SignalK server to your VesselTwin
 account so engine hours, battery readings and tank levels can feed that record once uploading is available.
 
-> **Status: version 0.1.0, not yet published.** Connecting your boat works. **Sending readings is
-> not available in this version**; the plugin says so in its status line. It is not yet on npm or
-> in the SignalK Appstore.
+> **Status: version 0.1.0.** Connecting your boat works. **Sending readings is
+> not available in this version**; the plugin says so in its status line. It is published on npm;
+> the SignalK Appstore listing can take a while to appear.
 
 ## Install
 
-Once published: SignalK admin UI > Appstore > search "VesselTwin" > Install > restart the server.
-Then enable it under Server > Plugin Config.
-
-To try it before then, install a packaged tarball (`signalk-vesseltwin-0.1.0.tgz`, built from this
-repository with `pnpm build && npm pack`) into your SignalK configuration folder, then restart the
-server:
+SignalK admin UI > Appstore > search "VesselTwin" > Install > restart the server. Then enable it
+under Server > Plugin Config. If the Appstore does not list it yet, install `signalk-vesseltwin`
+from npm into your SignalK configuration folder and restart the server:
 
 ```sh
 cd ~/.signalk
-npm install /path/to/signalk-vesseltwin-0.1.0.tgz
+npm install signalk-vesseltwin
 ```
 
 The plugin has no runtime dependencies, so nothing else is installed with it. Use the folder your
