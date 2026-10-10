@@ -99,7 +99,6 @@ function categorySchema(
       ...thresholds,
       instances: {
         type: 'object',
-        title: 'Record from',
         properties: {
           mode: {
             type: 'string',
@@ -111,13 +110,13 @@ function categorySchema(
           ids: {
             type: 'array',
             title: 'Instance ids',
+            description: 'Add at least one id, or nothing is recorded.',
             maxItems: MAX_INSTANCE_IDS,
             items: {
               type: 'string',
               title: 'Instance id',
               description: idHelp,
               pattern: idPattern,
-              errorMessage: idHelp,
             },
           },
         },
