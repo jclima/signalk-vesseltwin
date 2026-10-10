@@ -91,6 +91,8 @@ export class ReadingQueue {
   private async init(): Promise<void> {
     if (this.ready) return;
     await fs.mkdir(this.opts.dir, { recursive: true, mode: 0o700 });
+    // Apply the age and count caps to whatever a previous run left behind.
+    await this.applyCaps();
     const segs = await this.segments();
     const last = segs[segs.length - 1];
     if (last === undefined) {
@@ -151,6 +153,10 @@ export class ReadingQueue {
   /** Drops readings older than the age cap, then oldest-first beyond the count cap. */
   async enforceCaps(): Promise<void> {
     await this.init();
+    await this.applyCaps();
+  }
+
+  private async applyCaps(): Promise<void> {
     const cutoff = this.now() - this.maxAge;
     const segs = await this.segments();
     const loaded: { seq: number; items: Reading[] }[] = [];

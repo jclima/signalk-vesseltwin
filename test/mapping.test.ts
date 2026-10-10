@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categoryFor, PATH_RULES } from '../src/mapping';
+import { categoryFor, matchPath, PATH_RULES, type PathRule } from '../src/mapping';
 
 describe('mapping registry', () => {
   it('is empty until upload ships', () => {
@@ -26,5 +26,37 @@ describe('mapping registry', () => {
       expect(pat.startsWith('navigation.')).toBe(false);
       for (const word of banned) expect(pat).not.toContain(word);
     }
+  });
+
+  it('matchPath matches nothing against the production rules', () => {
+    for (const p of [
+      'navigation.position',
+      'propulsion.main.runTime',
+      'tanks.fuel.0.currentLevel',
+      '',
+    ]) {
+      expect(matchPath(p)).toBeNull();
+    }
+  });
+
+  it('matchPath returns category, unit and the joined wildcard captures', () => {
+    const rules: PathRule[] = [
+      { pattern: 'test.alpha.*.value', category: 'engineHours', unit: 's' },
+      { pattern: 'test.gamma.*.*.level', category: 'tanks', unit: 'ratio' },
+      { pattern: 'test.delta.fixed', category: 'batteries', unit: 'V' },
+    ];
+    expect(matchPath('test.alpha.main.value', rules)).toEqual({
+      category: 'engineHours',
+      unit: 's',
+      instance: 'main',
+    });
+    expect(matchPath('test.gamma.fuel.0.level', rules)?.instance).toBe('fuel.0');
+    expect(matchPath('test.delta.fixed', rules)).toEqual({
+      category: 'batteries',
+      unit: 'V',
+      instance: '',
+    });
+    expect(matchPath('test.alpha.a.b.value', rules)).toBeNull();
+    expect(matchPath('xtest.alpha.main.value', rules)).toBeNull();
   });
 });

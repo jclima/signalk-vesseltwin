@@ -306,7 +306,16 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   "updateRecommended": false,
   "clockSkewWarning": false,
   "lastCheckedAt": "2026-01-01T00:00:00.000Z",
-  "message": "Paired with Boat name. Data upload is not available in this version."
+  "message": "Paired with Boat name. Data upload is not available in this version.",
+  "upload": {
+    "available": false,
+    "categories": {
+      "engineHours": { "enabled": true, "recordIntervalMinutes": 1440, "instanceMode": "all" },
+      "batteries": { "enabled": true, "recordIntervalMinutes": 1440, "instanceMode": "all" },
+      "tanks": { "enabled": true, "recordIntervalMinutes": 1440, "instanceMode": "all" }
+    },
+    "warnings": []
+  }
 }
 ```
 
@@ -328,6 +337,44 @@ administrator, to see the code.` `vesselLabel` comes from the server and is
   is allowed in `not_paired`, `pairing_failed` and `reauth_required`. It does nothing
   new while a pairing is already pending.
 - Pairing is bound to the plugin's lifetime: stopping or unpairing cancels it and forgets the code.
+
+- `upload` describes the effective upload settings and is admin-only (the status line never carries
+  it). `available` is always `false` in this version. Each category's `enabled` is false when the
+  category is off or when `instanceMode` is `selected` with no valid ids. `warnings` is a list of
+  neutral sentences (ignored instance ids, a selected list with no valid ids, a queue cap below a
+  week of full-rate readings); it never repeats the ids.
+
+### Upload settings (not active yet)
+
+Nothing is recorded or sent in this version; the settings are parsed and reported only. Wrong types
+fall back to the default and out-of-range numbers are clamped; unknown keys are ignored.
+
+| Setting                                                    | Range / values    | Default |
+| ---------------------------------------------------------- | ----------------- | ------- |
+| `<category>.enabled` (`engineHours`, `batteries`, `tanks`) | boolean           | true    |
+| `<category>.recordIntervalMinutes`                         | 60 to 1440        | 1440    |
+| `engineHours.minChangeHours`                               | 0.1 to 24         | 0.1     |
+| `batteries.minChangeVolts`                                 | 0 to 5            | 0       |
+| `batteries.minChangePercent`                               | 0 to 50           | 0       |
+| `tanks.minChangePercent`                                   | 0 to 50           | 0       |
+| `tanks.minChangeLiters`                                    | 0 to 1000         | 0       |
+| `<category>.instances.mode`                                | `all`, `selected` | `all`   |
+| `<category>.instances.ids`                                 | up to 64 strings  | empty   |
+| `uploadIntervalMinutes`                                    | 5 to 1440         | 1440    |
+| `samplePeriodSeconds`                                      | 10 to 3600        | 300     |
+| `queueMaxReadings`                                         | 1000 to 50000     | 50000   |
+
+- Instance ids for engines and batteries match `^[A-Za-z0-9_-]{1,40}$`; tank ids match
+  `^[A-Za-z][A-Za-z0-9]{0,30}\.[A-Za-z0-9_-]{1,40}$` (type, a dot, id). Invalid ids are dropped.
+- `<category>.enabled` wins when it is a boolean; otherwise the older `sendEngineHours`,
+  `sendBatteries` or `sendTanks` setting is used; otherwise the default. `sendVesselInfo` is no
+  longer shown and is ignored.
+- Record policy (applies once upload ships): a reading is kept only when the category and instance
+  are on, the SignalK timestamp is newer than the last sample of that channel, at least
+  `recordIntervalMinutes` passed since the last kept reading, and the value changed by at least the
+  minimum (or the minimum is 0, or 24 hours passed). At most 24 readings are kept per channel per UTC
+  day and at most 64 channels are used.
+- `samplePeriodSeconds` used to accept up to 86400; values above 3600 are now clamped to 3600.
 
 ### Configuration errors
 

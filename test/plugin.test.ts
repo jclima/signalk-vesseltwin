@@ -1859,3 +1859,55 @@ describe('page copy', () => {
     expect(COPY.pairingInProgress).not.toMatch(/\/plugins|status/);
   });
 });
+
+describe('admin status upload block', () => {
+  it('reports upload unavailable with the effective settings and neutral warnings', async () => {
+    const h = harness();
+    h.plugin.start({
+      engineHours: { recordIntervalMinutes: 120, instances: { mode: 'selected', ids: ['bad id'] } },
+      batteries: { enabled: false },
+      tanks: { instances: { mode: 'selected', ids: ['fuel.0', 'nope'] } },
+      queueMaxReadings: 2_000,
+    });
+    await h.tick();
+    const body = (await h.call('GET /status')).body;
+    expect(body.upload).toEqual({
+      available: false,
+      categories: {
+        engineHours: { enabled: false, recordIntervalMinutes: 120, instanceMode: 'selected' },
+        batteries: { enabled: false, recordIntervalMinutes: 1440, instanceMode: 'all' },
+        tanks: { enabled: true, recordIntervalMinutes: 1440, instanceMode: 'selected' },
+      },
+      warnings: expect.arrayContaining([expect.stringMatching(/not valid/)]) as unknown,
+    });
+    const w = (body.upload as { warnings: string[] }).warnings.join(' ');
+    expect(w).toMatch(/no valid instances/);
+    expect(w).toMatch(/queue cap/);
+    expect(w).not.toMatch(/bad id|nope|fuel/);
+    h.plugin.stop();
+  });
+
+  it('keeps the broadcast status line free of upload settings', async () => {
+    const h = harness();
+    h.plugin.start({ engineHours: { recordIntervalMinutes: 120 }, queueMaxReadings: 2_000 });
+    await h.tick();
+    for (const line of h.app.statuses) expect(line).not.toMatch(/interval|queue|instance|120/i);
+    h.plugin.stop();
+  });
+
+  it('every status line that mentions a connection says upload is not available', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    h.statusReplies.push(reply(503, { code: 'integration_feature_unavailable' }));
+    h.plugin.start({});
+    await h.tick();
+    const msgs = [(await h.call('GET /status')).body.message as string, ...h.app.statuses];
+    await h.tick(61 * MIN);
+    msgs.push((await h.call('GET /status')).body.message as string);
+    const connected = msgs.filter((m) => m.startsWith('Paired with'));
+    expect(connected.length).toBeGreaterThan(0);
+    for (const m of connected) expect(m).toContain(NO_UPLOAD);
+    h.plugin.stop();
+  });
+});

@@ -1,6 +1,12 @@
 import { CredentialStore, isTombstone } from './credential-store';
 import { SCOPES } from './contract';
-import { apiOrigin, configSchema, parseOptions, type PluginOptions } from './config';
+import {
+  apiOrigin,
+  configSchema,
+  parseOptions,
+  type ChannelOptions,
+  type PluginOptions,
+} from './config';
 import { HttpClient, type FetchLike } from './http';
 import { runPairing } from './pairing';
 import { redactError } from './redact';
@@ -62,6 +68,9 @@ export type PluginState =
   | 'update_required'
   | 'reauth_required'
   | 'config_error';
+
+/** Upload is not built. Flip only together with the upload work itself. */
+const UPLOAD_AVAILABLE = false;
 
 const NO_UPLOAD = 'Data upload is not available in this version.';
 
@@ -455,6 +464,24 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       return h(req, res);
     };
 
+  function uploadBlock(): Record<string, unknown> {
+    const u = options.upload;
+    const one = (c: ChannelOptions) => ({
+      enabled: c.active,
+      recordIntervalMinutes: c.recordIntervalMinutes,
+      instanceMode: c.instanceMode,
+    });
+    return {
+      available: UPLOAD_AVAILABLE,
+      categories: {
+        engineHours: one(u.engineHours),
+        batteries: one(u.batteries),
+        tanks: one(u.tanks),
+      },
+      warnings: options.warnings,
+    };
+  }
+
   function statusBody(): Record<string, unknown> {
     const st = state();
     return {
@@ -480,6 +507,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       lastCheckedAt:
         snap?.lastCheckedAt != null ? new Date(snap.lastCheckedAt).toISOString() : null,
       message: message(st),
+      upload: uploadBlock(),
     };
   }
 

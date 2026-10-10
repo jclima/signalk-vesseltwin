@@ -19,26 +19,46 @@
 
 export type Category = 'engineHours' | 'batteries' | 'tanks' | 'vesselInfo';
 
+/** Unit of the raw SignalK value (SI). */
+export type Unit = 's' | 'V' | 'ratio' | 'm3';
+
 export interface PathRule {
   /** Glob-ish SignalK path, e.g. `propulsion.*.runTime`. */
   pattern: string;
   category: Category;
+  unit: Unit;
+}
+
+export interface PathMatch {
+  category: Category;
+  unit: Unit;
+  /** Wildcard captures joined by `.`; empty when the pattern has no wildcard. */
+  instance: string;
 }
 
 export const PATH_RULES: readonly PathRule[] = [];
 
-function matches(pattern: string, path: string): boolean {
+function matches(pattern: string, path: string): string[] | null {
   const re = new RegExp(
     '^' +
       pattern
         .split('*')
         .map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-        .join('[^.]+') +
+        .join('([^.]+)') +
       '$',
   );
-  return re.test(path);
+  const m = re.exec(path);
+  return m ? m.slice(1) : null;
 }
 
 export function categoryFor(path: string): Category | null {
-  return PATH_RULES.find((r) => matches(r.pattern, path))?.category ?? null;
+  return matchPath(path)?.category ?? null;
+}
+
+export function matchPath(path: string, rules: readonly PathRule[] = PATH_RULES): PathMatch | null {
+  for (const r of rules) {
+    const caps = matches(r.pattern, path);
+    if (caps) return { category: r.category, unit: r.unit, instance: caps.join('.') };
+  }
+  return null;
 }
