@@ -109,8 +109,10 @@ function categorySchema(
           },
           ids: {
             type: 'array',
-            title: 'Instance ids',
-            description: 'Add at least one id, or nothing is recorded.',
+            // The form renders an array-level description twice (under the array and
+            // under its neighbour), so the hint lives in the title, which renders once.
+            title:
+              'Instance ids (only used with "Only the ids listed below"; add at least one, or nothing is recorded)',
             maxItems: MAX_INSTANCE_IDS,
             items: {
               type: 'string',

@@ -179,7 +179,7 @@ describe('upload settings defaults', () => {
     );
   });
 
-  it('shows the format hint once on the id items and a short hint on the array, with friendly labels', () => {
+  it('shows the format hint once on the id items and the list hint in the array title only, with friendly labels', () => {
     for (const cat of UPLOAD_CATEGORIES) {
       const inst = child(child(schemaRoot, cat), 'instances');
       const mode = child(inst, 'mode');
@@ -189,8 +189,10 @@ describe('upload settings defaults', () => {
       expect(mode.description).toBeUndefined();
       expect(mode.enum).toEqual(['all', 'selected']);
       expect(mode.enumNames).toEqual(['All instances', 'Only the ids listed below']);
-      expect(ids.title).toBe('Instance ids');
-      expect(ids.description).toBe('Add at least one id, or nothing is recorded.');
+      expect(ids.title).toBe(
+        'Instance ids (only used with "Only the ids listed below"; add at least one, or nothing is recorded)',
+      );
+      expect(ids.description).toBeUndefined();
       expect(ids.items.title).toBe('Instance id');
       expect(ids.items).not.toHaveProperty('errorMessage');
       expect(ids.items.description).toMatch(/letters/i);
