@@ -68,6 +68,10 @@ export interface UploadOptions {
 
 const NOT_ACTIVE = 'Not active yet.';
 
+const ID_RULE = 'Use letters, digits, underscore or hyphen, up to 40 characters.';
+const TANK_ID_RULE =
+  'Use the tank type, a dot, then the tank id, for example "fuel.0". The type is letters and digits; the id is letters, digits, underscore or hyphen, up to 40 characters.';
+
 function categorySchema(
   title: string,
   idPattern: string,
@@ -82,13 +86,12 @@ function categorySchema(
       enabled: {
         type: 'boolean',
         title: 'Enabled',
-        description: NOT_ACTIVE,
         default: true,
       },
       recordIntervalMinutes: {
         type: 'number',
         title: 'Record at most every (minutes)',
-        description: `${NOT_ACTIVE} Between 60 and 1440. The default is once a day.`,
+        description: 'Between 60 and 1440. The default is once a day.',
         default: MAX_RECORD_INTERVAL_MINUTES,
         minimum: MIN_RECORD_INTERVAL_MINUTES,
         maximum: MAX_RECORD_INTERVAL_MINUTES,
@@ -96,22 +99,26 @@ function categorySchema(
       ...thresholds,
       instances: {
         type: 'object',
-        title: 'Which instances',
-        description: NOT_ACTIVE,
+        title: 'Record from',
         properties: {
           mode: {
             type: 'string',
-            title: 'Instances',
-            description: NOT_ACTIVE,
+            title: 'Record from',
             enum: ['all', 'selected'],
+            enumNames: ['All instances', 'Only the ids listed below'],
             default: 'all',
           },
           ids: {
             type: 'array',
-            title: 'Selected instance ids',
-            description: `${NOT_ACTIVE} ${idHelp}`,
+            title: 'Instance ids',
             maxItems: MAX_INSTANCE_IDS,
-            items: { type: 'string', pattern: idPattern },
+            items: {
+              type: 'string',
+              title: 'Instance id',
+              description: idHelp,
+              pattern: idPattern,
+              errorMessage: idHelp,
+            },
           },
         },
       },
@@ -119,11 +126,11 @@ function categorySchema(
   };
 }
 
-function threshold(title: string, min: number, max: number) {
+function threshold(title: string, min: number, max: number, zeroMeans?: string) {
   return {
     type: 'number',
     title,
-    description: NOT_ACTIVE,
+    ...(zeroMeans === undefined ? {} : { description: zeroMeans }),
     default: min,
     minimum: min,
     maximum: max,
@@ -151,27 +158,37 @@ export const configSchema = {
     engineHours: categorySchema(
       'Engine and generator hours',
       SIMPLE_ID.source,
-      'Letters, digits, underscore or hyphen, for example "main".',
+      `${ID_RULE} For example "main".`,
       { minChangeHours: threshold('Minimum change (hours)', 0.1, 24) },
     ),
     batteries: categorySchema(
       'Battery voltage and state of charge',
       SIMPLE_ID.source,
-      'Letters, digits, underscore or hyphen, for example "house".',
+      `${ID_RULE} For example "house".`,
       {
-        minChangeVolts: threshold('Minimum voltage change (volts)', 0, 5),
-        minChangePercent: threshold('Minimum charge change (percent)', 0, 50),
+        minChangeVolts: threshold('Minimum voltage change (volts)', 0, 5, '0 = no minimum change.'),
+        minChangePercent: threshold(
+          'Minimum charge change (percent)',
+          0,
+          50,
+          '0 = no minimum change.',
+        ),
       },
     ),
-    tanks: categorySchema(
-      'Tank levels',
-      TANK_ID.source,
-      'Tank type, a dot, then the tank id, for example "fuel.0".',
-      {
-        minChangePercent: threshold('Minimum level change (percent)', 0, 50),
-        minChangeLiters: threshold('Minimum volume change (litres)', 0, 1000),
-      },
-    ),
+    tanks: categorySchema('Tank levels', TANK_ID.source, TANK_ID_RULE, {
+      minChangePercent: threshold(
+        'Minimum level change (percent)',
+        0,
+        50,
+        '0 = no minimum change.',
+      ),
+      minChangeLiters: threshold(
+        'Minimum volume change (litres)',
+        0,
+        1000,
+        '0 = no minimum change.',
+      ),
+    }),
     samplePeriodSeconds: {
       type: 'number',
       title: 'Sample period (seconds)',

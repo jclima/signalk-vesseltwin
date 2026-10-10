@@ -467,7 +467,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   function uploadBlock(): Record<string, unknown> {
     const u = options.upload;
     const one = (c: ChannelOptions) => ({
-      enabled: c.active,
+      // `enabled` is the configured value; `active` is what the sampler would obey.
+      enabled: c.enabled,
+      active: c.active,
       recordIntervalMinutes: c.recordIntervalMinutes,
       instanceMode: c.instanceMode,
     });

@@ -1874,9 +1874,24 @@ describe('admin status upload block', () => {
     expect(body.upload).toEqual({
       available: false,
       categories: {
-        engineHours: { enabled: false, recordIntervalMinutes: 120, instanceMode: 'selected' },
-        batteries: { enabled: false, recordIntervalMinutes: 1440, instanceMode: 'all' },
-        tanks: { enabled: true, recordIntervalMinutes: 1440, instanceMode: 'selected' },
+        engineHours: {
+          enabled: true,
+          active: false,
+          recordIntervalMinutes: 120,
+          instanceMode: 'selected',
+        },
+        batteries: {
+          enabled: false,
+          active: false,
+          recordIntervalMinutes: 1440,
+          instanceMode: 'all',
+        },
+        tanks: {
+          enabled: true,
+          active: true,
+          recordIntervalMinutes: 1440,
+          instanceMode: 'selected',
+        },
       },
       warnings: expect.arrayContaining([expect.stringMatching(/not valid/)]) as unknown,
     });

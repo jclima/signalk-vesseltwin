@@ -310,9 +310,24 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   "upload": {
     "available": false,
     "categories": {
-      "engineHours": { "enabled": true, "recordIntervalMinutes": 1440, "instanceMode": "all" },
-      "batteries": { "enabled": true, "recordIntervalMinutes": 1440, "instanceMode": "all" },
-      "tanks": { "enabled": true, "recordIntervalMinutes": 1440, "instanceMode": "all" }
+      "engineHours": {
+        "enabled": true,
+        "active": true,
+        "recordIntervalMinutes": 1440,
+        "instanceMode": "all"
+      },
+      "batteries": {
+        "enabled": true,
+        "active": true,
+        "recordIntervalMinutes": 1440,
+        "instanceMode": "all"
+      },
+      "tanks": {
+        "enabled": true,
+        "active": true,
+        "recordIntervalMinutes": 1440,
+        "instanceMode": "all"
+      }
     },
     "warnings": []
   }
@@ -330,6 +345,9 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.
+- `upload.categories.<category>.enabled` is the configured on/off value. `active` is the effective
+  value: `enabled`, and not "selected" with no valid instance ids. `upload.warnings` is neutral text for
+  the admin only; it is never put in the broadcast status line.
 - `message` is the same text as the plugin's status line. While pairing it is `Pairing in progress. Open VesselTwin under Webapps, signed in as an
 administrator, to see the code.` `vesselLabel` comes from the server and is
   shortened and stripped of control characters.

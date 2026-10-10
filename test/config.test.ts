@@ -6,6 +6,7 @@ import {
   MAX_READINGS_PER_CHANNEL_PER_DAY,
   parseOptions,
   QUEUE_FLOOR_FOR_FULL_LOAD,
+  UPLOAD_CATEGORIES,
 } from '../src/config';
 
 const url = (v: unknown) => parseOptions({ apiBaseUrl: v }).apiBaseUrl;
@@ -107,6 +108,27 @@ describe('parseOptions numbers and booleans', () => {
   });
 });
 
+interface Node {
+  title?: string;
+  description?: string;
+  pattern?: string;
+  enum?: string[];
+  enumNames?: string[];
+  properties: Record<string, Node>;
+  items: Node;
+}
+const schemaRoot = (configSchema as unknown as { properties: Record<string, Node> }).properties;
+const child = (n: Node | Record<string, Node>, k: string): Node => {
+  const rec = ('properties' in n && typeof n.properties === 'object' ? n.properties : n) as Record<
+    string,
+    Node
+  >;
+  const v = rec[k];
+  if (v === undefined) throw new Error(`missing schema node ${k}`);
+  return v;
+};
+const idsNode = (cat: string): Node => child(child(child(schemaRoot, cat), 'instances'), 'ids');
+
 describe('upload settings defaults', () => {
   it('defaults to the least data', () => {
     const u = parseOptions({}).upload;
@@ -131,14 +153,56 @@ describe('upload settings defaults', () => {
     expect(Object.keys(configSchema.properties)).not.toContain('sendVesselInfo');
   });
 
-  it('says "Not active yet." on every schema description except the API URL', () => {
+  it('says "Not active yet." once per upload section, never on individual fields', () => {
+    const hits: string[] = [];
     const walk = (node: Record<string, unknown>, trail: string): void => {
-      if (trail !== 'apiBaseUrl') expect(node.description, trail).toMatch(/Not active yet\./);
+      const d = node.description;
+      if (typeof d === 'string') {
+        const n = d.split('Not active yet.').length - 1;
+        expect(n, trail).toBeLessThanOrEqual(1);
+        if (n === 1) hits.push(trail);
+      }
       const props = (node.properties ?? {}) as Record<string, Record<string, unknown>>;
       for (const [k, v] of Object.entries(props)) walk(v, trail ? `${trail}.${k}` : k);
     };
     const root = configSchema as unknown as { properties: Record<string, Record<string, unknown>> };
     for (const [k, v] of Object.entries(root.properties)) walk(v, k);
+    expect(hits.sort()).toEqual(
+      [
+        'batteries',
+        'engineHours',
+        'queueMaxReadings',
+        'samplePeriodSeconds',
+        'tanks',
+        'uploadIntervalMinutes',
+      ].sort(),
+    );
+  });
+
+  it('shows the ids hint only on the ids array items, with friendly labels', () => {
+    for (const cat of UPLOAD_CATEGORIES) {
+      const inst = child(child(schemaRoot, cat), 'instances');
+      const mode = child(inst, 'mode');
+      const ids = child(inst, 'ids');
+      expect(inst.title).toBe('Record from');
+      expect(mode.description).toBeUndefined();
+      expect(mode.enum).toEqual(['all', 'selected']);
+      expect(mode.enumNames).toEqual(['All instances', 'Only the ids listed below']);
+      expect(ids.title).toBe('Instance ids');
+      expect(ids.items.title).toBe('Instance id');
+      expect(ids.items.description).toMatch(/letters/i);
+    }
+  });
+
+  it('explains what 0 means on thresholds that default to 0', () => {
+    for (const [cat, key] of [
+      ['batteries', 'minChangeVolts'],
+      ['batteries', 'minChangePercent'],
+      ['tanks', 'minChangePercent'],
+      ['tanks', 'minChangeLiters'],
+    ] as const) {
+      expect(child(child(schemaRoot, cat), key).description).toBe('0 = no minimum change.');
+    }
   });
 });
 
@@ -215,6 +279,53 @@ describe('upload settings clamping', () => {
 });
 
 describe('instance ids', () => {
+  const schemaPattern = (cat: string): RegExp => {
+    return new RegExp(idsNode(cat).items.pattern ?? '');
+  };
+
+  it('schema patterns and the runtime parser accept exactly the same ids', () => {
+    const samples = [
+      'main',
+      'Port_1',
+      'a-b',
+      'fuel.0',
+      'freshWater.main',
+      'a.b',
+      'fuel',
+      'fuel.',
+      '.0',
+      '0fuel.1',
+      'fuel.0.1',
+      'fu_el.0',
+      '',
+      'a b',
+      'é',
+      'x'.repeat(40),
+      'x'.repeat(41),
+      `${'a'.repeat(31)}.1`,
+      `${'a'.repeat(32)}.1`,
+    ];
+    for (const cat of UPLOAD_CATEGORIES) {
+      const re = schemaPattern(cat);
+      for (const id of samples) {
+        const parsed = parseOptions({ [cat]: { instances: { mode: 'selected', ids: [id] } } })
+          .upload[cat].instanceIds;
+        expect(parsed.includes(id), `${cat} ${JSON.stringify(id)}`).toBe(re.test(id));
+      }
+    }
+  });
+
+  it('schema pattern: tanks take a dot, engines and batteries do not; help examples are valid', () => {
+    expect(schemaPattern('tanks').test('fuel.0')).toBe(true);
+    expect(schemaPattern('engineHours').test('fuel.0')).toBe(false);
+    expect(schemaPattern('batteries').test('fuel.0')).toBe(false);
+    const help = (c: string): string => idsNode(c).items.description ?? '';
+    expect(help('tanks')).toContain('"fuel.0"');
+    expect(help('engineHours')).toContain('"main"');
+    expect(schemaPattern('engineHours').test('main')).toBe(true);
+    expect(schemaPattern('batteries').test('house')).toBe(true);
+  });
+
   const ids = (cat: 'engineHours' | 'tanks', list: unknown) =>
     parseOptions({ [cat]: { instances: { mode: 'selected', ids: list } } }).upload[cat];
 

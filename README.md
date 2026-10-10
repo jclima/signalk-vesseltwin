@@ -170,8 +170,9 @@ at most once a day.
 - **Per category** (Engine and generator hours, Battery readings, Tank levels): turn it on or off,
   set how often it may record (every 60 to 1440 minutes), and set a minimum change worth recording
   (hours, volts, percent or litres). A reading is also recorded after 24 hours even without a change.
-- **Which instances**: all, or a list you type (for example `main` or `house`; tanks as
-  `fuel.0`). A "selected" list with no valid entries records nothing for that category.
+- **Record from**: all instances, or only the ids you list (for example `main` or `house`; tanks
+  as `fuel.0`). Ids use letters, digits, underscore or hyphen, up to 40 characters. A "selected" list with no valid entries records nothing for that
+  category.
 - **Limits**: at most 24 readings per channel per day, and at most 64 channels in total. The first
   64 channels seen are used; the rest are ignored.
 - **Send to VesselTwin at most every** (5 to 1440 minutes, default 1440), **Sample period**
@@ -180,7 +181,7 @@ at most once a day.
 - The older on/off settings (`sendEngineHours`, `sendBatteries`, `sendTanks`) still work when the
   matching category setting is left unset.
 
-The admin-only status response lists the effective settings and any notes about them, for example
+The admin-only status response lists each category as configured (`enabled`) and effective (`active`), and any notes about them, for example
 ignored instance ids.
 
 ## Troubleshooting
