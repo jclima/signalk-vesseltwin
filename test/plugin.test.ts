@@ -1,5 +1,6 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -1684,6 +1685,121 @@ describe('lifecycle races and the status line', () => {
     h.plugin.stop();
     h.plugin.start({});
     await h.until(() => h.app.statuses.at(-1) === COPY.notPaired);
+    h.plugin.stop();
+  });
+});
+
+describe('credential file permission warning', () => {
+  const unrestrictable = (mode: number) => {
+    const realOpen = fsp.open.bind(fsp);
+    vi.spyOn(fsp, 'open').mockImplementation(async (...a: Parameters<typeof fsp.open>) => {
+      const fh = await realOpen(...a);
+      if (a[1] !== 'wx') return fh;
+      vi.spyOn(fh, 'chmod').mockRejectedValue(Object.assign(new Error('x'), { code: 'EPERM' }));
+      const real = fh.stat.bind(fh);
+      vi.spyOn(fh, 'stat').mockImplementation(async (...x: []) =>
+        Object.assign(await real(...x), { mode: 0o100000 | mode }),
+      );
+      return fh;
+    });
+  };
+  const pairOnce = async (h: ReturnType<typeof harness>) => {
+    h.plugin.start({});
+    await h.tick();
+    await h.call('POST /pair');
+    await h.tick();
+    await h.tick(5_000);
+    await h.resolveHeld(h.ok());
+    await h.untilState('connected');
+  };
+
+  it.skipIf(process.platform === 'win32')(
+    'warns on /status (admin-only) after a save that could not be restricted, never in the status line',
+    async () => {
+      unrestrictable(0o644);
+      const h = harness();
+      const debug = vi.fn<(m: string) => void>();
+      h.app.debug = debug;
+      await pairOnce(h);
+      const body = (await h.call('GET /status')).body;
+      expect(body.warnings).toEqual(['credential_permissions']);
+      for (const line of h.app.statuses)
+        expect(line).not.toMatch(/permission|restrict|credential/i);
+      const logged = debug.mock.calls.map((c) => c[0]).filter((m) => /permission/.test(m));
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).not.toContain(h.dir);
+      // unpair clears it
+      await h.call('POST /unpair');
+      expect((await h.call('GET /status')).body.warnings).toEqual([]);
+      h.plugin.stop();
+    },
+  );
+
+  it('does not warn when the save is restricted', async () => {
+    unrestrictable(0o600);
+    const h = harness();
+    await pairOnce(h);
+    expect((await h.call('GET /status')).body.warnings).toEqual([]);
+    h.plugin.stop();
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'warns after a restart that reads a group/other-readable credential file',
+    async () => {
+      const dir = tempDir();
+      await seed(dir);
+      await chmod(join(dir, 'credential.json'), 0o644);
+      const h = harness({ dir });
+      h.plugin.start({});
+      await h.untilState('connected');
+      expect((await h.call('GET /status')).body.warnings).toEqual(['credential_permissions']);
+      for (const line of h.app.statuses) expect(line).not.toMatch(/permission|restrict/i);
+      h.plugin.stop();
+      await chmod(join(dir, 'credential.json'), 0o600);
+      h.plugin.start({});
+      await h.untilState('connected');
+      expect((await h.call('GET /status')).body.warnings).toEqual([]);
+      h.plugin.stop();
+    },
+  );
+});
+
+describe('overlapping unpairs', () => {
+  it('a second unpair waits for the first, and pairing stays refused until the last one finishes', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    const gates = [gate(), gate()];
+    let n = 0;
+    let running = 0;
+    let maxRunning = 0;
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
+    const clear = CredentialStore.prototype.clear;
+    vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      const mine = gates[n++];
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      await mine?.p;
+      await clear.call(this);
+      running -= 1;
+    });
+    h.plugin.start({});
+    await h.tick();
+    const un1 = h.call('POST /unpair');
+    await h.tick();
+    const un2 = h.call('POST /unpair');
+    await h.tick();
+    expect(n).toBe(1); // the second has not started clearing
+    gates[0]?.open();
+    expect((await un1).status).toBe(200);
+    await h.tick();
+    expect((await h.call('POST /pair')).status).toBe(503); // second unpair still in flight
+    gates[1]?.open();
+    expect((await un2).status).toBe(200);
+    expect(maxRunning).toBe(1);
+    expect((await h.call('POST /pair')).status).toBe(202);
     h.plugin.stop();
   });
 });

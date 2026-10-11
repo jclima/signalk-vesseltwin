@@ -9,7 +9,7 @@ import {
 } from './config';
 import { HttpClient, type FetchLike } from './http';
 import { runPairing } from './pairing';
-import { redactError } from './redact';
+import { redact, redactError } from './redact';
 import { StatusMonitor, type MonitorSnapshot, type PauseReason, type Scheduler } from './status';
 
 /** The slice of the SignalK server API this plugin uses (kept minimal; no runtime dependency). */
@@ -186,6 +186,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let persisting: Promise<'kept' | 'stale' | 'failed'> | null = null;
   /** The in-flight unpair (waiting for writers, then clearing the store); start() waits for it too. */
   let unpairWork: Promise<void> | null = null;
+  /** The credential file could not be restricted to this user (admin-only /status warning). */
+  let permissionWarning = false;
+  let permissionLogged = false;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -414,7 +417,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             app.debug(`saving the credential failed: ${redactError(err)}`);
             return 'failed';
           }
-          if (current()) return 'kept';
+          if (current()) {
+            syncPermissions(s);
+            return 'kept';
+          }
           try {
             await s.clear(); // cancelled while the file was being written
           } catch (err) {
@@ -486,6 +492,15 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     };
   }
 
+  /** Syncs the warning from the store and logs it once per lifecycle (no path, no secret). */
+  function syncPermissions(s: CredentialStore): void {
+    permissionWarning = !s.permissionsRestricted;
+    if (permissionWarning && !permissionLogged) {
+      permissionLogged = true;
+      app.debug(redact('credential file permissions could not be restricted on this filesystem'));
+    }
+  }
+
   function statusBody(): Record<string, unknown> {
     const st = state();
     return {
@@ -511,6 +526,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       lastCheckedAt:
         snap?.lastCheckedAt != null ? new Date(snap.lastCheckedAt).toISOString() : null,
       message: message(st),
+      warnings: permissionWarning ? ['credential_permissions'] : [],
       upload: uploadBlock(),
     };
   }
@@ -530,6 +546,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       store = new CredentialStore(app.getDataDirPath());
       loaded = false;
       failure = null;
+      permissionWarning = false;
+      permissionLogged = false;
       unpairedNotice = false;
       credentialUnreadable = false;
       hasCredential = false;
@@ -546,6 +564,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         .then((c) => {
           if (mine !== epoch) return;
           loaded = true;
+          syncPermissions(s);
           if (c) {
             hasCredential = true;
             vesselLabel = cleanLabel(c.vesselLabel);
@@ -585,8 +604,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     },
 
     registerWithRouter(router: RouterLike): void {
-      // Routes must stay admin-only: never call router.access(...). SignalK serves /plugins/<id>/*
-      // to admins only unless a plugin lowers that, and /status exposes the pairing user code.
+      // Never call router.access(...). With SignalK security enabled, /plugins/<id>/* is served to
+      // admins only unless a plugin lowers that (with security off it is open to the LAN), and
+      // /status exposes the pairing user code.
       router.get(
         '/status',
         guarded((_req, res) => {
@@ -664,8 +684,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           unpairing = true;
           cancelPairing();
           stopMonitor();
+          const previous = unpairWork; // an overlapping unpair finishes before this one clears
           const work = (async () => {
-            await Promise.allSettled([persisting, tombstoneWrite]);
+            await Promise.allSettled([persisting, tombstoneWrite, previous]);
             await s.clear();
           })();
           unpairWork = work;
@@ -676,6 +697,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
               res.json({ paired: false, message: COPY.unpaired });
               return;
             }
+            permissionWarning = false;
             stopMonitor(); // a load that raced past the epoch check cannot leave a monitor behind
             loaded = true;
             hasCredential = false;
@@ -688,8 +710,12 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             app.debug(`unpair failed: ${redactError(err)}`);
             res.status(500).json({ error: COPY.unpairFailed });
           } finally {
-            if (unpairWork === work) unpairWork = null;
-            unpairing = false;
+            // Only the latest unpair ends the transition; an earlier overlapping one must not
+            // reopen pairing while a later clear is still running.
+            if (unpairWork === work) {
+              unpairWork = null;
+              unpairing = false;
+            }
           }
         }),
       );

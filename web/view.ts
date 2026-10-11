@@ -51,6 +51,8 @@ export interface StatusModel {
   expiresInSeconds: number | null;
   updateRecommended: boolean;
   clockSkewWarning: boolean;
+  /** The credential file could not be restricted to the server's user (admin-only warning). */
+  credentialPermissionWarning: boolean;
   message: string;
 }
 
@@ -138,6 +140,8 @@ export function parseStatus(json: unknown): StatusModel {
     expiresInSeconds: seconds(pairing.expiresInSeconds),
     updateRecommended: o.updateRecommended === true,
     clockSkewWarning: o.clockSkewWarning === true,
+    credentialPermissionWarning:
+      Array.isArray(o.warnings) && o.warnings.includes('credential_permissions'),
     message: state === 'unknown' ? '' : cleanText(o.message),
   };
 }
@@ -202,6 +206,8 @@ export interface Screen {
   message: string;
   /** Extra remedy line (update_required). */
   hint: string | null;
+  /** Neutral warning line shown under the message, or null. */
+  warning: string | null;
   code: string | null;
   link: LinkInfo | null;
   countdown: string | null;
@@ -224,6 +230,8 @@ const TITLES: Record<PageState, string> = {
 };
 
 export const EXPIRED_COPY = 'The code expired. Waiting for the plugin.';
+export const CREDENTIAL_PERMISSION_COPY =
+  "The credential file could not be restricted to the server's user on this drive. Move the SignalK data directory to a Linux-formatted drive to protect it.";
 export const GENERIC_STATUS_COPY = 'The plugin sent a status this page does not understand.';
 
 /** Everything the DOM layer needs for one status, given the seconds left on a pairing code. */
@@ -239,6 +247,7 @@ export function describeStatus(m: StatusModel, remaining: number | null): Screen
     title: TITLES[m.state],
     message,
     hint: m.state === 'update_required' ? 'Update it from the SignalK Appstore.' : null,
+    warning: m.credentialPermissionWarning ? CREDENTIAL_PERMISSION_COPY : null,
     code: showPairing ? m.userCode : null,
     link:
       showPairing && m.verificationUrl
