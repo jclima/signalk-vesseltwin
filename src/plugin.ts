@@ -1,3 +1,6 @@
+import { promises as fsp } from 'node:fs';
+import path from 'node:path';
+import { startCollector, type SubscriptionManagerLike } from './collector';
 import { CredentialStore, isTombstone } from './credential-store';
 import { SCOPES } from './contract';
 import {
@@ -8,9 +11,19 @@ import {
   type PluginOptions,
 } from './config';
 import { HttpClient, type FetchLike } from './http';
+import { matchPath, PATH_RULES } from './mapping';
 import { runPairing } from './pairing';
+import { ReadingQueue } from './queue';
 import { redact, redactError } from './redact';
-import { StatusMonitor, type MonitorSnapshot, type PauseReason, type Scheduler } from './status';
+import { createSampler, QueueSink, type ReadingSink } from './sampler';
+import {
+  StatusMonitor,
+  type MonitorSnapshot,
+  type MonitorState,
+  type PauseReason,
+  type Scheduler,
+} from './status';
+import { Uploader, type UploaderEvent, type UploadSnapshot } from './uploader';
 
 /** The slice of the SignalK server API this plugin uses (kept minimal; no runtime dependency). */
 export interface SignalKApp {
@@ -20,6 +33,8 @@ export interface SignalKApp {
   setPluginError(msg: string): void;
   debug(msg: string): void;
   error(msg: string): void;
+  /** Optional: only needed once upload is active. Its absence is reported, never worked around. */
+  subscriptionmanager?: SubscriptionManagerLike;
 }
 
 /** Minimal structural view of the request: only the headers the origin check needs. */
@@ -45,6 +60,8 @@ export interface PluginDeps {
   now?: () => number;
   rng?: () => number;
   scheduler?: Scheduler;
+  /** Test seam: defaults to UPLOAD_AVAILABLE. */
+  uploadAvailable?: boolean;
 }
 
 export type PairingFailure =
@@ -69,7 +86,7 @@ export type PluginState =
   | 'reauth_required'
   | 'config_error';
 
-/** Upload is not built. Flip only together with the upload work itself. */
+/** Upload is built but not released. Flip only together with the release work (copy, README, docs). */
 const UPLOAD_AVAILABLE = false;
 
 const NO_UPLOAD = 'Data upload is not available in this version.';
@@ -139,6 +156,18 @@ function cleanLabel(v: string | null | undefined): string | null {
   return t ? t.slice(0, 80) : null;
 }
 
+/** Everything that runs while upload is active: one queue, one collector, one uploader. */
+interface Pipeline {
+  token: number;
+  queue: ReadingQueue;
+  uploader: Uploader;
+  collector: { stop(): void } | null;
+  origin: string;
+  pairedAt: string | undefined;
+}
+
+export const SUBSCRIPTIONS_UNAVAILABLE = 'subscriptions_unavailable';
+
 interface PendingPairing {
   userCode: string;
   verificationUrl: string;
@@ -152,6 +181,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let epoch = 0;
   let loaded = false;
   const now = deps.now ?? Date.now;
+  const uploadAvailable = deps.uploadAvailable ?? UPLOAD_AVAILABLE;
   let abort: AbortController | null = null;
   let pairing: PendingPairing | null = null;
   /**
@@ -189,6 +219,17 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   /** The credential file could not be restricted to this user (admin-only /status warning). */
   let permissionWarning = false;
   let permissionLogged = false;
+  /** Running collector, uploader and queue (null while upload is off, unpaired or unavailable). */
+  let pipe: Pipeline | null = null;
+  let pipeSeq = 0;
+  /** The previous pipeline's queue is closing; start() and unpair wait for it (single writer). */
+  let stopping: Promise<void> | null = null;
+  /** Sticky for the lifecycle: wins over whatever the status monitor says. */
+  let sticky: 'reauth_required' | 'update_required' | null = null;
+  /** The readings route said paused; cleared when the monitor reports connected. */
+  let uploadPaused: PauseReason | null = null;
+  /** Upload is on but the server offers no subscription manager. */
+  let subscriptionsMissing = false;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -204,12 +245,190 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     credentialOrigin = null;
   }
 
+  const queueDir = (): string => path.join(app.getDataDirPath(), 'queue');
+
+  /** Stops the collector and the uploader; the queue and its counters stay (a re-pair clears them). */
+  function haltUpload(): void {
+    const p = pipe;
+    if (!p) return;
+    p.collector?.stop();
+    p.collector = null;
+    void p.uploader.stop();
+  }
+
+  /** Synchronous: stops everything upload-related and starts closing the queue in the background. */
+  function stopPipeline(): void {
+    const p = pipe;
+    pipe = null;
+    uploadPaused = null;
+    subscriptionsMissing = false;
+    if (!p) return;
+    p.collector?.stop();
+    const settled = p.uploader.stop(); // aborts an in-flight request right now
+    const before = stopping;
+    stopping = (async () => {
+      await before;
+      await settled;
+      await p.queue.close();
+    })().catch((err: unknown) => {
+      app.debug(`closing the queue failed: ${redactError(err)}`);
+    });
+  }
+
+  function stopSession(): void {
+    stopMonitor();
+    stopPipeline();
+  }
+
+  /** Best effort. Never throws: a queue that cannot be cleared must not break unpair or pairing. */
+  async function clearQueue(): Promise<void> {
+    if (!uploadAvailable) return;
+    try {
+      await stopping;
+      const dir = queueDir();
+      try {
+        await fsp.access(dir);
+      } catch {
+        return; // nothing was ever queued; do not create the directory
+      }
+      const q = new ReadingQueue({ dir });
+      await q.clear();
+      await q.close();
+    } catch (err) {
+      app.debug(`clearing the queue failed: ${redactError(err)}`);
+    }
+  }
+
+  function startPipeline(
+    credential: string,
+    credentialOrigin_: string | null,
+    pairedAt: string | undefined,
+  ): void {
+    if (!uploadAvailable) return;
+    const baseUrl = options.apiBaseUrl;
+    const origin = baseUrl === null ? null : apiOrigin(baseUrl);
+    if (
+      !options.uploadEnabled ||
+      options.activeCategories.length === 0 ||
+      baseUrl === null ||
+      origin === null ||
+      credentialOrigin_ !== origin
+    ) {
+      return;
+    }
+    const sm = app.subscriptionmanager;
+    if (!sm) {
+      subscriptionsMissing = true;
+      return;
+    }
+    const upload = options.upload;
+    const active = new Set<string>(options.activeCategories);
+    const isActive = (p: string): boolean => {
+      const m = matchPath(p);
+      if (!m || !active.has(m.category)) return false;
+      const c = upload[m.category];
+      return c.instanceMode === 'all' || c.instanceIds.includes(m.instance);
+    };
+    const token = ++pipeSeq;
+    const queue = new ReadingQueue({
+      dir: queueDir(),
+      maxReadings: options.queueMaxReadings,
+      ...(deps.now ? { now: deps.now } : {}),
+    });
+    const uploader = new Uploader({
+      queue,
+      baseUrl,
+      credential,
+      credentialOrigin: origin,
+      fetch: deps.fetch ?? ((u, i) => fetch(u, i)),
+      userAgent: `${PLUGIN_ID}/${PLUGIN_VERSION}`,
+      intervalMs: upload.uploadIntervalMinutes * 60_000,
+      isActive,
+      onEvent: (e) => {
+        onUploaderEvent(token, e);
+      },
+      log: (msg) => {
+        app.debug(msg);
+      },
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.rng ? { rng: deps.rng } : {}),
+      ...(deps.scheduler ? { scheduler: deps.scheduler } : {}),
+    });
+    const inner = new QueueSink(queue, now);
+    const sink: ReadingSink = {
+      write: async (r) => {
+        if (pipe?.token !== token) return; // stopped or replaced: nothing may reach the queue
+        await inner.write(r);
+        void uploader.refreshStats();
+      },
+    };
+    const sampler = createSampler({ options: upload, sink, now });
+    const collector = startCollector({
+      sm,
+      rules: PATH_RULES.filter((r) => active.has(r.category)),
+      onDelta: (d) => {
+        sampler.handleDelta(d).catch((err: unknown) => {
+          app.debug(`reading not recorded: ${redactError(err)}`);
+        });
+      },
+      onError: (msg) => {
+        app.debug(`subscription error: ${msg}`);
+      },
+    });
+    pipe = { token, queue, uploader, collector, origin: credentialOrigin_, pairedAt };
+    uploader.start();
+  }
+
+  function onUploaderEvent(token: number, e: UploaderEvent): void {
+    const p = pipe;
+    if (p?.token !== token) return;
+    switch (e.kind) {
+      case 'paused':
+        uploadPaused = e.reason;
+        break;
+      case 'update_required':
+        sticky = 'update_required';
+        break;
+      case 'reauth':
+        sticky = 'reauth_required';
+        haltUpload();
+        stopMonitor();
+        if (e.tombstone) recordReauth(p.origin, p.pairedAt);
+        break;
+      case 'changed':
+        break;
+    }
+    report();
+  }
+
+  /** The monitor gates the uploader: paused or unsupported holds it, connected releases it. */
+  function syncUploader(s: MonitorSnapshot): void {
+    const p = pipe;
+    if (!p) return;
+    switch (s.state) {
+      case 'connected':
+        uploadPaused = null;
+        p.uploader.resume();
+        break;
+      case 'paused':
+      case 'update_required':
+      case 'stopped':
+        p.uploader.hold();
+        break;
+      case 'reauth_required':
+        haltUpload();
+        break;
+      default:
+        break;
+    }
+  }
+
   function startMonitor(
     credential: string,
     credentialOrigin_: string | null,
     pairedAt?: string,
   ): void {
-    stopMonitor();
+    stopSession();
     const baseUrl = options.apiBaseUrl;
     const origin = baseUrl === null ? null : apiOrigin(baseUrl);
     if (baseUrl === null || origin === null) return;
@@ -221,12 +440,15 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       onUpdate: (s) => {
         if (monitor !== m) return;
         snap = s;
+        syncUploader(s);
         report();
       },
       onUnauthorized: (tombstone) => {
         // Only the platform's own "credential is bad" answer retires the file. Any other 401 (a
         // proxy, a captive portal) stops probing but leaves the credential for the next start.
-        if (monitor === m && tombstone) recordReauth(credentialOrigin_, pairedAt);
+        if (monitor !== m) return;
+        haltUpload();
+        if (tombstone) recordReauth(credentialOrigin_, pairedAt);
       },
       log: (msg) => {
         app.debug(msg);
@@ -239,6 +461,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     credentialOrigin = credentialOrigin_;
     snap = m.snapshot();
     m.start();
+    startPipeline(credential, credentialOrigin_, pairedAt);
   }
 
   /**
@@ -264,13 +487,21 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     tombstoneWrite = w;
   }
 
+  /** Sticky states and an upload pause win over what the monitor last said. */
+  function effective(): MonitorState {
+    if (sticky) return sticky;
+    const s = snap?.state ?? 'checking';
+    if (uploadPaused && (s === 'connected' || s === 'checking' || s === 'offline')) return 'paused';
+    return s;
+  }
+
   function state(): PluginState {
     if (options.configError !== null || credentialUnreadable) return 'config_error';
     if (pairing) return 'pairing';
     if (finalizing) return 'checking';
     if (failure) return 'pairing_failed';
     if (!hasCredential) return 'not_paired';
-    switch (snap?.state ?? 'checking') {
+    switch (effective()) {
       case 'connected':
         return 'connected';
       case 'paused':
@@ -289,7 +520,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
 
   function message(st: PluginState = state()): string {
     const lead = vesselLabel ? `Paired with ${vesselLabel}` : 'Paired with VesselTwin';
-    const pausedReason: PauseReason | null = snap?.pausedReason ?? null;
+    const pausedReason: PauseReason | null = uploadPaused ?? snap?.pausedReason ?? null;
+    // The "not available" sentence goes away once upload is built in (the flag is flipped at release).
+    const tail = uploadAvailable ? '' : ` ${NO_UPLOAD}`;
+    const strip = (t: string): string => (uploadAvailable ? t.replace(` ${NO_UPLOAD}`, '') : t);
     switch (st) {
       case 'config_error':
         return options.configError ?? COPY.credentialUnreadable;
@@ -302,8 +536,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       case 'pairing_failed':
         return FAILURE_COPY[failure ?? 'unavailable'];
       case 'checking':
-        if (finalizing) return `Pairing approved. Saving the connection. ${NO_UPLOAD}`;
-        return `${lead}. Checking the connection. ${NO_UPLOAD}`;
+        if (finalizing) return `Pairing approved. Saving the connection.${tail}`;
+        return `${lead}. Checking the connection.${tail}`;
       case 'connected': {
         // `updateRecommended` is only an informational hint in the admin /status response. A newer
         // server contract does not mean a newer plugin exists, so the broadcast line never claims it.
@@ -312,22 +546,32 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             ? "This device's clock differs from VesselTwin's. Check the date and time."
             : '',
         ].filter(Boolean);
-        return `${lead}. ${extras.length ? `${extras.join(' ')} ` : ''}${NO_UPLOAD}`;
+        let upline = NO_UPLOAD;
+        if (uploadAvailable) {
+          upline = subscriptionsMissing
+            ? 'This server cannot provide readings to the plugin.'
+            : options.uploadEnabled && options.activeCategories.length > 0
+              ? 'Selected readings are sent to VesselTwin.'
+              : 'Sending readings is off.';
+        }
+        return `${lead}. ${extras.length ? `${extras.join(' ')} ` : ''}${upline}`;
       }
       case 'paused':
         return pausedReason === 'plan'
-          ? `${lead}. The connection is paused for your VesselTwin plan. The plugin will keep checking. ${NO_UPLOAD}`
-          : `${lead}. VesselTwin integrations are not available for your account right now. The plugin will keep checking. ${NO_UPLOAD}`;
+          ? `${lead}. The connection is paused for your VesselTwin plan. The plugin will keep checking.${tail}`
+          : `${lead}. VesselTwin integrations are not available for your account right now. The plugin will keep checking.${tail}`;
       case 'offline':
-        return `${lead}. Cannot reach VesselTwin right now. The plugin will keep trying. ${NO_UPLOAD}`;
+        return `${lead}. Cannot reach VesselTwin right now. The plugin will keep trying.${tail}`;
       case 'update_required':
-        return `${lead}. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`;
+        return `${lead}. This plugin version is not supported by VesselTwin. Update the plugin.${tail}`;
       case 'reauth_required': {
         // A credential issued for another origin never reached the network (no 401): say what changed.
         const configured = options.apiBaseUrl === null ? null : apiOrigin(options.apiBaseUrl);
-        return monitor && credentialOrigin !== null && credentialOrigin !== configured
-          ? COPY.reauthOrigin
-          : COPY.reauth;
+        return strip(
+          monitor && credentialOrigin !== null && credentialOrigin !== configured
+            ? COPY.reauthOrigin
+            : COPY.reauth,
+        );
       }
     }
   }
@@ -437,6 +681,13 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           return;
         }
         if (keep === 'stale') return;
+        if (uploadAvailable) {
+          // A new pairing starts with an empty queue, before the new credential is used.
+          stopSession();
+          sticky = null;
+          await clearQueue();
+          if (!current()) return;
+        }
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
@@ -481,8 +732,18 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       recordIntervalMinutes: c.recordIntervalMinutes,
       instanceMode: c.instanceMode,
     });
+    const sn: UploadSnapshot | null = pipe?.uploader.snapshot() ?? null;
     return {
-      available: UPLOAD_AVAILABLE,
+      // Available means this build uploads and this server can feed it.
+      available: uploadAvailable && !subscriptionsMissing,
+      enabled: u.uploadEnabled,
+      unavailableReason: uploadAvailable && subscriptionsMissing ? SUBSCRIPTIONS_UNAVAILABLE : null,
+      queued: sn?.queued ?? 0,
+      lastSentAt: sn?.lastSentAt != null ? new Date(sn.lastSentAt).toISOString() : null,
+      results: sn?.results ?? null,
+      rejectedReasons: sn?.rejectedReasons ?? null,
+      dropped: sn?.dropped ?? 0,
+      invalid: sn?.invalid ?? 0,
       categories: {
         engineHours: one(u.engineHours),
         batteries: one(u.batteries),
@@ -508,7 +769,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     return {
       state: st,
       // True only while the stored credential is believed to work (not in reauth_required).
-      paired: hasCredential && snap?.state !== 'reauth_required',
+      paired: hasCredential && effective() !== 'reauth_required',
       vesselLabel,
       apiOrigin: options.apiBaseUrl === null ? null : apiOrigin(options.apiBaseUrl),
       pairing:
@@ -542,7 +803,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     start(settings: unknown): void {
       epoch += 1;
       const mine = epoch;
-      stopMonitor();
+      stopSession();
+      sticky = null;
       cancelPairing();
       options = parseOptions(settings);
       store = new CredentialStore(app.getDataDirPath());
@@ -560,8 +822,12 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         return;
       }
       const s = store;
-      const earlier = Promise.allSettled([persisting, tombstoneWrite, unpairWork]);
+      const earlier = Promise.allSettled([persisting, tombstoneWrite, unpairWork, stopping]);
       earlier
+        .then(async () => {
+          // Owner decision: readings queued under an earlier setting are not kept once upload is off.
+          if (!options.uploadEnabled && mine === epoch) await clearQueue();
+        })
         .then(() => s.read())
         .then((c) => {
           if (mine !== epoch) return;
@@ -598,7 +864,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
 
     stop(): void {
       epoch += 1;
-      stopMonitor();
+      stopSession();
+      sticky = null;
       cancelPairing();
       store = null;
       loaded = false;
@@ -644,7 +911,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           }
           // Paired and working (or still checking): refuse. Allowed in not_paired, pairing_failed
           // and reauth_required; a pairing already pending is a no-op.
-          if (hasCredential && snap?.state !== 'reauth_required' && !abort) {
+          if (hasCredential && effective() !== 'reauth_required' && !abort) {
             res.status(409).json({ error: COPY.alreadyPaired });
             return;
           }
@@ -686,11 +953,13 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           const mine = epoch;
           unpairing = true;
           cancelPairing();
-          stopMonitor();
+          stopSession();
+          sticky = null;
           const previous = unpairWork; // an overlapping unpair finishes before this one clears
           const work = (async () => {
-            await Promise.allSettled([persisting, tombstoneWrite, previous]);
+            await Promise.allSettled([persisting, tombstoneWrite, previous, stopping]);
             await s.clear();
+            await clearQueue(); // nothing from this pairing may be uploaded under another
           })();
           unpairWork = work;
           try {
@@ -701,7 +970,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
               return;
             }
             permissionWarning = false;
-            stopMonitor(); // a load that raced past the epoch check cannot leave a monitor behind
+            stopSession(); // a load that raced past the epoch check cannot leave a monitor behind
             loaded = true;
             hasCredential = false;
             vesselLabel = null;

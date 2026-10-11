@@ -7,10 +7,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseOptions } from '../src/config';
 import { categoryFor } from '../src/mapping';
 import { CredentialStore } from '../src/credential-store';
+import { uuidv7 } from '../src/ids';
+import { ReadingQueue } from '../src/queue';
 import {
   COPY,
   createPlugin,
   FAILURE_COPY,
+  type PluginDeps,
   PLUGIN_VERSION,
   type RequestLike,
   type ResponseLike,
@@ -157,17 +160,40 @@ const okStatusBody = () => ({
   summary: null,
 });
 
-function harness(opts: { dir?: string } = {}) {
+const READINGS_URL = '/v1/integrations/signalk/readings';
+type ReadingsReply = (init: RequestInit | undefined) => Response | Promise<Response>;
+
+function harness(opts: { dir?: string; deps?: PluginDeps; sm?: FakeSm } = {}) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const dir = opts.dir ?? tempDir();
   const app = fakeApp(dir);
+  if (opts.sm) app.subscriptionmanager = opts.sm.manager;
   const calls: string[] = [];
+  /** Readings POSTs seen (url and parsed body), and scripted replies consumed in order. */
+  const readingCalls: { url: string; body: { readings: Record<string, unknown>[] } }[] = [];
+  const readingReplies: ReadingsReply[] = [];
   const held: Deferred[] = [];
   let starts = 0;
   /** Replies for GET /v1/integrations/status, consumed in order; then a healthy 200. */
   const statusReplies: (() => Response)[] = [];
-  const fetchFn = (url: string): Promise<Response> => {
+  const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
     calls.push(url);
+    if (url.endsWith(READINGS_URL)) {
+      const body = JSON.parse(init?.body as string) as { readings: Record<string, unknown>[] };
+      readingCalls.push({ url, body });
+      const r = readingReplies.shift();
+      if (r) return r(init);
+      return new Response(
+        JSON.stringify({
+          serverTime: new Date().toISOString(),
+          results: body.readings.map((x) => ({
+            clientReadingId: x.clientReadingId,
+            status: 'accepted',
+          })),
+        }),
+        { status: 200 },
+      );
+    }
     if (url.endsWith('/v1/integrations/status')) {
       const r = statusReplies.shift();
       return Promise.resolve(
@@ -194,7 +220,7 @@ function harness(opts: { dir?: string } = {}) {
       held.push({ resolve });
     });
   };
-  const plugin = createPlugin(app, { fetch: fetchFn });
+  const plugin = createPlugin(app, { fetch: fetchFn, ...opts.deps });
   const routes: Record<string, RouteFn> = {};
   plugin.registerWithRouter({
     get: (p, h) => {
@@ -263,6 +289,35 @@ function harness(opts: { dir?: string } = {}) {
     dir,
     statusReplies,
     statusCalls,
+    readingCalls,
+    readingReplies,
+  };
+}
+interface FakeSm {
+  manager: NonNullable<SignalKApp['subscriptionmanager']>;
+  subscriptions: unknown[];
+  unsubscribed: () => number;
+  deliver: (d: unknown) => void;
+}
+function fakeSm(): FakeSm {
+  const subscriptions: unknown[] = [];
+  let deliver: (d: unknown) => void = () => undefined;
+  let unsubscribed = 0;
+  return {
+    manager: {
+      subscribe: (cmd, u, _onError, onDelta) => {
+        subscriptions.push(cmd);
+        u.push(() => {
+          unsubscribed += 1;
+        });
+        deliver = onDelta;
+      },
+    },
+    subscriptions,
+    unsubscribed: () => unsubscribed,
+    deliver: (d) => {
+      deliver(d);
+    },
   };
 }
 type RouteFn = (req: RequestLike, res: ResponseLike) => void | Promise<void>;
@@ -2084,6 +2139,14 @@ describe('admin status upload block', () => {
     const body = (await h.call('GET /status')).body;
     expect(body.upload).toEqual({
       available: false,
+      enabled: true,
+      unavailableReason: null,
+      queued: 0,
+      lastSentAt: null,
+      results: null,
+      rejectedReasons: null,
+      dropped: 0,
+      invalid: 0,
       categories: {
         engineHours: {
           enabled: true,
@@ -2136,5 +2199,443 @@ describe('admin status upload block', () => {
     expect(connected.length).toBeGreaterThan(0);
     for (const m of connected) expect(m).toContain(NO_UPLOAD);
     h.plugin.stop();
+  });
+});
+
+// ---- upload pipeline: collector, queue, uploader and the monitor under one coordinator ----------
+
+describe('upload pipeline', () => {
+  const BAT = 'electrical.batteries.house.voltage';
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const on = { uploadAvailable: true, rng: () => 0 } satisfies PluginDeps;
+  const delta = (path: string, value: unknown = 12.6) => ({
+    context: 'vessels.urn:mrn:signalk:uuid:00000000-0000-4000-8000-000000000000',
+    updates: [{ timestamp: new Date().toISOString(), values: [{ path, value }] }],
+  });
+  const segs = (dir: string) => {
+    try {
+      return readdirSync(join(dir, 'queue')).filter((n) => n.startsWith('seg-'));
+    } catch {
+      return [];
+    }
+  };
+  const uploadBlock = async (h: ReturnType<typeof harness>) =>
+    (await h.call('GET /status')).body.upload as Record<string, unknown>;
+  const json =
+    (status: number, body: unknown = {}) =>
+    () =>
+      new Response(JSON.stringify(body), { status });
+  /** Seeded credential, plugin started with the upload settings, first delta queued. */
+  async function running(
+    over: { replies?: ReadingsReply[]; settings?: unknown; sm?: FakeSm } = {},
+  ) {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = over.sm ?? fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.readingReplies.push(...(over.replies ?? []));
+    h.plugin.start(over.settings ?? UP);
+    await h.untilState('connected');
+    return { h, dir, sm };
+  }
+  const queueOne = async (h: ReturnType<typeof harness>, sm: FakeSm) => {
+    sm.deliver(delta(BAT));
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+  };
+  /** Fires the uploader's first attempt (60 s with rng 0). */
+  const firstAttempt = async (h: ReturnType<typeof harness>) => {
+    await h.tick(61_000);
+    await h.until(() => h.readingCalls.length >= 1);
+  };
+  const existing = (over: Partial<{ path: string }> = {}) => ({
+    clientReadingId: uuidv7(),
+    path: BAT,
+    value: 12.4,
+    recordedAt: new Date().toISOString(),
+    ...over,
+  });
+
+  it('with the release flag off: no subscription, no readings request, no queue directory', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, sm }); // default deps: UPLOAD_AVAILABLE is false
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    sm.deliver(delta(BAT));
+    await h.tick(3 * 60 * MIN);
+    expect(sm.subscriptions).toHaveLength(0);
+    expect(h.readingCalls).toHaveLength(0);
+    expect(h.calls.every((u) => u.endsWith('/v1/integrations/status'))).toBe(true);
+    expect(readdirSync(dir)).toEqual(['credential.json']);
+    expect(await uploadBlock(h)).toMatchObject({ available: false, enabled: true, queued: 0 });
+    expect(h.app.statuses.at(-1)).toContain('Data upload is not available in this version.');
+    h.plugin.stop();
+  });
+
+  it('subscribes to the active categories only, sends one clean batch and reports it to the admin', async () => {
+    const { h, sm } = await running();
+    expect(sm.subscriptions).toEqual([
+      {
+        context: 'vessels.self',
+        subscribe: [
+          { path: 'electrical.batteries.*.voltage', policy: 'instant', minPeriod: 60_000 },
+          {
+            path: 'electrical.batteries.*.capacity.stateOfCharge',
+            policy: 'instant',
+            minPeriod: 60_000,
+          },
+        ],
+      },
+    ]);
+    // Deltas that must never reach the queue: location, identity, free text, other categories.
+    for (const [path, value] of [
+      ['navigation.position.latitude', 41.1],
+      ['navigation.position.longitude', -8.6],
+      ['navigation.courseOverGroundTrue', 1.2],
+      ['mmsi', 123456789],
+      ['name', 7],
+      ['communication.callsignVhf', 1],
+      ['design.length.overall', 12],
+      ['electrical.batteries.house.name', 3],
+      ['propulsion.main.runTime', 3600],
+      ['tanks.fuel.0.currentLevel', 0.5],
+    ] as const) {
+      sm.deliver(delta(path, value));
+    }
+    await queueOne(h, sm);
+    await firstAttempt(h);
+    await h.until(async () => (await uploadBlock(h)).queued === 0);
+    expect(h.readingCalls).toHaveLength(1);
+    const body = h.readingCalls[0]?.body.readings ?? [];
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ path: BAT, value: 12.6 });
+    expect(Object.keys(body[0] ?? {}).sort()).toEqual([
+      'clientReadingId',
+      'path',
+      'recordedAt',
+      'value',
+    ]);
+    const wire = JSON.stringify(h.readingCalls);
+    expect(wire).not.toMatch(
+      /navigation|position|latitude|mmsi|callsign|design|name|propulsion|tanks/i,
+    );
+    const block = await uploadBlock(h);
+    expect(block).toMatchObject({
+      available: true,
+      enabled: true,
+      unavailableReason: null,
+      queued: 0,
+      dropped: 0,
+      invalid: 0,
+      results: { accepted: 1 },
+    });
+    expect(typeof block.lastSentAt).toBe('string');
+    // The broadcast line carries no numbers, URL or code.
+    for (const line of h.app.statuses) {
+      expect(line).not.toMatch(/\d|https?:|[A-Z0-9]{4}-[A-Z0-9]{4}/);
+      expect(line).not.toContain('Data upload is not available');
+    }
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Selected readings are sent to VesselTwin.',
+    );
+    expect(h.calls.every((u) => u.startsWith(ORIGIN))).toBe(true);
+    h.plugin.stop();
+  });
+
+  it('reports upload unavailable on this server when the subscription manager is missing', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on }); // no subscriptionmanager
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.tick(10 * MIN);
+    expect(await uploadBlock(h)).toMatchObject({
+      available: false,
+      unavailableReason: 'subscriptions_unavailable',
+    });
+    expect(h.readingCalls).toHaveLength(0);
+    expect(readdirSync(dir)).toEqual(['credential.json']);
+    expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    h.plugin.stop();
+  });
+
+  it('does not collect when upload is switched off or nothing is selected', async () => {
+    for (const settings of [{}, { uploadEnabled: true }]) {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.plugin.start(settings);
+      await h.untilState('connected');
+      await h.tick(10 * MIN);
+      expect(sm.subscriptions).toHaveLength(0);
+      expect(h.readingCalls).toHaveLength(0);
+      h.plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  describe('error matrix at plugin level', () => {
+    it('401 on readings: re-pair state, tombstone, collector and monitor stopped, queue kept, pairing allowed', async () => {
+      const { h, dir, sm } = await running({
+        replies: [json(401, { code: 'integration_unauthorized' })],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('reauth_required');
+      await h.until(async () => {
+        const f = JSON.parse(await readFile(join(dir, 'credential.json'), 'utf8')) as Record<
+          string,
+          unknown
+        >;
+        return f.reauthRequired === true;
+      });
+      expect(await readFile(join(dir, 'credential.json'), 'utf8')).not.toContain(FAKE_CRED);
+      expect(sm.unsubscribed()).toBe(1);
+      const probes = h.statusCalls();
+      await h.tick(3 * 60 * MIN);
+      expect(h.statusCalls()).toBe(probes);
+      expect(h.readingCalls).toHaveLength(1);
+      expect(segs(dir).length).toBeGreaterThan(0);
+      expect((await h.call('GET /status')).body).toMatchObject({
+        state: 'reauth_required',
+        paired: false,
+      });
+      expect(h.app.statuses.at(-1)).toMatch(/Pair again/);
+      expect((await h.call('POST /pair')).status).toBe(202);
+      h.plugin.stop();
+    });
+
+    it('a 401 without the platform code stops everything but keeps the credential file', async () => {
+      const { h, dir, sm } = await running({ replies: [json(401, { message: 'proxy' })] });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('reauth_required');
+      await h.tick(MIN);
+      expect(JSON.parse(await readFile(join(dir, 'credential.json'), 'utf8'))).toMatchObject({
+        credential: FAKE_CRED,
+      });
+      expect(sm.unsubscribed()).toBe(1);
+      h.plugin.stop();
+    });
+
+    it('update required is sticky: a connected monitor does not revive uploading', async () => {
+      const { h, sm } = await running({
+        replies: [json(426, { code: 'integration_contract_unsupported' })],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('update_required');
+      const probes = h.statusCalls();
+      await h.tick(61 * MIN);
+      await h.until(() => h.statusCalls() > probes);
+      expect((await h.call('GET /status')).body.state).toBe('update_required');
+      expect(h.app.statuses.at(-1)).toMatch(/Update the plugin/);
+      await h.tick(3 * 60 * MIN);
+      expect(h.readingCalls).toHaveLength(1);
+      expect(await uploadBlock(h)).toMatchObject({ queued: 1 });
+      h.plugin.stop();
+    });
+
+    it('paused by the readings route keeps the queue; the monitor reporting connected resumes it', async () => {
+      const { h, sm } = await running({
+        replies: [json(503, { code: 'integration_feature_unavailable' })],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('paused');
+      expect(await uploadBlock(h)).toMatchObject({ queued: 1 });
+      await h.tick(61 * MIN); // the next monitor probe is healthy and kicks the uploader
+      await h.until(() => h.readingCalls.length === 2);
+      expect(h.readingCalls[1]?.body.readings[0]?.clientReadingId).toBe(
+        h.readingCalls[0]?.body.readings[0]?.clientReadingId,
+      );
+      await h.untilState('connected');
+      await h.until(async () => (await uploadBlock(h)).queued === 0);
+      h.plugin.stop();
+    });
+
+    it('a paused monitor holds the uploader, a later connected probe releases it', async () => {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.statusReplies.push(reply(503, { code: 'integration_feature_unavailable' }));
+      h.plugin.start(UP);
+      await h.untilState('paused');
+      await queueOne(h, sm);
+      await h.tick(30 * MIN);
+      expect(h.readingCalls).toHaveLength(0);
+      await h.tick(40 * MIN); // hourly probe now answers 200
+      await h.untilState('connected');
+      await h.until(() => h.readingCalls.length === 1);
+      h.plugin.stop();
+    });
+
+    it('network failure backs off and the same reading is replayed', async () => {
+      const { h, sm } = await running({
+        replies: [
+          () => {
+            throw new Error('ECONNRESET');
+          },
+        ],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.tick(60_000);
+      await h.until(() => h.readingCalls.length === 2);
+      expect(h.readingCalls[1]?.body).toEqual(h.readingCalls[0]?.body);
+      await h.until(async () => (await uploadBlock(h)).queued === 0);
+      h.plugin.stop();
+    });
+  });
+
+  describe('lifecycle', () => {
+    it('stop() aborts the in-flight POST; the next start replays the same reading', async () => {
+      let aborted = false;
+      const { h, sm } = await running({
+        replies: [
+          (init) =>
+            new Promise<Response>((_res, rej) => {
+              init?.signal?.addEventListener('abort', () => {
+                aborted = true;
+                rej(new DOMException('aborted', 'AbortError'));
+              });
+            }),
+        ],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      const id = h.readingCalls[0]?.body.readings[0]?.clientReadingId;
+      h.plugin.stop();
+      expect(aborted).toBe(true);
+      h.plugin.start(UP);
+      await h.untilState('connected');
+      await h.tick(61_000);
+      await h.until(() => h.readingCalls.length === 2);
+      expect(h.readingCalls[1]?.body.readings[0]?.clientReadingId).toBe(id);
+      await h.until(async () => (await uploadBlock(h)).queued === 0);
+      expect(sm.subscriptions).toHaveLength(2);
+      h.plugin.stop();
+    });
+
+    it('a late delta after stop() is not queued', async () => {
+      const { h, dir, sm } = await running();
+      h.plugin.stop();
+      sm.deliver(delta(BAT));
+      await h.tick(MIN);
+      expect(segs(dir)).toHaveLength(0);
+    });
+
+    it('a restart with a pending queue resumes and replays the same clientReadingIds', async () => {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.readingReplies.push(json(502));
+      h.plugin.start(UP);
+      await h.untilState('connected');
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      const first = h.readingCalls[0]?.body.readings.map((r) => r.clientReadingId);
+      h.plugin.stop();
+      vi.useRealTimers();
+
+      const h2 = harness({ dir, deps: on, sm: fakeSm() });
+      h2.plugin.start(UP);
+      await h2.untilState('connected');
+      await firstAttempt(h2);
+      expect(h2.readingCalls[0]?.body.readings.map((r) => r.clientReadingId)).toEqual(first);
+      h2.plugin.stop();
+    });
+
+    it('never sends to an origin other than the one the credential was issued for', async () => {
+      const dir = tempDir();
+      await seed(dir, { apiOrigin: 'https://elsewhere.example' });
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.plugin.start(UP);
+      await h.untilState('reauth_required');
+      await h.tick(3 * 60 * MIN);
+      expect(h.calls).toHaveLength(0);
+      expect(sm.subscriptions).toHaveLength(0);
+      h.plugin.stop();
+      vi.useRealTimers();
+
+      const dir2 = tempDir();
+      await seed(dir2, { apiOrigin: 'http://localhost:3999' });
+      const sm2 = fakeSm();
+      const h2 = harness({ dir: dir2, deps: on, sm: sm2 });
+      h2.plugin.start({ ...UP, apiBaseUrl: 'http://localhost:3999' });
+      await h2.untilState('connected');
+      await queueOne(h2, sm2);
+      await firstAttempt(h2);
+      expect(h2.calls.length).toBeGreaterThan(1);
+      expect(h2.calls.every((u) => u.startsWith('http://localhost:3999/'))).toBe(true);
+      h2.plugin.stop();
+    });
+  });
+
+  describe('queue clearing', () => {
+    it('on start while upload is off (and only when the release flag is on)', async () => {
+      for (const [available, remaining] of [
+        [true, 0],
+        [false, 1],
+      ] as const) {
+        const dir = tempDir();
+        await seed(dir);
+        const q = new ReadingQueue({ dir: join(dir, 'queue') });
+        await q.append(existing());
+        await q.close();
+        const h = harness({
+          dir,
+          deps: { uploadAvailable: available, rng: () => 0 },
+          sm: fakeSm(),
+        });
+        h.plugin.start({});
+        await h.untilState('connected');
+        await h.until(() => segs(dir).length === remaining);
+        await h.tick(MIN);
+        expect(segs(dir)).toHaveLength(remaining);
+        h.plugin.stop();
+        vi.useRealTimers();
+      }
+    });
+
+    it('on unpair', async () => {
+      const { h, dir, sm } = await running();
+      await queueOne(h, sm);
+      expect(segs(dir).length).toBeGreaterThan(0);
+      expect((await h.call('POST /unpair')).status).toBe(200);
+      expect(segs(dir)).toHaveLength(0);
+      sm.deliver(delta(BAT)); // collector is gone
+      await h.tick(MIN);
+      expect(segs(dir)).toHaveLength(0);
+      expect(sm.unsubscribed()).toBe(1);
+      h.plugin.stop();
+    });
+
+    it('on a successful new pairing, before the new credential uploads anything', async () => {
+      const dir = tempDir();
+      const q = new ReadingQueue({ dir: join(dir, 'queue') });
+      await q.append(existing());
+      await q.append(existing());
+      await q.close();
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.plugin.start(UP);
+      await h.tick();
+      expect((await h.call('POST /pair')).status).toBe(202);
+      await h.tick();
+      await h.tick(5_000);
+      await h.resolveHeld(h.ok());
+      await h.untilState('connected');
+      expect(segs(dir)).toHaveLength(0);
+      await h.until(() => sm.subscriptions.length === 1);
+      await h.tick(61_000);
+      expect(h.readingCalls).toHaveLength(0);
+      h.plugin.stop();
+    });
   });
 });

@@ -5,8 +5,8 @@ import { isPermittedPath, matchPath, type PathMatch, type Unit } from './mapping
 import type { ReadingQueue } from './queue';
 
 /**
- * Pure record policy for the planned upload: decides which SignalK samples would be kept.
- * Not wired into the plugin; nothing here subscribes, schedules or uploads.
+ * Pure record policy for upload: decides which SignalK samples are kept. Nothing here subscribes,
+ * schedules or uploads; the plugin feeds it deltas from the collector and gives it a queue sink.
  *
  * Readings are queued in SI, exactly as SignalK delivered them (seconds, volts, ratio, cubic
  * metres); the platform converts server-side. Owner units (hours, percent, litres) are used only
