@@ -144,6 +144,10 @@ describe('parseOptions', () => {
 // ---- pairing lifecycle and route hardening -------------------------------------------------
 
 const realSetTimeout = setTimeout;
+// Date is faked by the harness; the wall-clock deadline in `until` needs the real one.
+const realNow = Date.now.bind(Date);
+// Polling is bounded at 15 s in `until`; the default 5 s test timeout is only a safety net on slow runners.
+vi.setConfig({ testTimeout: 30_000 });
 const realPause = (ms: number) =>
   new Promise<void>((r) => {
     realSetTimeout(r, ms);
@@ -261,11 +265,17 @@ function harness(opts: { dir?: string; deps?: PluginDeps; sm?: FakeSm } = {}) {
     await vi.advanceTimersByTimeAsync(ms);
     await realPause(40);
   };
-  /** Poll until `cond` holds (real fs I/O has no fixed completion time); bounded, no fixed sleep. */
+  /**
+   * Poll until `cond` holds (real fs I/O has no fixed completion time). Polls every few real
+   * milliseconds and is bounded by a wall-clock deadline well inside the test timeout, so a slow
+   * runner makes it wait longer instead of burning a fixed 40 ms per attempt.
+   */
   const until = async (cond: () => boolean | Promise<boolean>) => {
-    for (let i = 0; i < 200; i++) {
+    const started = realNow();
+    while (realNow() - started < 15_000) {
       if (await cond()) return;
-      await tick();
+      await vi.advanceTimersByTimeAsync(0);
+      await realPause(4);
     }
     throw new Error('condition not reached');
   };
@@ -2247,9 +2257,12 @@ describe('upload pipeline', () => {
     h.readingReplies.push(...(over.replies ?? []));
     h.plugin.start(over.settings ?? UP);
     await h.untilState('connected');
+    // A delta delivered before the collector has subscribed is dropped; wait for the subscription.
+    if (over.settings === undefined) await h.until(() => sm.subscriptions.length > 0);
     return { h, dir, sm };
   }
   const queueOne = async (h: ReturnType<typeof harness>, sm: FakeSm) => {
+    await h.until(() => sm.subscriptions.length > 0);
     sm.deliver(delta(BAT));
     await h.until(async () => (await uploadBlock(h)).queued === 1);
   };
@@ -2298,9 +2311,27 @@ describe('upload pipeline', () => {
     electrical: undefined,
     'electrical.batteries': { house: { voltage: leaf(v, ts) } },
   });
-  const total = async (h: ReturnType<typeof harness>) =>
-    ((await uploadBlock(h)).queued as number) +
-    h.readingCalls.reduce((n, c) => n + c.body.readings.length, 0);
+  /**
+   * Distinct readings seen so far, queued on disk or posted. Counted by clientReadingId: the
+   * `queued` stat lags an ack by a real fs round-trip, so adding it to the posted count could
+   * count a reading that is in flight twice.
+   */
+  const total = (h: ReturnType<typeof harness>): Promise<number> => {
+    const ids = new Set<unknown>();
+    for (const c of h.readingCalls) for (const r of c.body.readings) ids.add(r.clientReadingId);
+    for (const name of segs(h.dir)) {
+      const text = readFileSync(join(h.dir, 'queue', name), 'utf8');
+      for (const line of text.split('\n')) {
+        try {
+          ids.add((JSON.parse(line) as { clientReadingId?: unknown }).clientReadingId);
+        } catch {
+          // blank or torn line
+        }
+      }
+    }
+    ids.delete(undefined);
+    return Promise.resolve(ids.size);
+  };
 
   it('a steady value present only in the self tree is queued once and uploaded', async () => {
     const dir = tempDir();
@@ -2403,31 +2434,56 @@ describe('upload pipeline', () => {
     h3.plugin.stop();
   });
 
+  /**
+   * stop() is synchronous but its final sampler-state save runs in the background. Wait until that
+   * save has really finished, so the test never races it (a late save would overwrite the file the
+   * test edits next). Deterministic: awaits the save promise itself, no fixed sleep.
+   */
+  async function stopAndSettle(h: ReturnType<typeof harness>) {
+    const saves: Promise<void>[] = [];
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const real = ReadingQueue.prototype.saveChannels;
+    const spy = vi.spyOn(ReadingQueue.prototype, 'saveChannels').mockImplementation(function (
+      this: ReadingQueue,
+      state: unknown,
+    ) {
+      const p = real.call(this, state);
+      saves.push(p);
+      return p;
+    });
+    try {
+      h.plugin.stop();
+      await h.until(() => saves.length > 0); // the final save has been issued
+      await Promise.all(saves);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
   it('a restart with the same steady value queues nothing new; a newer one after the interval does', async () => {
     const dir = tempDir();
     await seed(dir);
     const ts = new Date().toISOString();
+    const file = join(dir, 'queue', 'channels.json');
     const h = harness({ dir, deps: on, sm: fakeSm() });
     treeApp(h, batTree(12.6, ts));
     h.plugin.start(UP);
     await h.untilState('connected');
     await h.until(async () => (await uploadBlock(h)).queued === 1);
-    h.plugin.stop();
-    await h.until(() => existsSync(join(dir, 'queue', 'channels.json')));
+    await stopAndSettle(h);
     vi.useRealTimers();
 
     const h2 = harness({ dir, deps: on, sm: fakeSm() });
-    expect(readFileSync(join(dir, 'queue', 'channels.json'), 'utf8')).toContain(BAT);
+    expect(readFileSync(file, 'utf8')).toContain(BAT);
     treeApp(h2, batTree(12.6, ts));
     h2.plugin.start(UP);
     await h2.untilState('connected');
     await h2.tick(10 * MIN);
     expect(await total(h2)).toBe(1); // the one from before the restart; no new one
-    h2.plugin.stop();
+    await stopAndSettle(h2); // its final save must land before the file is edited below
     vi.useRealTimers();
 
     // Pretend the last kept reading is older than the 24 h default interval: the same tree value is now newer and recorded.
-    const file = join(dir, 'queue', 'channels.json');
     const st = JSON.parse(readFileSync(file, 'utf8')) as Record<string, { lastKeptMs: number }>;
     (st[BAT] as { lastKeptMs: number }).lastKeptMs -= 25 * 60 * MIN;
     writeFileSync(file, JSON.stringify(st));
@@ -3052,6 +3108,7 @@ describe('status line copy for sending readings', () => {
     const h = harness({ dir, sm, deps: { rng: () => 0 } });
     h.plugin.start(UP);
     await h.untilState('connected');
+    await h.until(() => sm.subscriptions.length > 0); // a delta before the subscription is dropped
     sm.deliver({
       context: 'vessels.self',
       updates: [
@@ -3111,6 +3168,7 @@ describe('review fixes', () => {
       await gate;
       return (realAppend as (...x: unknown[]) => Promise<void>)(...a);
     });
+    await h.until(() => sm.subscriptions.length > 0); // a delta before the subscription is dropped
     sm.deliver(delta());
     await h.until(() => entered);
     h.plugin.stop();
@@ -3182,6 +3240,7 @@ describe('review fixes', () => {
     await h.untilState('connected');
     expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
     expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    await h.until(() => sm.subscriptions.length > 0); // a delta before the subscription is dropped
     sm.deliver(delta());
     await h.until(
       () => h.app.statuses.at(-1) === 'Paired with Sea Hag. Sending readings to VesselTwin.',
