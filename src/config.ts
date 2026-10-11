@@ -189,7 +189,7 @@ export const configSchema = {
       { minChangeHours: threshold('Minimum change (hours)', 0.1, 24) },
     ),
     batteries: categorySchema(
-      'Battery voltage and state of charge',
+      'Battery readings',
       SIMPLE_ID.source,
       `${ID_RULE} For example "house".`,
       {

@@ -112,7 +112,7 @@ Follow the steps above if you want readings sent.
 ## What the status line means
 
 The status line is under Server > Plugin Config (and on the Webapps > VesselTwin page). It is shown
-to every SignalK client, so it never carries numbers, the pairing code or a web address; the VesselTwin
+to every SignalK client, so it never carries counts, codes or web addresses; the VesselTwin
 page, which is admin-only, shows the details.
 
 **Not connected yet**
@@ -131,6 +131,9 @@ page, which is admin-only, shows the details.
 - _Paired with (your boat)_ (or _Paired with VesselTwin_): the connection is valid and is re-checked
   about once an hour. The rest of the line says what happens to readings:
   - _Sending readings to VesselTwin._ Sending is on.
+  - _Sending is on; waiting for readings from SignalK._ Sending is on but nothing has been recorded
+    yet (no matching values have arrived). It switches to the line above once a reading is recorded
+    or sent.
   - _Some channels need setup in VesselTwin._ Added when channels are waiting for you to map them in
     the VesselTwin app (see "Set up channels in VesselTwin").
   - _Sending readings is off in the plugin settings._ Nothing is sent. See "Send readings to
@@ -256,6 +259,8 @@ and any notes about them, for example ignored instance ids.
   settings_: turn on the master switch and a category. _Some channels need setup in VesselTwin_:
   map and confirm them in the VesselTwin app. Readings only start after the first one is recorded
   (up to a few minutes after the plugin starts, then once a day by default).
+- **Downgrading to 0.1.x.** Turn sending off first, so waiting readings are deleted: 0.1.x does not
+  manage the queue folder.
 - **No reading after the SignalK server restarted.** SignalK keeps current values in memory only,
   so a reading appears once the device sends a value again (for example, engine hours show up the
   next time the engine runs). Restarting or re-saving the plugin is fine: it picks up current

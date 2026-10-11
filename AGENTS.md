@@ -9,8 +9,8 @@ Volatile detail lives in the code (`ls src test`), `README.md`, and `docs/api.md
 `signalk-vesseltwin` is a public, Apache-2.0 [SignalK](https://signalk.org) server plugin that pairs a
 boat's SignalK server with VesselTwin (the owner approves a device code in the VesselTwin web app) and,
 when the owner turns it on, uploads engine hours, battery readings and tank levels to the boat's
-maintenance record. Status: version 0.1.1 is published to npm; the upload release (contract 2) is in
-progress. Pairing, credential handling and upload work. **Sending readings is off by default** and
+maintenance record. Status: version 0.1.1 is published to npm; upload is built and off by default.
+Pairing, credential handling and upload work. **Sending readings is off by default** and
 needs the owner's explicit `uploadEnabled` setting plus a category.
 
 ## Commands
@@ -91,7 +91,7 @@ list of permitted paths; never add anything location-like.
   forward raw fetch errors.
 - Show the user code only in the `/status` response while pairing is pending. Plugin routes are
   admin-only when SignalK security is enabled (open to the LAN when it is off). The status
-  line is broadcast to read-only and anonymous clients and never carries the code or the URL.
+  line is broadcast to read-only and anonymous clients and never carries counts, codes or the URL.
 - The credential is bound to `apiOrigin`: it is only ever sent to that origin. Never send it elsewhere.
 - Keep the same-origin (`Origin`) check (`guarded`) on every plugin route.
 - Credentials are write-scoped. Treat any change to storage, logging or redaction as security-sensitive.

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Status line "Sending is on; waiting for readings from SignalK." until a first reading is recorded.
+- Downgrade note: turn sending off before going back to 0.1.x so waiting readings are deleted.
 - Upload of engine and generator hours, battery voltage and state of charge, and tank level and
   volume to the boat's maintenance record. **Off by default**: nothing is sent until the owner turns
   on "Send readings to VesselTwin" and a category in the plugin settings. Only the SignalK path
@@ -24,6 +26,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Saved channel state is never rewritten after the queue was cleared, is sanity-checked when loaded,
+  and the queue is cleared when sending is on but no category is selected. A 401 during start no
+  longer leaves a collector running.
 - Saving the pairing credential works on filesystems that do not support changing file
   permissions (for example FAT-formatted USB drives). When the file cannot be restricted to the
   server's user there, the plugin page now warns about it (admin only; nothing in the status line).
