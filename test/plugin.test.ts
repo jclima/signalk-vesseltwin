@@ -29,6 +29,7 @@ import {
 } from '../src/plugin';
 
 const OFF = 'Sending readings is off in the plugin settings.';
+const WAITING = 'Sending is on; waiting for readings from SignalK.';
 
 const tempDirs: string[] = [];
 const tempDir = (): string => {
@@ -2946,21 +2947,21 @@ describe('status line copy for sending readings', () => {
 
   it('says sending is on, without numbers, a URL or a code', async () => {
     const h = await started(UP, [], fakeSm());
-    expect(h.app.statuses.at(-1)).toBe('Paired with Sea Hag. Sending readings to VesselTwin.');
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
     h.plugin.stop();
   });
 
   it('adds the setup prompt only when channels are waiting, and never the count', async () => {
     const h = await started(UP, [withSummary(2)], fakeSm());
     expect(h.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. Sending readings to VesselTwin. Some channels need setup in VesselTwin.',
+      `Paired with Sea Hag. ${WAITING} Some channels need setup in VesselTwin.`,
     );
     expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
     const body = (await h.call('GET /status')).body.upload as { summary: unknown };
     expect(body.summary).toEqual({ channels: 3, awaitingSetup: 2, held: 0 });
     h.plugin.stop();
     const h2 = await started(UP, [withSummary(0)], fakeSm());
-    expect(h2.app.statuses.at(-1)).toBe('Paired with Sea Hag. Sending readings to VesselTwin.');
+    expect(h2.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
     h2.plugin.stop();
   });
 
@@ -3068,6 +3069,123 @@ describe('status line copy for sending readings', () => {
     lines.forEach((l, i) => {
       if (i > 0) expect(l).not.toBe(lines[i - 1]);
     });
+    h.plugin.stop();
+  });
+});
+
+describe('review fixes', () => {
+  const BAT = 'electrical.batteries.house.voltage';
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const on = { uploadAvailable: true, rng: () => 0 };
+  const delta = () => ({
+    context: 'vessels.self',
+    updates: [{ timestamp: new Date().toISOString(), values: [{ path: BAT, value: 12.6 }] }],
+  });
+  const seg = (dir: string) => readdirSync(join(dir, 'queue')).some((n) => n.startsWith('seg-'));
+  const seedReading = async (dir: string) => {
+    const q = new ReadingQueue({ dir: join(dir, 'queue') });
+    await q.append({
+      clientReadingId: uuidv7(),
+      path: BAT,
+      value: 12.4,
+      recordedAt: new Date().toISOString(),
+    });
+    await q.close();
+  };
+
+  it('a state save armed by an append in flight at stop() cannot recreate channels.json after the clear', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    const realAppend = fsp.appendFile.bind(fsp);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let entered = false;
+    const spy = vi.spyOn(fsp, 'appendFile').mockImplementation(async (...a: unknown[]) => {
+      entered = true;
+      await gate;
+      return (realAppend as (...x: unknown[]) => Promise<void>)(...a);
+    });
+    sm.deliver(delta());
+    await h.until(() => entered);
+    h.plugin.stop();
+    await h.tick(0);
+    release();
+    await h.tick(0);
+    spy.mockRestore();
+    h.plugin.start({ uploadEnabled: false });
+    await h.until(
+      async () => (await h.call('GET /status')).body.message === `Paired with Sea Hag. ${OFF}`,
+    );
+    await h.until(() => !seg(dir));
+    await h.tick(3_000);
+    await h.tick(100);
+    expect(existsSync(join(dir, 'queue', 'channels.json'))).toBe(false);
+    h.plugin.stop();
+  });
+
+  it('master switch on with every category off clears waiting readings', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    await seedReading(dir);
+    expect(seg(dir)).toBe(true);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    h.plugin.start({ uploadEnabled: true });
+    await h.untilState('connected');
+    await h.until(() => !seg(dir));
+    h.plugin.stop();
+  });
+
+  it('a 401 while sampler state is loading never starts the collector', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    await seedReading(dir);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const real = ReadingQueue.prototype.loadChannels;
+    const spy = vi.spyOn(ReadingQueue.prototype, 'loadChannels').mockImplementation(async function (
+      this: ReadingQueue,
+    ) {
+      await gate;
+      return real.call(this);
+    });
+    const sm = fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.readingReplies.push(
+      () => new Response(JSON.stringify({ code: 'integration_unauthorized' }), { status: 401 }),
+    );
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.tick(61_000);
+    await h.untilState('reauth_required');
+    release();
+    await h.tick(100);
+    spy.mockRestore();
+    expect(sm.subscriptions).toHaveLength(0);
+    h.plugin.stop();
+  });
+
+  it('says it is waiting until a reading is recorded, then the normal line', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
+    expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    sm.deliver(delta());
+    await h.until(
+      () => h.app.statuses.at(-1) === 'Paired with Sea Hag. Sending readings to VesselTwin.',
+    );
     h.plugin.stop();
   });
 });

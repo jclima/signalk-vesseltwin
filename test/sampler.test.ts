@@ -462,3 +462,35 @@ describe('sampler restart state', () => {
     }
   });
 });
+
+describe('seeded state sanity', () => {
+  it('drops future entries and clamps dayCount', () => {
+    const now = T0 + 400 * 24 * 60 * MIN;
+    const A = 'electrical.batteries.a.voltage';
+    const B = 'electrical.batteries.b.voltage';
+    const C = 'electrical.batteries.c.voltage';
+    const D = 'electrical.batteries.d.voltage';
+    const st = (lastKeptMs: number, dayCount: number) => ({
+      lastKeptMs,
+      lastKeptValue: 12,
+      day: '2031-04-05',
+      dayCount,
+    });
+    const s = createSampler({
+      options: parseOptions(enableAll({})).upload,
+      sink: new MemSink(),
+      now: () => now,
+      initial: {
+        [A]: st(now + 10 * MIN, 1),
+        [B]: st(now - MIN, 1e9),
+        [C]: st(now - MIN, -5),
+        [D]: st(now - MIN, 2.7),
+      },
+    });
+    const snap = s.snapshot() as Record<string, { dayCount: number }>;
+    expect(snap[A]).toBeUndefined();
+    expect(snap[B]?.dayCount).toBe(24);
+    expect(snap[C]?.dayCount).toBe(0);
+    expect(snap[D]?.dayCount).toBe(2);
+  });
+});

@@ -137,7 +137,9 @@ export function createSampler(cfg: SamplerOptions) {
       ) {
         continue;
       }
-      channels.set(p, { lastSeenMs: lastKeptMs, lastKeptMs, lastKeptValue, day, dayCount });
+      if (lastKeptMs > cfg.now() + FUTURE_SLACK_MS) continue;
+      const count = Math.min(Math.max(Math.trunc(dayCount), 0), MAX_READINGS_PER_CHANNEL_PER_DAY);
+      channels.set(p, { lastSeenMs: lastKeptMs, lastKeptMs, lastKeptValue, day, dayCount: count });
     }
   }
 

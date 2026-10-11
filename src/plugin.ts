@@ -172,6 +172,10 @@ interface Pipeline {
   pairedAt: string | undefined;
   /** Writes pending sampler state now and cancels the debounce; resolves when it is on disk. */
   settleState: () => Promise<void>;
+  /** Set once the upload was halted (401); a late-starting collector must not subscribe. */
+  halted: boolean;
+  /** A reading was recorded in this lifecycle. */
+  recorded: boolean;
 }
 
 function isErrorState(st: PluginState): boolean {
@@ -270,6 +274,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   function haltUpload(): void {
     const p = pipe;
     if (!p) return;
+    p.halted = true;
     p.collector?.stop();
     p.collector = null;
     void p.uploader.stop();
@@ -288,8 +293,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     stopping = (async () => {
       await before;
       await settled;
-      await p.settleState();
-      await p.queue.close();
+      await p.queue.close(); // drains appends still in flight
+      await p.settleState(); // then the one final state save; nothing may arm another
     })().catch((err: unknown) => {
       app.debug(`closing the queue failed: ${redactError(err)}`);
     });
@@ -392,9 +397,11 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     // the state write can re-queue that one value after a restart: at most one duplicate, and the
     // platform dedupes by clientReadingId only per reading, so this is accepted.
     let dirty = false;
+    let closed = false;
     let timer: NodeJS.Timeout | undefined;
     let inflight: Promise<void> = Promise.resolve();
     const save = (): Promise<void> => {
+      if (closed) return inflight;
       dirty = false;
       inflight = inflight
         .then(() => (sampler ? queue.saveChannels(sampler.snapshot()) : undefined))
@@ -404,6 +411,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       return inflight;
     };
     const markDirty = (): void => {
+      if (closed) return;
       dirty = true;
       if (timer) return;
       timer = setTimeout(() => {
@@ -413,15 +421,26 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       timer.unref();
     };
     const settleState = async (): Promise<void> => {
+      closed = true;
       if (timer) clearTimeout(timer);
       timer = undefined;
-      if (dirty) await save();
-      else await inflight;
+      await inflight;
+      dirty = false;
+      try {
+        if (sampler) await queue.saveChannels(sampler.snapshot());
+      } catch (err) {
+        app.debug(`saving sampler state failed: ${redactError(err)}`);
+      }
     };
     const sink: ReadingSink = {
       write: async (r) => {
         if (pipe?.token !== token) return; // stopped or replaced: nothing may reach the queue
         await inner.write(r);
+        const wp = pipe as Pipeline | null;
+        if (wp?.token === token && !wp.recorded) {
+          wp.recorded = true;
+          report();
+        }
         markDirty();
         void uploader.refreshStats();
       },
@@ -436,6 +455,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       origin: credentialOrigin_,
       pairedAt,
       settleState,
+      halted: false,
+      recorded: false,
     };
     const rules = PATH_RULES.filter((r) => active.has(r.category));
     const livePipe = (): Pipeline | null => pipe;
@@ -447,7 +468,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       } catch (err) {
         app.debug(`reading sampler state failed: ${redactError(err)}`);
       }
-      if (!current()) return;
+      if (!current() || livePipe()?.halted) return;
       const s = createSampler({ options: upload, sink, now, initial });
       sampler = s;
       const feed = (d: unknown): void => {
@@ -464,8 +485,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         },
       });
       const lp = livePipe();
-      if (lp?.token === token) lp.collector = collector;
+      if (lp?.token === token && !lp.halted) lp.collector = collector;
       else collector.stop();
+      if (!current() || livePipe()?.halted) return;
       // signalk-server replays cached values inside subscribe() only when security is off: with
       // token security the replay is filtered per principal and a plugin has none, so a steady value
       // would never arrive. Read the current values from the self tree as well. The sampler skips
@@ -666,7 +688,12 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         } else if (sending && uploadStruggling()) {
           upline = `VesselTwin can't be reached right now. ${READINGS_KEPT}`;
         } else if (sending) {
-          upline = 'Sending readings to VesselTwin.';
+          const sn = pipe?.uploader.snapshot();
+          const idle =
+            !!pipe && !pipe.recorded && !!sn && sn.queued === 0 && sn.lastSentAt === null;
+          upline = idle
+            ? 'Sending is on; waiting for readings from SignalK.'
+            : 'Sending readings to VesselTwin.';
           if ((snap?.summary?.awaitingSetup ?? 0) > 0) upline += ` ${NEEDS_SETUP}`;
         } else {
           upline = 'Sending readings is off in the plugin settings.';
@@ -948,7 +975,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       earlier
         .then(async () => {
           // Owner decision: readings queued under an earlier setting are not kept once upload is off.
-          if (!options.uploadEnabled && mine === epoch) await clearQueue();
+          if (!sendingOn() && mine === epoch) await clearQueue();
         })
         .then(() => s.read())
         .then((c) => {
