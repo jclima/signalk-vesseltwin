@@ -3,7 +3,9 @@
 Test use only. Nothing here is published to npm (the package `files` list excludes `dev/`).
 
 The rig runs a stock signalk-server with the built plugin mounted, plus a mock VesselTwin API. It
-covers pairing, the device status call and credential rotation. There is no upload surface.
+covers pairing, the device status call, credential rotation and the readings upload (contract 2).
+Sending readings is off by default in the plugin; see "Upload end to end" in
+[docs/TESTING.md](../docs/TESTING.md) to turn it on and feed deltas.
 
 ## Track A: mock API
 
@@ -21,6 +23,13 @@ docker compose -f dev/docker-compose.yml down -v
 - SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).
+- `setup-signalk.mjs` replaces **all** plugin settings with `{ apiBaseUrl }` plus the optional
+  `PLUGIN_CONFIG` JSON object (for example `'{"uploadEnabled":true,"batteries":{"enabled":true}}'`).
+  Without it sending is off, and a plugin restart with sending off deletes any waiting readings.
+- `feed-deltas.mjs` sends permitted paths (engine and generator run time, battery voltage and charge,
+  tank level and volume) and, on purpose, position, MMSI, name, callsign and design paths with fake
+  values, over the SignalK WebSocket as the dev admin: `node dev/feed-deltas.mjs [--round N] [--only
+permitted|forbidden]`. The forbidden ones must never reach the mock. It refuses non-loopback hosts.
 - `setup-signalk.mjs` saves the admin token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700) and does
   not print it. `dev/pair.mjs` reads that file (or `SK_TOKEN`).
 - The compose project is named `vesseltwin-dev`; set `COMPOSE_PROJECT_NAME` to run a second copy.
@@ -72,6 +81,10 @@ without a code). Results come back in request order: `accepted`; `duplicate` for
 content; `rejected` with `invalid_path`, `invalid_value` (null), `invalid_time`, `future` (> 5 min
 ahead) or `too_old` (> 14 days). Nothing is stored beyond the ids seen, in memory.
 
+`GET /__mock/readings` returns the batches the mock accepted (`{ "batches": [{ "ts", "contractHeader",
+"readings": [{ "clientReadingId", "path", "value", "recordedAt" }] }] }`), oldest first, for the upload
+e2e. It is cleared by `/__mock/reset`. Unlike `/__mock/log` it holds reading values (test data only).
+
 Contract header: pairing routes do not require it (the platform checks `contractVersion` in the body).
 `status` and `credential/rotate` tolerate a missing or old header, as the platform does; the mock
 records the header and whether `User-Agent` was present in its log.
@@ -80,7 +93,7 @@ records the header and whether `User-Agent` was present in its log.
 
 All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the admin token:
 
-- `POST /pair` starts pairing (202); `POST /pair/cancel` cancels a pending one (200, or 409 if none). `GET /status` returns:
+- `POST /pair` starts pairing (202); `POST /pair/cancel` cancels a pending one (200, or 409 if none). `GET /status` returns (abridged; it also has `warnings` and the admin-only `upload` block, see [docs/api.md](../docs/api.md)):
 
 ```json
 {

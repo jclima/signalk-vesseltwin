@@ -145,6 +145,8 @@ export function createMock(o = {}) {
   let summary = null;
   /** credentialId -> Map(clientReadingId -> fingerprint), for idempotency. */
   const seenReadings = new Map();
+  /** Readings batches that passed validation, for the upload e2e (GET /__mock/readings). */
+  let received = [];
 
   function issueCredential(provider, scopes) {
     const secret = `vti_${randomBytes(32).toString('base64url')}`; // codes module: generateCredential
@@ -416,6 +418,16 @@ export function createMock(o = {}) {
     if (errors.length) return validationFailed(errors);
     let seen = seenReadings.get(cred.id);
     if (!seen) seenReadings.set(cred.id, (seen = new Map()));
+    received.push({
+      ts: new Date(now()).toISOString(),
+      contractHeader: headers['x-vesseltwin-contract'] ?? null,
+      readings: body.readings.map((r) => ({
+        clientReadingId: r.clientReadingId,
+        path: r.path,
+        value: r.value,
+        recordedAt: r.recordedAt,
+      })),
+    });
     return {
       status: 200,
       headers: {},
@@ -459,7 +471,11 @@ export function createMock(o = {}) {
   /** Debug surface. Never part of the platform. */
   function debug(method, path, body) {
     if (method === 'GET' && path === '/__mock/log') return { status: 200, body: { entries: log } };
+    if (method === 'GET' && path === '/__mock/readings') {
+      return { status: 200, body: { batches: received } };
+    }
     if (method === 'POST' && path === '/__mock/reset') {
+      received = [];
       pairings.clear();
       credentials.clear();
       seenReadings.clear();
