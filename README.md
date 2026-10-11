@@ -59,7 +59,8 @@ The code expires after 10 minutes. If it does, start pairing again.
 
 The plugin's endpoints (`status`, `pair`, `unpair`) rely on the SignalK server's own access control
 (see Security below). The page's own files (HTML, CSS, scripts) are public static files and contain
-no secrets; every request to the plugin needs the admin login.
+no secrets; with SignalK security enabled, every request to the plugin needs the admin login (with security off,
+the endpoints are open to anyone on the LAN).
 
 **Unpair** (on the page, with a confirmation step, or `POST /plugins/signalk-vesseltwin/unpair`) only removes the stored connection on this
 server. Also revoke the connection in VesselTwin so it stops working there; the plugin cannot do that
@@ -168,8 +169,8 @@ SignalK security before you pair.
 ### Upload settings (not active yet)
 
 These settings are saved and checked now, but nothing is recorded or sent in this version. The
-defaults send the least data: each category records at most once a day, and the plugin would send
-at most once a day.
+categories are all off by default, and upload is not available yet, so nothing is recorded or sent
+whatever you set. When upload ships, a category you turn on records at most once a day by default.
 
 - **Per category** (Engine and generator hours, Battery readings, Tank levels): turn it on or off,
   set how often it may record (every 60 to 1440 minutes), and set a minimum change worth recording

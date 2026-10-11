@@ -11,7 +11,7 @@ Stability labels used below:
 - **PENDING**: defined by the platform under a newer contract version than this plugin uses, but not
   implemented by the plugin. Do not guess shapes beyond what is documented here.
 
-The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` when the integration is switched off platform-wide, not per account. If the rollout does not yet cover the owner's account, start can still return a code, but the owner cannot approve it, so the pairing ends as `expired_token` (the plugin shows neutral "expired" copy). On authenticated calls the two cases differ: a plan problem is `403` `integration_paused_plan`, and a feature-flag problem is `503` `integration_feature_unavailable`.
+The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` `integration_feature_unavailable` when the integration is unavailable. Otherwise a pairing the owner cannot approve ends as `expired_token` (the plugin shows neutral "expired" copy). On authenticated calls a plan problem is `403` `integration_paused_plan` and an unavailable integration is `503` `integration_feature_unavailable`.
 
 ## Conventions (STABLE)
 
@@ -308,24 +308,25 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   "clockSkewWarning": false,
   "lastCheckedAt": "2026-01-01T00:00:00.000Z",
   "message": "Paired with Boat name. Data upload is not available in this version.",
+  "warnings": [],
   "upload": {
     "available": false,
     "categories": {
       "engineHours": {
-        "enabled": true,
-        "active": true,
+        "enabled": false,
+        "active": false,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       },
       "batteries": {
-        "enabled": true,
-        "active": true,
+        "enabled": false,
+        "active": false,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       },
       "tanks": {
-        "enabled": true,
-        "active": true,
+        "enabled": false,
+        "active": false,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       }
@@ -346,6 +347,11 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.
+- `warnings` is a list of neutral codes for the admin only (never in the broadcast status line).
+  `"credential_permissions"` means the credential file is readable by other users of the server and
+  the filesystem could not restrict it (for example a FAT or exFAT drive). The credential is still
+  saved and works; the pairing page suggests moving the SignalK data directory to a Linux-formatted
+  drive. The list is empty otherwise and clears after an unpair.
 - `upload.categories.<category>.enabled` is the configured on/off value. `active` is the effective
   value: `enabled`, and not "selected" with no valid instance ids. `upload.warnings` is neutral text for
   the admin only; it is never put in the broadcast status line.
@@ -358,8 +364,8 @@ administrator, to see the code.` `vesselLabel` comes from the server and is
 - Pairing is bound to the plugin's lifetime: stopping or unpairing cancels it and forgets the code.
 
 - `upload` describes the effective upload settings and is admin-only (the status line never carries
-  it). `available` is always `false` in this version. Each category's `enabled` is false when the
-  category is off or when `instanceMode` is `selected` with no valid ids. `warnings` is a list of
+  it). `available` is always `false` in this version. Each category's `active` is false when the
+  category is off (`enabled` false) or when `instanceMode` is `selected` with no valid ids. `warnings` is a list of
   neutral sentences (ignored instance ids, a selected list with no valid ids, a queue cap below a
   week of full-rate readings); it never repeats the ids.
 
@@ -427,8 +433,8 @@ refused with `426`.
 routes can require a higher one. A `connected` status therefore does not imply that upload is
 supported by this plugin version.
 
-Suggesting vessel information is not part of the current contract (it is deferred). The plugin
-requests no such data.
+Suggesting vessel information is not part of the current contract. The plugin requests no such
+data.
 
 Do not infer request shapes from the pairing types above. Before the plugin implements upload, the
 ingest JSON Schema has to be vendored into this repo with a contract test, and upload work has to be

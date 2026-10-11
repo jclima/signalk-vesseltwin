@@ -18,7 +18,7 @@ unavailable). Exit 3 is never a pass. `pnpm lint` runs its `--ci` mode on every 
   `true`. Leave it unset until the trusted publisher is configured.
 - Owner setup: a repository ruleset should protect `v*.*.*` tags so only maintainers can create or
   move them. Confirm it is in place before relying on it.
-- Branch protection on `main` requires the `check (22)` and `check (24)` CI checks.
+- Branch protection on `main` requires the `check (22)` and `check (24)` CI checks. Also add `check (20)` as a required check in the main ruleset (owner step).
 - Versions `0.1.0` and `0.1.1` are on npm; `0.1.1` was published through trusted publishing with
   provenance. Later releases follow the routine flow below.
 
@@ -83,7 +83,7 @@ On a branch `release/vX.Y.Z`:
 gh pr create --template release.md
 ```
 
-Wait for CI (`check (22)` and `check (24)`, required by branch protection), then squash-merge.
+Wait for CI (`check (20)`, `check (22)` and `check (24)`; the owner adds `check (20)` as a required check in the main ruleset), then squash-merge.
 
 ## 4. Tag (maintainer only)
 

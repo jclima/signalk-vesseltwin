@@ -15,8 +15,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Saving the pairing credential no longer fails on filesystems that do not support changing file
-  permissions (for example FAT-formatted USB drives).
+- Saving the pairing credential works on filesystems that do not support changing file
+  permissions (for example FAT-formatted USB drives). When the file cannot be restricted to the
+  server's user there, the plugin page now warns about it (admin only; nothing in the status line).
+- Two overlapping unpair requests no longer reopen pairing before the later one has finished.
 - Restarting the plugin while an unpair is in progress no longer leaves the status monitor in an
   inconsistent state.
 - The sampler keeps readings in raw SignalK (SI) units for upload; conversion happens server-side.
