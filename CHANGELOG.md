@@ -31,6 +31,7 @@ All notable changes to this project are documented here. The format follows
   are clamped to 3600.
 - The offline queue now applies its age and count caps when it starts.
 - The old "suggest vessel dimensions" setting is hidden; it is ignored.
+- Supports Node.js 20.3 and newer, so the plugin runs on Victron Cerbo GX (Venus OS).
 
 ## [0.1.1] - 2026-10-07
 

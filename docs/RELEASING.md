@@ -10,7 +10,7 @@ unavailable). Exit 3 is never a pass. `pnpm lint` runs its `--ci` mode on every 
 
 ## 0. One-time setup
 
-- Maintainer access to this repository and to the npm package (or the right to create it), Node 22+
+- Maintainer access to this repository and to the npm package (or the right to create it), Node 20.3+
   and pnpm 10 locally, and an npm account with 2FA that can publish the package.
 - The `npm-publish` GitHub environment exists (`.github/workflows/release.yml` uses it). Add required
   reviewers there if you want an approval before each publish.
