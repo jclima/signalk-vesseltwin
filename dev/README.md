@@ -63,6 +63,14 @@ Routes under `/v1/integrations`:
 | `POST pairing/token`     | `authorization_pending`, `slow_down`, `expired_token`, `access_denied` as 400 |
 | `GET status`             | Needs `Bearer vti_` plus 43 URL-safe characters from a paired credential      |
 | `POST credential/rotate` | Returns a new credential; the old one works for 10 more minutes               |
+| `POST signalk/readings`  | Contract 2 ingest model: see below                                            |
+
+`POST signalk/readings` needs a live bearer credential and `X-VesselTwin-Contract` >= 2 (else 426).
+The body is `{ "readings": [1..500 items] }` (512 KB limit, else 413; a malformed envelope is a 400
+without a code). Results come back in request order: `accepted`; `duplicate` for a repeated
+`clientReadingId` with the same content; `rejected` with `invalid_id` for reuse with different
+content; `rejected` with `invalid_path`, `invalid_value` (null), `invalid_time`, `future` (> 5 min
+ahead) or `too_old` (> 14 days). Nothing is stored beyond the ids seen, in memory.
 
 Contract header: pairing routes do not require it (the platform checks `contractVersion` in the body).
 `status` and `credential/rotate` tolerate a missing or old header, as the platform does; the mock
@@ -121,15 +129,20 @@ curl -X POST localhost:3001/__mock/reset
 
 `POST /__mock/fault` with JSON:
 
-| Field                           | Meaning                                                                                  |
-| ------------------------------- | ---------------------------------------------------------------------------------------- |
-| `route`                         | `pairing/start`, `pairing/token`, `status`, `credential/rotate`, `*` (all), or `clear`   |
-| `status`                        | HTTP status to answer with                                                               |
-| `code`                          | Optional error code; defaults per status (see below)                                     |
-| `retryAfter`                    | Optional `Retry-After` seconds (503 defaults to 3600)                                    |
-| `minContract`, `latestContract` | Optional contract window in the body; for `status` with `status: 200` it is the response |
-| `once`                          | `true` = applies to one request, then clears                                             |
-| `append`                        | `true` = queue after existing faults for that route instead of replacing them            |
+| Field                           | Meaning                                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `route`                         | `pairing/start`, `pairing/token`, `status`, `credential/rotate`, `signalk/readings`, `*` (all), or `clear` |
+| `status`                        | HTTP status to answer with                                                                                 |
+| `code`                          | Optional error code; defaults per status (see below)                                                       |
+| `retryAfter`                    | Optional `Retry-After` seconds (503 defaults to 3600)                                                      |
+| `minContract`, `latestContract` | Optional contract window in the body; for `status` with `status: 200` it is the response                   |
+| `once`                          | `true` = applies to one request, then clears                                                               |
+| `append`                        | `true` = queue after existing faults for that route instead of replacing them                              |
+
+For `signalk/readings`, `413` and `500` answer with a message and no code (like the framework), and the
+other statuses use the defaults below. Status summary: `POST /__mock/summary` with
+`{"channels":3,"awaitingSetup":2,"held":1}` makes `status` report it (`{"summary":null}` clears it);
+`awaitingSetup` above 0 is the case to try.
 
 Default codes: 401 `integration_unauthorized`, 403 `integration_paused_plan`, 426
 `integration_contract_unsupported`, 429 `integration_rate_limited`, 503
@@ -143,6 +156,9 @@ f '{"route":"status","status":403}'                                       # paus
 f '{"route":"status","status":426,"minContract":2}'                       # contract outside the window
 f '{"route":"pairing/token","status":429,"retryAfter":10,"once":true}'    # throttled once
 f '{"route":"status","status":200,"minContract":2}'                       # window moved up, plugin should recommend update
+f '{"route":"signalk/readings","status":429,"retryAfter":30,"once":true}'  # upload throttled once
+f '{"route":"signalk/readings","status":413,"once":true}'                 # body too large
+curl -X POST localhost:3001/__mock/summary -H 'content-type: application/json' -d '{"channels":2,"awaitingSetup":1,"held":0}'
 f '{"route":"clear"}'
 ```
 

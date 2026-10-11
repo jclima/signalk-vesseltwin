@@ -1,8 +1,8 @@
 // Mock VesselTwin integrations API for local testing of the plugin. Zero dependencies.
 // Test use only: it holds everything in memory and trusts every caller.
 //
-// Scope: pairing (start, token), device status, credential rotation. There is no upload
-// surface here on purpose.
+// Scope: pairing (start, token), device status, credential rotation, and the contract-2 readings
+// ingest route (a minimal model: envelope and per-item rules, idempotency, no storage of values).
 //
 // Response shapes mirror docs/api.md.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
@@ -16,10 +16,29 @@ const ROTATION_GRACE_MS = 10 * 60 * 1000; // types: INTEGRATION_ROTATION_GRACE_M
 const RETRY_AFTER_UNAVAILABLE_S = 3600; // types: INTEGRATION_RETRY_AFTER_S
 const MOCK_LATEST_CONTRACT = 2; // real server window: min 1, latest 2
 const MAX_BODY_BYTES = 64 * 1024;
+const READINGS_ROUTE = 'signalk/readings';
+export const READINGS_MAX_BODY_BYTES = 512 * 1024;
+const READINGS_MIN_CONTRACT = 2;
+const MAX_BATCH = 500;
+const FUTURE_SKEW_MS = 5 * 60_000;
+const TOO_OLD_MS = 14 * 24 * 3600_000; // the mock's choice; the plugin never sends older than 7 days
+// Permitted paths, mirroring src/mapping.ts (kept as a small copy: this file is plain ESM).
+const ID = '([A-Za-z0-9_-]{1,40})';
+const TANK = '(fuel|freshWater|wasteWater|blackWater|lubrication|liveWell|baitWell|gas|ballast)';
+const PATH_RES = [
+  `^propulsion\\.${ID}\\.runTime$`,
+  `^electrical\\.generators\\.${ID}\\.runTime$`,
+  `^electrical\\.batteries\\.${ID}\\.voltage$`,
+  `^electrical\\.batteries\\.${ID}\\.capacity\\.stateOfCharge$`,
+  `^tanks\\.${TANK}\\.${ID}\\.currentLevel$`,
+  `^tanks\\.${TANK}\\.${ID}\\.currentVolume$`,
+].map((r) => new RegExp(r));
+const isPermittedPath = (p) =>
+  typeof p === 'string' && p.length <= 200 && PATH_RES.some((r) => r.test(p));
 const CREDENTIAL_RE = /^vti_[A-Za-z0-9_-]{43}$/; // codes module: CREDENTIAL_PATTERN
 
 const sha256 = (v) => createHash('sha256').update(v, 'utf8').digest('hex');
-const ROUTES = ['pairing/start', 'pairing/token', 'status', 'credential/rotate'];
+const ROUTES = ['pairing/start', 'pairing/token', 'status', 'credential/rotate', READINGS_ROUTE];
 const DEFAULT_FAULT_CODE = {
   401: 'integration_unauthorized',
   403: 'integration_paused_plan',
@@ -31,6 +50,7 @@ const DEFAULT_FAULT_MESSAGE = {
   401: 'Authentication required',
   403: 'This integration is paused for this account.',
   426: 'This client version is not supported.',
+  413: 'Payload too large',
   429: 'Too many requests.', // shape assumed; the rate limiter was not mirrored
   503: 'This integration is not available right now.',
 };
@@ -121,6 +141,10 @@ export function createMock(o = {}) {
   let faults = new Map();
   /** @type {object[]} */
   let log = [];
+  /** Status `summary` object ({channels, awaitingSetup, held}) or null; set via /__mock/summary. */
+  let summary = null;
+  /** credentialId -> Map(clientReadingId -> fingerprint), for idempotency. */
+  const seenReadings = new Map();
 
   function issueCredential(provider, scopes) {
     const secret = `vti_${randomBytes(32).toString('base64url')}`; // codes module: generateCredential
@@ -148,10 +172,13 @@ export function createMock(o = {}) {
   }
 
   function faultResponse(f) {
-    const body = {
-      code: f.code ?? DEFAULT_FAULT_CODE[f.status] ?? 'integration_error',
-      message: DEFAULT_FAULT_MESSAGE[f.status] ?? 'Injected fault.',
-    };
+    const body = { message: DEFAULT_FAULT_MESSAGE[f.status] ?? 'Injected fault.' };
+    // 413 and 500 are framework-style bodies without a platform code unless one is injected.
+    const code =
+      f.code ??
+      DEFAULT_FAULT_CODE[f.status] ??
+      (f.status < 500 && f.status !== 413 ? 'integration_error' : undefined);
+    if (code !== undefined) body.code = code;
     const headers = {};
     let retryAfter = f.retryAfter;
     if (f.status === 503 && retryAfter === undefined) retryAfter = RETRY_AFTER_UNAVAILABLE_S;
@@ -187,7 +214,7 @@ export function createMock(o = {}) {
         latestContract: latest,
         pluginUpdateRecommended: contract === null || contract < latest,
         serverTime: new Date(now()).toISOString(),
-        summary: null,
+        summary,
       },
     };
   }
@@ -212,7 +239,7 @@ export function createMock(o = {}) {
   function pairingStart(body) {
     const issues = validateStart(body);
     if (issues.length) return validationFailed(issues);
-    if (body.contractVersion > 1) {
+    if (body.contractVersion > MOCK_LATEST_CONTRACT) {
       // integration_contract_unsupported above the latest contract
       return {
         status: 400,
@@ -308,7 +335,93 @@ export function createMock(o = {}) {
         latestContract: MOCK_LATEST_CONTRACT,
         pluginUpdateRecommended: contract === null || contract < MOCK_LATEST_CONTRACT,
         serverTime: new Date(now()).toISOString(),
-        summary: null, // the provider's statusSummary is optional; null when absent
+        summary, // the provider's statusSummary is optional; null when absent
+      },
+    };
+  }
+
+  /** Envelope check for the readings body (strict, like the vendored request schema). */
+  function validateReadings(b) {
+    const errors = [];
+    const bad = (path, message = 'Invalid') => errors.push({ path, message });
+    const isObj = (x) => typeof x === 'object' && x !== null && !Array.isArray(x);
+    if (!isObj(b)) return [{ path: '', message: 'Invalid' }];
+    for (const k of Object.keys(b)) if (k !== 'readings') bad(k, 'Unrecognized key');
+    if (!Array.isArray(b.readings) || b.readings.length < 1 || b.readings.length > MAX_BATCH) {
+      bad('readings');
+      return errors;
+    }
+    const keys = ['clientReadingId', 'path', 'value', 'recordedAt'];
+    b.readings.forEach((r, i) => {
+      const at = (k) => `readings.${String(i)}.${k}`;
+      if (!isObj(r)) return bad(`readings.${String(i)}`);
+      for (const k of Object.keys(r)) if (!keys.includes(k)) bad(at(k), 'Unrecognized key');
+      const str = (k, max) =>
+        typeof r[k] !== 'string' || r[k].length < 1 || r[k].length > max ? bad(at(k)) : undefined;
+      str('clientReadingId', 64);
+      str('path', 200);
+      str('recordedAt', 40);
+      if (r.value !== null && !(typeof r.value === 'number' && Number.isFinite(r.value))) {
+        bad(at('value'));
+      }
+    });
+    return errors;
+  }
+
+  /** One item -> result, or null for "valid so far". Pure apart from the idempotency map. */
+  function judgeReading(r, seen) {
+    const reject = (reason) => ({ clientReadingId: r.clientReadingId, status: 'rejected', reason });
+    if (!isPermittedPath(r.path)) return reject('invalid_path');
+    if (r.value === null) return reject('invalid_value');
+    const t = Date.parse(r.recordedAt);
+    if (Number.isNaN(t)) return reject('invalid_time');
+    if (t > now() + FUTURE_SKEW_MS) return reject('future');
+    if (t < now() - TOO_OLD_MS) return reject('too_old');
+    const fp = `${r.path}|${String(r.value)}|${String(t)}`;
+    const prior = seen.get(r.clientReadingId);
+    if (prior === undefined) {
+      seen.set(r.clientReadingId, fp);
+      return { clientReadingId: r.clientReadingId, status: 'accepted' };
+    }
+    // Same id, same body: idempotent replay. Same id, different body: id reuse.
+    return prior === fp
+      ? { clientReadingId: r.clientReadingId, status: 'duplicate' }
+      : reject('invalid_id');
+  }
+
+  function readings(headers, body) {
+    const cred = authenticate(headers);
+    if (!cred) return unauthorized();
+    const contract = parseContract(headers['x-vesseltwin-contract']);
+    if (contract === null || contract < READINGS_MIN_CONTRACT) {
+      return {
+        status: 426,
+        headers: {},
+        body: {
+          code: 'integration_contract_unsupported',
+          message: 'This client version is not supported.',
+          minContract: READINGS_MIN_CONTRACT,
+          latestContract: MOCK_LATEST_CONTRACT,
+        },
+      };
+    }
+    if (!cred.scopes.includes('meters:write')) {
+      return {
+        status: 403,
+        headers: {},
+        body: { code: 'integration_scope', message: 'This credential cannot upload readings.' },
+      };
+    }
+    const errors = validateReadings(body);
+    if (errors.length) return validationFailed(errors);
+    let seen = seenReadings.get(cred.id);
+    if (!seen) seenReadings.set(cred.id, (seen = new Map()));
+    return {
+      status: 200,
+      headers: {},
+      body: {
+        serverTime: new Date(now()).toISOString(),
+        results: body.readings.map((r) => judgeReading(r, seen)),
       },
     };
   }
@@ -349,6 +462,8 @@ export function createMock(o = {}) {
     if (method === 'POST' && path === '/__mock/reset') {
       pairings.clear();
       credentials.clear();
+      seenReadings.clear();
+      summary = null;
       faults = new Map();
       log = [];
       return { status: 200, body: { ok: true } };
@@ -366,6 +481,20 @@ export function createMock(o = {}) {
       target.status = body?.deny === true ? 'denied' : 'approved';
       return { status: 200, body: { status: target.status } };
     }
+    if (method === 'POST' && path === '/__mock/summary') {
+      // { channels, awaitingSetup, held } (non-negative integers), or { "summary": null } to clear
+      const b = body?.summary === null ? null : body;
+      const ok = (v) => Number.isInteger(v) && v >= 0;
+      if (b !== null && !(ok(b?.channels) && ok(b?.awaitingSetup) && ok(b?.held))) {
+        return {
+          status: 400,
+          body: { error: 'need integer channels, awaitingSetup, held >= 0, or {"summary":null}' },
+        };
+      }
+      summary =
+        b === null ? null : { channels: b.channels, awaitingSetup: b.awaitingSetup, held: b.held };
+      return { status: 200, body: { ok: true, summary } };
+    }
     if (method === 'POST' && path === '/__mock/fault') {
       const route = body?.route;
       if (route === 'clear') {
@@ -377,7 +506,7 @@ export function createMock(o = {}) {
           status: 400,
           body: {
             error:
-              'need route (pairing/start, pairing/token, status, credential/rotate, *, or "clear") and integer status',
+              'need route (pairing/start, pairing/token, status, credential/rotate, signalk/readings, *, or "clear") and integer status',
           },
         };
       }
@@ -404,7 +533,8 @@ export function createMock(o = {}) {
       (route === 'pairing/start' && req.method === 'POST') ||
       (route === 'pairing/token' && req.method === 'POST') ||
       (route === 'status' && req.method === 'GET') ||
-      (route === 'credential/rotate' && req.method === 'POST');
+      (route === 'credential/rotate' && req.method === 'POST') ||
+      (route === READINGS_ROUTE && req.method === 'POST');
 
     let out;
     let faulted = false;
@@ -417,6 +547,7 @@ export function createMock(o = {}) {
       else if (route === 'pairing/start') out = pairingStart(req.body);
       else if (route === 'pairing/token') out = pairingToken(req.body);
       else if (route === 'status') out = status(req.headers, fault);
+      else if (route === READINGS_ROUTE) out = readings(req.headers, req.body);
       else out = rotate(req.headers);
     }
     // Log metadata only. Bodies, Authorization values and codes are never recorded.
@@ -443,9 +574,13 @@ export async function startMock({ host = '0.0.0.0', port = 3001, ...options } = 
     const chunks = [];
     let size = 0;
     let tooBig = false;
+    const limit =
+      (req.url ?? '').split('?')[0] === `/v1/integrations/${READINGS_ROUTE}`
+        ? READINGS_MAX_BODY_BYTES
+        : MAX_BODY_BYTES;
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY_BYTES) tooBig = true;
+      if (size > limit) tooBig = true;
       else chunks.push(c);
     });
     req.on('end', () => {
