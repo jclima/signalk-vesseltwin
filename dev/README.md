@@ -33,8 +33,9 @@ permitted|forbidden]`. The forbidden ones must never reach the mock. It refuses 
 - `setup-signalk.mjs` saves the admin token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700) and does
   not print it. `dev/pair.mjs` reads that file (or `SK_TOKEN`).
 - The compose project is named `vesseltwin-dev`; set `COMPOSE_PROJECT_NAME` to run a second copy.
-- Rebuild the plugin with `pnpm build` and run `docker compose -f dev/docker-compose.yml restart signalk`
-  to pick up code changes.
+- Rebuild the plugin with `pnpm build` and run `docker compose -f dev/docker-compose.yml restart signalk relay`
+  to pick up code changes. Restart `relay` too: it shares signalk's network namespace, which a signalk
+  restart recreates, so the relay would otherwise forward into a dead namespace.
 
 The plugin only accepts `http` for `localhost`, so its `apiBaseUrl` is `http://localhost:3001`. A
 `relay` container shares the signalk container's network and forwards its port 3001 to the mock. To

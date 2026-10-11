@@ -79,7 +79,8 @@ node dev/pair.mjs
 ```
 
 After a later `pnpm build`, restart the signalk container so it loads the new plugin code
-(`docker compose -f dev/docker-compose.yml restart signalk`, then `node dev/setup-signalk.mjs`);
+(`docker compose -f dev/docker-compose.yml restart signalk relay`, then `node dev/setup-signalk.mjs`;
+the relay shares signalk's network namespace, so restart it together with signalk);
 `up -d --build` alone keeps serving the old code.
 
 `dev/pair.mjs` starts pairing, prints the pending status (with `pairing.userCode`), approves that code
@@ -184,6 +185,13 @@ one to five minutes after the plugin starts (then every `uploadIntervalMinutes`)
 at most once an hour at the fastest setting, so feed new `--round N` values after an hour of mock time
 or restart the plugin to record again. `GET localhost:3001/__mock/readings` shows every batch the mock
 accepted: the contract header, and per reading the id, path, value and `recordedAt`.
+
+**Steady value (security on).** SignalK does not replay cached values to plugins when security is on,
+so the plugin reads the current values from the server at start. After the first feed has been
+recorded, wait a minute, then re-save the same plugin settings (this restarts the plugin) and confirm
+`GET localhost:3001/__mock/readings` shows each steady channel exactly once. Re-save again: still no new
+reading. Note that after a SignalK **server** restart a value appears only once a device sends it again
+(the server keeps no values across restarts).
 
 Check:
 
