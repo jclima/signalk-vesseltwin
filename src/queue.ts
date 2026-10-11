@@ -197,6 +197,13 @@ export class ReadingQueue {
     for (const name of await fs.readdir(this.opts.dir)) {
       if (name.endsWith('.tmp')) await fs.rm(path.join(this.opts.dir, name), { force: true });
     }
+    // Best effort: tighten permissions left by older versions (segments were created 0644).
+    await fs.chmod(this.opts.dir, 0o700).catch(() => undefined);
+    for (const name of await fs.readdir(this.opts.dir)) {
+      if (SEG.test(name) || name === STATS_FILE || name === CHANNELS_FILE) {
+        await fs.chmod(path.join(this.opts.dir, name), 0o600).catch(() => undefined);
+      }
+    }
     await this.loadStats();
     // Apply the age and count caps to whatever a previous run left behind.
     await this.applyCaps();
@@ -313,7 +320,9 @@ export class ReadingQueue {
       } else if (t - this.lastAgeSweep >= AGE_SWEEP_MS) {
         await this.ageSweep(t);
       }
-      await fs.appendFile(this.segPath(this.activeSeq), JSON.stringify(reading) + '\n');
+      await fs.appendFile(this.segPath(this.activeSeq), JSON.stringify(reading) + '\n', {
+        mode: 0o600,
+      });
       this.activeCount += 1;
       this.total += 1;
       if (this.total > this.maxReadings) await this.dropOldest(this.total - this.maxReadings);

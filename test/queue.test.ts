@@ -1,4 +1,13 @@
-import { appendFile, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -297,5 +306,41 @@ describe('ReadingQueue channel state', () => {
   it('reads a corrupt file as no state', async () => {
     await writeFile(path.join(dir, 'channels.json'), '{not json');
     expect(await new ReadingQueue({ dir }).loadChannels()).toBeNull();
+  });
+
+  describe.skipIf(process.platform === 'win32')('file modes', () => {
+    const modes = async (d: string): Promise<Record<string, number>> => {
+      const out: Record<string, number> = {};
+      for (const n of await readdir(d)) out[n] = (await stat(path.join(d, n))).mode & 0o777;
+      return out;
+    };
+
+    it('creates every queue file 0600 and the directory 0700', async () => {
+      const qdir = path.join(dir, 'queue');
+      const q = new ReadingQueue({ dir: qdir, segmentRecords: 2, now: () => NOW });
+      for (let i = 0; i < 5; i++) await q.append(mk(i)); // appends and rotation
+      await q.ack(['id-0']); // rewrite via temp + rename
+      await q.append(mk(9, NOW - 30 * 86_400_000)); // too old: dropped, marks stats dirty
+      await q.saveChannels({ 'propulsion.main.runTime': { lastKeptMs: 1 } });
+      await q.flush(); // stats.json
+      const m = await modes(qdir);
+      expect(Object.keys(m).some((n) => n.startsWith('seg-'))).toBe(true);
+      expect(Object.keys(m)).toEqual(expect.arrayContaining(['stats.json', 'channels.json']));
+      for (const mode of Object.values(m)) expect(mode).toBe(0o600);
+      expect((await stat(qdir)).mode & 0o777).toBe(0o700);
+    });
+
+    it('tightens permissions of files left by older versions at init', async () => {
+      const q1 = new ReadingQueue({ dir, now: () => NOW });
+      await q1.append(mk(1));
+      await q1.flush();
+      const seg = (await readdir(dir)).find((n) => n.startsWith('seg-')) ?? '';
+      await chmod(path.join(dir, seg), 0o644);
+      await chmod(dir, 0o755);
+      const q2 = new ReadingQueue({ dir, now: () => NOW });
+      expect(await q2.size()).toBe(1);
+      expect((await stat(path.join(dir, seg))).mode & 0o777).toBe(0o600);
+      expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    });
   });
 });
