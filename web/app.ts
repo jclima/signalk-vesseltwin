@@ -15,6 +15,7 @@ const els = {
   message: byId('state-message'),
   hint: byId('state-hint'),
   warning: byId('state-warning'),
+  upload: byId('upload-info'),
   codeBlock: byId('code-block'),
   code: byId('code'),
   copy: byId('copy'),
@@ -60,6 +61,21 @@ function setLink(info: LinkInfo | null): void {
     a.removeAttribute('rel');
   }
   a.hidden = false;
+}
+
+/** One list item per line; rebuilt only when the words change. */
+function setLines(list: HTMLElement, lines: string[]): void {
+  const key = lines.join('\n');
+  if (list.dataset.key !== key) {
+    list.dataset.key = key;
+    list.replaceChildren();
+    for (const line of lines) {
+      const li = document.createElement('li');
+      li.textContent = line;
+      list.append(li);
+    }
+  }
+  list.hidden = lines.length === 0;
 }
 
 let actionsKey = '';
@@ -129,6 +145,7 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
   let message: string;
   let hint: string | null = null;
   let warning: string | null = null;
+  let uploadLines: string[] = [];
   let code: string | null = null;
   let link: LinkInfo | null = null;
   let countdown: string | null = null;
@@ -141,11 +158,12 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
     link = snap.problem.link;
   } else if (snap.status) {
     const remaining = remainingSeconds(snap.status.expiresInSeconds, now - snap.receivedAt);
-    const s = describeStatus(snap.status, remaining);
+    const s = describeStatus(snap.status, remaining, now);
     title = s.title;
     message = s.message;
     hint = s.hint;
     warning = s.warning;
+    uploadLines = s.uploadLines;
     code = s.code;
     link = s.link;
     countdown = s.countdown;
@@ -168,6 +186,7 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
   }
   setText(els.hint, hint);
   setText(els.warning, warning);
+  setLines(els.upload, uploadLines);
   setText(els.code, code);
   els.codeBlock.hidden = code === null;
   if (code !== lastCode) {

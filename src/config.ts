@@ -1,17 +1,24 @@
-import type { Category } from './mapping';
-
 export interface PluginOptions {
   /** Validated API base URL; null when the configured value is invalid (see `configError`). */
   apiBaseUrl: string | null;
   /** Neutral, user-facing copy when a SET setting is invalid. No network calls while this is set. */
   configError: string | null;
-  categories: Record<Category, boolean>;
-  samplePeriodSeconds: number;
+  categories: Record<UploadCategory | 'vesselInfo', boolean>;
+  /** The master "Send readings to VesselTwin" switch. Nothing is active while this is off. */
+  uploadEnabled: boolean;
+  /** Categories that are really active: uploadEnabled, category enabled and valid instances. */
+  activeCategories: UploadCategory[];
   queueMaxReadings: number;
   upload: UploadOptions;
-  /** Neutral notes about the upload settings. Shown only in the admin /status response. */
+  /**
+   * Notes about the upload settings. Shown only in the admin /status response, never in the
+   * status line. Prose, plus the code `legacy_send_settings` (see LEGACY_SEND_WARNING).
+   */
   warnings: string[];
 }
+
+/** Warning code: saved 0.1.1 `send*` toggles were found and ignored (they were never consent). */
+export const LEGACY_SEND_WARNING = 'legacy_send_settings';
 
 export const DEFAULT_API_BASE_URL = 'https://api.vesseltwin.io';
 
@@ -30,7 +37,7 @@ export function apiOrigin(url: string): string | null {
 export type UploadCategory = 'engineHours' | 'batteries' | 'tanks';
 export const UPLOAD_CATEGORIES: readonly UploadCategory[] = ['engineHours', 'batteries', 'tanks'];
 
-/** Product limits of the planned upload. */
+/** Product limits of the upload. */
 export const MAX_CHANNELS = 64;
 export const MAX_READINGS_PER_CHANNEL_PER_DAY = 24;
 export const MIN_RECORD_INTERVAL_MINUTES = 60;
@@ -40,7 +47,19 @@ export const MAX_INSTANCE_IDS = 64;
 export const QUEUE_FLOOR_FOR_FULL_LOAD = MAX_CHANNELS * MAX_READINGS_PER_CHANNEL_PER_DAY * 7;
 
 const SIMPLE_ID = /^[A-Za-z0-9_-]{1,40}$/;
-const TANK_ID = /^[A-Za-z][A-Za-z0-9]{0,30}\.[A-Za-z0-9_-]{1,40}$/;
+/** The tank types of the contract; keep in step with `TANK` in mapping.ts (a test compares them). */
+export const TANK_TYPES: readonly string[] = [
+  'fuel',
+  'freshWater',
+  'wasteWater',
+  'blackWater',
+  'lubrication',
+  'liveWell',
+  'baitWell',
+  'gas',
+  'ballast',
+];
+const TANK_ID = new RegExp(`^(?:${TANK_TYPES.join('|')})\\.[A-Za-z0-9_-]{1,40}$`);
 const ID_PATTERN: Record<UploadCategory, RegExp> = {
   engineHours: SIMPLE_ID,
   batteries: SIMPLE_ID,
@@ -50,9 +69,9 @@ const ID_PATTERN: Record<UploadCategory, RegExp> = {
 export type InstanceMode = 'all' | 'selected';
 
 export interface ChannelOptions {
-  /** The parsed `enabled` setting (legacy toggle honoured). */
+  /** The parsed per-category `enabled` setting. */
   enabled: boolean;
-  /** `enabled`, and not "selected" with no valid ids. This is what the sampler obeys. */
+  /** `uploadEnabled`, `enabled`, and not "selected" with no valid ids. This is what the sampler obeys. */
   active: boolean;
   recordIntervalMinutes: number;
   instanceMode: InstanceMode;
@@ -60,19 +79,16 @@ export interface ChannelOptions {
 }
 
 export interface UploadOptions {
+  /** The master switch; every category's `active` is false while it is off. */
+  uploadEnabled: boolean;
   uploadIntervalMinutes: number;
   engineHours: ChannelOptions & { minChangeHours: number };
   batteries: ChannelOptions & { minChangeVolts: number; minChangePercent: number };
   tanks: ChannelOptions & { minChangePercent: number; minChangeLiters: number };
 }
 
-const NOT_ACTIVE = 'Not active yet.';
-const UPLOAD_UNAVAILABLE =
-  'Data upload is not available in this version. These settings take effect in a future release.';
-
 const ID_RULE = 'Use letters, digits, underscore or hyphen, up to 40 characters.';
-const TANK_ID_RULE =
-  'Use the tank type, a dot, then the tank id, for example "fuel.0". The type is letters and digits; the id is letters, digits, underscore or hyphen, up to 40 characters.';
+const TANK_ID_RULE = `Use the tank type, a dot, then the tank id, for example "fuel.0". The type is one of ${TANK_TYPES.join(', ')}; the id is letters, digits, underscore or hyphen, up to 40 characters.`;
 
 function categorySchema(
   title: string,
@@ -83,7 +99,8 @@ function categorySchema(
   return {
     type: 'object',
     title,
-    description: `${NOT_ACTIVE} ${UPLOAD_UNAVAILABLE}`,
+    description:
+      'Used only when "Send readings to VesselTwin" is on. By default it records at most once a day.',
     properties: {
       enabled: {
         type: 'boolean',
@@ -150,10 +167,17 @@ export const configSchema = {
         'Leave the default unless you are testing against a local or test VesselTwin API.',
       default: DEFAULT_API_BASE_URL,
     },
+    uploadEnabled: {
+      type: 'boolean',
+      title: 'Send readings to VesselTwin',
+      description:
+        'Nothing is sent until this is on. Then the categories you enable below are sent to VesselTwin: the SignalK path (including the instance id), the value and the time of each reading. Never position, MMSI, names or AIS.',
+      default: false,
+    },
     uploadIntervalMinutes: {
       type: 'number',
       title: 'Send to VesselTwin at most every (minutes)',
-      description: `${NOT_ACTIVE} Between 5 and 1440. The default is once a day.`,
+      description: 'Between 5 and 1440. The default is once a day.',
       default: 1440,
       minimum: 5,
       maximum: 1440,
@@ -165,7 +189,7 @@ export const configSchema = {
       { minChangeHours: threshold('Minimum change (hours)', 0.1, 24) },
     ),
     batteries: categorySchema(
-      'Battery voltage and state of charge',
+      'Battery readings',
       SIMPLE_ID.source,
       `${ID_RULE} For example "house".`,
       {
@@ -192,18 +216,11 @@ export const configSchema = {
         '0 = no minimum change.',
       ),
     }),
-    samplePeriodSeconds: {
-      type: 'number',
-      title: 'Sample period (seconds)',
-      description: NOT_ACTIVE,
-      default: 300,
-      minimum: 10,
-      maximum: 3600,
-    },
     queueMaxReadings: {
       type: 'number',
       title: 'Offline queue cap (readings)',
-      description: NOT_ACTIVE,
+      description:
+        'Readings wait here while VesselTwin cannot be reached. The oldest are dropped first; they are also dropped after 7 days.',
       default: 50000,
       minimum: 1000,
       maximum: 50000,
@@ -258,11 +275,12 @@ const LABEL: Record<UploadCategory, string> = {
 function parseChannel(
   cat: UploadCategory,
   raw: unknown,
-  legacy: unknown,
+  uploadEnabled: boolean,
   warnings: string[],
 ): ChannelOptions {
   const c = obj(raw);
-  const enabled = typeof c.enabled === 'boolean' ? c.enabled : bool(legacy, false);
+  // Legacy `send*` keys are deliberately not read: 0.1.1 saved them as defaults, not consent.
+  const enabled = bool(c.enabled, false);
   const inst = obj(c.instances);
   const mode: InstanceMode = inst.mode === 'selected' ? 'selected' : 'all';
   const ids: string[] = [];
@@ -284,12 +302,12 @@ function parseChannel(
     warnings.push(`${LABEL[cat]}: some instance ids are not valid and were ignored.`);
   }
   const empty = mode === 'selected' && ids.length === 0;
-  if (empty && enabled) {
+  if (empty && enabled && uploadEnabled) {
     warnings.push(`${LABEL[cat]}: no valid instances are selected, so nothing will be recorded.`);
   }
   return {
     enabled,
-    active: enabled && !empty,
+    active: uploadEnabled && enabled && !empty,
     recordIntervalMinutes: num(
       c.recordIntervalMinutes,
       MAX_RECORD_INTERVAL_MINUTES,
@@ -306,26 +324,31 @@ function parseUpload(
   queueMaxReadings: number,
 ): { upload: UploadOptions; warnings: string[] } {
   const warnings: string[] = [];
+  const uploadEnabled = bool(o.uploadEnabled, false);
   const e = obj(o.engineHours);
   const b = obj(o.batteries);
   const t = obj(o.tanks);
   const upload: UploadOptions = {
+    uploadEnabled,
     uploadIntervalMinutes: num(o.uploadIntervalMinutes, 1440, 5, 1440),
     engineHours: {
-      ...parseChannel('engineHours', e, o.sendEngineHours, warnings),
+      ...parseChannel('engineHours', e, uploadEnabled, warnings),
       minChangeHours: num(e.minChangeHours, 0.1, 0.1, 24),
     },
     batteries: {
-      ...parseChannel('batteries', b, o.sendBatteries, warnings),
+      ...parseChannel('batteries', b, uploadEnabled, warnings),
       minChangeVolts: num(b.minChangeVolts, 0, 0, 5),
       minChangePercent: num(b.minChangePercent, 0, 0, 50),
     },
     tanks: {
-      ...parseChannel('tanks', t, o.sendTanks, warnings),
+      ...parseChannel('tanks', t, uploadEnabled, warnings),
       minChangePercent: num(t.minChangePercent, 0, 0, 50),
       minChangeLiters: num(t.minChangeLiters, 0, 0, 1000),
     },
   };
+  if ([o.sendEngineHours, o.sendBatteries, o.sendTanks].some((v) => v === true)) {
+    warnings.push(LEGACY_SEND_WARNING);
+  }
   if (queueMaxReadings < QUEUE_FLOOR_FOR_FULL_LOAD) {
     warnings.push(
       'The offline queue cap is lower than a week of readings from every channel at the daily maximum, so the oldest readings may be dropped.',
@@ -350,7 +373,8 @@ export function parseOptions(raw: unknown): PluginOptions {
       // Hidden from the settings form; still parsed, never used.
       vesselInfo: bool(o.sendVesselInfo, false),
     },
-    samplePeriodSeconds: num(o.samplePeriodSeconds, 300, 10, 3_600),
+    uploadEnabled: upload.uploadEnabled,
+    activeCategories: UPLOAD_CATEGORIES.filter((c) => upload[c].active),
     queueMaxReadings,
     upload,
     warnings,

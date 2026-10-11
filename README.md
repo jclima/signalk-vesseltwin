@@ -2,15 +2,20 @@
 
 [VesselTwin](https://vesseltwin.io) keeps your boat's maintenance record in one place. This
 [SignalK](https://signalk.org) server plugin connects your boat's SignalK server to your VesselTwin
-account so engine hours, battery readings and tank levels can feed that record once uploading is available.
+account and, when you turn it on, sends engine hours, battery readings and tank levels to that record.
 
-> **Status: version 0.1.1.** Connecting your boat works. **Sending readings is
-> not available in this version**; the plugin says so in its status line. It is published on npm;
-> the SignalK Appstore listing can take a while to appear.
+> **Status: version 0.1.1 is published; this documents the upload release.** Connecting your boat
+> works, and the plugin can send engine and generator run time, battery voltage and charge, and tank
+> levels. **Sending readings is off until you turn it on** in the plugin settings, and nothing is
+> sent before then. After the first readings arrive, you map and confirm each channel in the
+> VesselTwin app before anything is recorded to the maintenance record. The SignalK Appstore listing can
+> take a while to appear.
 
 ## Requirements
 
-Node.js 20.3 or newer (this includes Victron Venus OS on a Cerbo GX) and signalk-server 2.x.
+Node.js 20.3 or newer (this includes Victron Venus OS on a Cerbo GX) and signalk-server 2.x. Sending
+readings also needs a signalk-server that offers plugins a subscription manager (every 2.x release
+does); if yours does not, the status line says so.
 
 ## Install
 
@@ -66,11 +71,49 @@ the endpoints are open to anyone on the LAN).
 server. Also revoke the connection in VesselTwin so it stops working there; the plugin cannot do that
 for you.
 
+## Send readings to VesselTwin
+
+Pairing alone sends no readings. Sending readings is off until you turn it on, and each kind of
+reading is a separate choice.
+
+1. Pair first (see "Connect your boat").
+2. Open Server > Plugin Config > VesselTwin.
+3. Turn on **Send readings to VesselTwin**. This is the master switch; with it off nothing is
+   recorded or sent, whatever else is set.
+4. Turn on the categories you want, each off by default: **Engine and generator hours**, **Battery
+   readings** (voltage and state of charge) and **Tank levels** (level and volume).
+5. For each category choose **Record from**: **All instances**, or **Only the ids listed**. Instance
+   ids are the names SignalK uses in its paths, for example `main` for `propulsion.main.runTime`,
+   `house` for `electrical.batteries.house.voltage`, and `fuel.0` for `tanks.fuel.0.currentLevel`
+   (the tank type, a dot, then the tank id). A list with no valid entries records nothing for that
+   category.
+6. Save. SignalK restarts the plugin and the status line says `Sending readings to VesselTwin.`
+
+The first readings go out a few minutes after the plugin starts, then at most once a day by default
+(you can set a shorter send interval). Each channel records at most once an hour at the fastest
+setting, and by default once a day.
+
+### Set up channels in VesselTwin
+
+A reading is not recorded to your maintenance record just because the plugin sent it. VesselTwin
+keeps new channels on hold until you map each one to the right piece of equipment (for example, the
+channel for `main` to your port engine) and confirm it in the VesselTwin app. While channels are
+waiting, the status line says `Some channels need setup in VesselTwin.` and the VesselTwin page in
+the SignalK admin UI (Webapps > VesselTwin) shows how many. Open the VesselTwin app and finish the
+setup there.
+
+### If you used version 0.1.1
+
+Older versions saved `sendEngineHours`, `sendBatteries` and `sendTanks` settings, but they never sent
+anything. Those settings now do nothing, so upgrading does not start sending. If any were on, the
+VesselTwin page says "Sending readings now needs to be turned on again in the plugin settings."
+Follow the steps above if you want readings sent.
+
 ## What the status line means
 
-The status line is under Server > Plugin Config (and on the Webapps > VesselTwin page). Every line
-that mentions a connection also says "Data upload is not available in this version", because this
-version does not send readings.
+The status line is under Server > Plugin Config (and on the Webapps > VesselTwin page). It is shown
+to every SignalK client, so it never carries counts, codes or web addresses; the VesselTwin
+page, which is admin-only, shows the details.
 
 **Not connected yet**
 
@@ -86,7 +129,17 @@ version does not send readings.
 **Connected**
 
 - _Paired with (your boat)_ (or _Paired with VesselTwin_): the connection is valid and is re-checked
-  about once an hour.
+  about once an hour. The rest of the line says what happens to readings:
+  - _Sending readings to VesselTwin._ Sending is on.
+  - _Sending is on; waiting for readings from SignalK._ Sending is on but nothing has been recorded
+    yet (no matching values have arrived). It switches to the line above once a reading is recorded
+    or sent.
+  - _Some channels need setup in VesselTwin._ Added when channels are waiting for you to map them in
+    the VesselTwin app (see "Set up channels in VesselTwin").
+  - _Sending readings is off in the plugin settings._ Nothing is sent. See "Send readings to
+    VesselTwin" to turn it on.
+  - _This SignalK server cannot provide readings to the plugin._ This server does not offer plugins
+    a subscription manager, so nothing can be collected. Update signalk-server.
 - _Checking the connection_: shown briefly after pairing and after a restart.
 - _This device's clock differs from VesselTwin's. Check the date and time._ Fix the clock on the
   server.
@@ -101,6 +154,10 @@ announce them.
   integrations are turned off for your account. The plugin keeps checking and resumes by itself.
 - _Cannot reach VesselTwin right now_: a network problem or VesselTwin is down. The plugin retries
   with growing pauses.
+
+While sending is on, these two lines end with _Readings are kept for up to 7 days._ Readings wait in
+a queue on this server and are sent when the connection works again; after 7 days, or beyond 50,000
+waiting readings, the oldest are dropped first. Nothing is queued while sending is off.
 
 **Needs your action**
 
@@ -145,8 +202,16 @@ SignalK security before you pair.
 
 ## What it sends (privacy)
 
-- **Never sent: position, tracks, MMSI, callsign, vessel or crew names, or any AIS data.** The plugin
-  does not read those paths.
+- **Never sent: position, tracks, MMSI, callsign, vessel or crew names, free text, or any AIS data.**
+  The plugin does not subscribe to or read those paths.
+- **Readings** are sent only when **Send readings to VesselTwin** is on and a category is turned on,
+  and only for the categories and instances you chose. Each reading carries exactly four things: the
+  SignalK path (which includes the instance id you use, such as `propulsion.main.runTime`), the raw
+  SI value as SignalK reports it (seconds, volts, a ratio, cubic metres), a UTC timestamp of when it
+  was recorded, and a random reading id. The paths come from a closed list of engine and generator run
+  time, battery voltage and state of charge, and tank level and volume. Timestamps reveal when
+  equipment runs: engine hours that change between two readings show that the engine was used in
+  that period.
 - **Pairing** sends only: the provider (`"signalk"`), the plugin name and version, the contract
   version, the fixed device label "SignalK server", the requested scope, and optionally your SignalK server's own random install
   UUID, which is the vessel's SignalK self id (`urn:mrn:signalk:uuid:...`). A random UUID like this
@@ -161,39 +226,51 @@ SignalK security before you pair.
   only there. Redirects are never followed.
 - Data is only sent to the API URL in the plugin settings (default `https://api.vesseltwin.io`). If
   that URL is invalid, the plugin reports a configuration error and makes no network calls.
-- Uploading is not available yet. When it ships, only these values will be sent: engine and generator
-  run time, battery voltage and state of charge, tank level and volume. The category and
-  schedule settings below take effect once upload is available. This section will be updated in the
-  same release.
+- Readings wait in plain files in the plugin's data directory until they are sent (up to 7 days).
+  Turning sending off, restarting with it off, or unpairing deletes the waiting readings.
 
-### Upload settings (not active yet)
+### Sending settings
 
-These settings are saved and checked now, but nothing is recorded or sent in this version. The
-categories are all off by default, and upload is not available yet, so nothing is recorded or sent
-whatever you set. When upload ships, a category you turn on records at most once a day by default.
+All categories and the master switch are off by default.
 
+- **Send readings to VesselTwin**: the master switch. Nothing is recorded or sent while it is off.
 - **Per category** (Engine and generator hours, Battery readings, Tank levels): turn it on or off,
-  set how often it may record (every 60 to 1440 minutes), and set a minimum change worth recording
-  (hours, volts, percent or litres). A reading is also recorded after 24 hours even without a change.
-- **Record from**: all instances, or only the ids you list (for example `main` or `house`; tanks
-  as `fuel.0`). Ids use letters, digits, underscore or hyphen, up to 40 characters. A "selected" list with no valid entries records nothing for that
-  category.
+  set how often it may record (every 60 to 1440 minutes, default once a day), and set a minimum
+  change worth recording (hours, volts, percent or litres). A reading is also recorded after 24 hours
+  even without a change.
+- **Record from**: all instances, or only the ids you list. Ids use letters, digits, underscore or
+  hyphen, up to 40 characters. Tank ids are the tank type, a dot, then the id, for example `fuel.0`;
+  the type is one of `fuel`, `freshWater`, `wasteWater`, `blackWater`, `lubrication`, `liveWell`,
+  `baitWell`, `gas` or `ballast`.
 - **Limits**: at most 24 readings per channel per day, and at most 64 channels in total. The first
   64 channels seen are used; the rest are ignored.
-- **Send to VesselTwin at most every** (5 to 1440 minutes, default 1440), **Sample period**
-  (10 to 3600 seconds, default 300) and **Offline queue cap** (1000 to 50000 readings, default
-  50000).
-- The older on/off settings (`sendEngineHours`, `sendBatteries`, `sendTanks`) still work when the
-  matching category setting is left unset.
+- **Send to VesselTwin at most every** (5 to 1440 minutes, default 1440) and **Offline queue cap**
+  (1000 to 50000 readings, default 50000).
 
-The admin-only status response lists each category as configured (`enabled`) and effective (`active`), and any notes about them, for example
-ignored instance ids.
+The admin-only status response lists each category as configured (`enabled`) and effective (`active`),
+and any notes about them, for example ignored instance ids.
 
 ## Troubleshooting
 
 - **"Unavailable" while pairing, or a paused connection.** Your VesselTwin plan doesn't include
   integrations right now, or integrations are turned off for your account. The plugin keeps working and checks again later; try pairing again
   later.
+- **Nothing arrives in VesselTwin.** Check the status line. _Sending readings is off in the plugin
+  settings_: turn on the master switch and a category. _Some channels need setup in VesselTwin_:
+  map and confirm them in the VesselTwin app. Readings only start after the first one is recorded
+  (up to a few minutes after the plugin starts, then once a day by default).
+- **Downgrading to 0.1.x.** Turn sending off first, so waiting readings are deleted: 0.1.x does not
+  manage the queue folder.
+- **No reading after the SignalK server restarted.** SignalK keeps current values in memory only,
+  so a reading appears once the device sends a value again (for example, engine hours show up the
+  next time the engine runs). Restarting or re-saving the plugin is fine: it picks up current
+  values and doesn't send unchanged ones twice.
+- **"Readings are kept for up to 7 days".** The connection is paused or offline and readings are
+  waiting on this server. They are sent when it works again.
+- **"Update the plugin".** VesselTwin no longer supports this plugin version. Update it from the
+  SignalK Appstore (or install the newer version from npm) and restart. Waiting readings are kept.
+- **"Pair again".** See "Unpair and pair again". Waiting readings are kept until you pair again;
+  a new pairing starts with an empty queue.
 - **Disconnect or revoke.** Unpair removes the stored connection on this server; also revoke it in
   VesselTwin.
 - **Asked to pair again.** VesselTwin no longer accepts the stored connection (revoked, expired, or it

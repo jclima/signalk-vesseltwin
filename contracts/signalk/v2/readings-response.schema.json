@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "properties": {
+    "serverTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "clientReadingId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "skipped_downsampled",
+              "held_unmapped",
+              "held_unconfirmed",
+              "held_review",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "meter_backwards",
+              "implausible",
+              "invalid_id",
+              "invalid_path",
+              "invalid_value",
+              "invalid_time",
+              "future",
+              "too_old",
+              "channel_limit"
+            ]
+          }
+        },
+        "required": [
+          "clientReadingId",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 500
+    }
+  },
+  "required": [
+    "serverTime",
+    "results"
+  ],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SignalkReadingsResponseV2"
+}

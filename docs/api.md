@@ -1,15 +1,17 @@
 # VesselTwin integrations API (as used by the plugin)
 
-This describes the VesselTwin integrations API as the plugin uses it today: the **pairing** and
-**credential management** surface. Uploading readings is not available in this plugin yet and is covered at the end.
+This describes the VesselTwin integrations API as the plugin uses it: the **pairing** and
+**credential management** surface, the status probe, and the **readings** upload (covered at the end).
+Uploading is off until the owner turns it on in the plugin settings.
 All paths are relative to the API base URL (default `https://api.vesseltwin.io`).
 
 Stability labels used below:
 
 - **STABLE**: part of the platform envelope. Changes are additive only; a breaking change would be a
   new route version.
-- **PENDING**: defined by the platform under a newer contract version than this plugin uses, but not
-  implemented by the plugin. Do not guess shapes beyond what is documented here.
+- **CONTRACT 2**: the readings surface. Its shapes are the vendored JSON Schemas in
+  `contracts/signalk/v2/` (byte-identical to the platform's; hashes in `SOURCE.json`). Do not guess
+  shapes beyond those schemas.
 
 The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` `integration_feature_unavailable` when the integration is unavailable. Otherwise a pairing the owner cannot approve ends as `expired_token` (the plugin shows neutral "expired" copy). On authenticated calls a plan problem is `403` `integration_paused_plan` and an unavailable integration is `503` `integration_feature_unavailable`.
 
@@ -17,7 +19,7 @@ The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start
 
 - JSON request and response bodies, `Content-Type: application/json`.
 - Every request sends `User-Agent: signalk-vesseltwin/<version>` and `X-VesselTwin-Contract: <integer>`.
-  The plugin's current contract is `1`.
+  The plugin's current contract is `2`.
 - Pairing and credential responses carry `Cache-Control: no-store`.
 - Error bodies for platform errors look like `{ "code": "integration_...", "message": "..." }`. Show
   users neutral copy of your own; never display `code` or `message` verbatim.
@@ -168,18 +170,22 @@ outside the window here, so an outdated plugin can still learn it must update. R
   "provider": "signalk",
   "minContract": 1,
   "latestContract": 2,
-  "pluginUpdateRecommended": true,
+  "pluginUpdateRecommended": false,
   "serverTime": "2026-01-01T00:00:00.000Z",
   "summary": { "channels": 0, "awaitingSetup": 0, "held": 0 }
 }
 ```
 
-The example is what a contract-1 plugin receives from the current server (contracts 1 and 2 are
-accepted, 2 is the latest). That only says the server supports a newer contract; it does not mean a
-newer plugin has been released.
+The example is what a contract-2 plugin receives from the current server (contracts 1 and 2 are
+accepted, 2 is the latest). A plugin on contract 1 would get `pluginUpdateRecommended: true`; that only
+says the server supports a newer contract, it does not mean a newer plugin has been released.
 
 `pluginUpdateRecommended` is true when the plugin's contract is below `latestContract` (or missing).
-`serverTime` can be used to warn about clock skew. `summary` is provider-specific (a small object of counts for this provider) and may be `null`; the plugin ignores it.
+`serverTime` can be used to warn about clock skew. `summary` is provider-specific and may be `null`.
+For SignalK it is `{ "channels", "awaitingSetup", "held" }`, three non-negative integers
+(`contracts/signalk/v2/status-summary.schema.json`). The plugin parses it tolerantly (a malformed
+value counts as absent) and shows the counts only in the admin-only `/status` response, under
+`upload.summary` (`null` when absent). They never appear in the broadcast status line.
 Unknown fields are ignored.
 
 #### Status probe (how the plugin uses it)
@@ -190,7 +196,7 @@ credential and the contract header.
 Cadence: once when the plugin starts with a stored credential, once right after pairing succeeds, then
 about hourly (60 minutes with +-10% jitter). Probes never overlap. After a transient failure it backs
 off (5 s up to 30 min, full jitter) and never probes sooner than `Retry-After`. A paused integration is
-probed no more often than hourly.
+probed no more often than hourly. `Retry-After` is honoured up to 24 hours; larger values are capped.
 
 Outcome table (`src/status.ts`):
 
@@ -307,14 +313,22 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   "updateRecommended": false,
   "clockSkewWarning": false,
   "lastCheckedAt": "2026-01-01T00:00:00.000Z",
-  "message": "Paired with Boat name. Data upload is not available in this version.",
+  "message": "Paired with Boat name. Sending readings to VesselTwin.",
   "warnings": [],
   "upload": {
-    "available": false,
+    "available": true,
+    "enabled": true,
+    "unavailableReason": null,
+    "queued": 0,
+    "lastSentAt": "2026-01-01T00:00:00.000Z",
+    "results": { "accepted": 12, "duplicate": 0, "held_unmapped": 0 },
+    "rejectedReasons": {},
+    "dropped": 0,
+    "invalid": 0,
     "categories": {
       "engineHours": {
-        "enabled": false,
-        "active": false,
+        "enabled": true,
+        "active": true,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       },
@@ -331,7 +345,8 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
         "instanceMode": "all"
       }
     },
-    "warnings": []
+    "warnings": [],
+    "summary": { "channels": 3, "awaitingSetup": 1, "held": 0 }
   }
 }
 ```
@@ -363,19 +378,35 @@ administrator, to see the code.` `vesselLabel` comes from the server and is
   new while a pairing is already pending.
 - Pairing is bound to the plugin's lifetime: stopping or unpairing cancels it and forgets the code.
 
-- `upload` describes the effective upload settings and is admin-only (the status line never carries
-  it). `available` is always `false` in this version. Each category's `active` is false when the
-  category is off (`enabled` false) or when `instanceMode` is `selected` with no valid ids. `warnings` is a list of
-  neutral sentences (ignored instance ids, a selected list with no valid ids, a queue cap below a
-  week of full-rate readings); it never repeats the ids.
+- `upload` is admin-only (the status line never carries it).
+  - `available` is `true` when this build uploads and the SignalK server can feed it; `false` with
+    `unavailableReason: "subscriptions_unavailable"` when the server offers plugins no subscription
+    manager. `enabled` is the master switch (`uploadEnabled`); nothing is collected or sent while it
+    is `false`.
+  - `queued` is the number of readings waiting on this server. `lastSentAt` is the time of the last
+    batch the server answered with a usable reply, or `null`. `results` counts the per-reading
+    statuses the server reported since the plugin started (`accepted`, `duplicate`,
+    `held_unmapped`, ...; `null` when not uploading) and `rejectedReasons` counts the reasons given
+    for rejected readings. `dropped` counts readings removed by the queue caps (7 days, 50,000) and
+    `invalid` readings that were removed before sending (settings changed, or a bad record).
+  - Each category's `active` is false when the category is off (`enabled` false), the master switch
+    is off, or `instanceMode` is `selected` with no valid ids.
+  - `warnings` is a list of neutral sentences (ignored instance ids, a selected list with no valid
+    ids, a queue cap below a week of full-rate readings) and may include the code
+    `"legacy_send_settings"`: saved 0.1.1 `send*` settings were found and ignored, so sending must be
+    turned on again. It never repeats the ids.
+  - `summary` is the server's last `{ "channels", "awaitingSetup", "held" }` from the status probe,
+    or `null`. `awaitingSetup` above 0 means the owner still has to map or confirm channels in the
+    VesselTwin app.
 
-### Upload settings (not active yet)
+### Upload settings
 
-Nothing is recorded or sent in this version; the settings are parsed and reported only. Wrong types
-fall back to the default and out-of-range numbers are clamped; unknown keys are ignored.
+Off by default. Wrong types fall back to the default and out-of-range numbers are clamped; unknown
+keys are ignored. Nothing is collected or sent unless `uploadEnabled` is `true`.
 
 | Setting                                                    | Range / values    | Default |
 | ---------------------------------------------------------- | ----------------- | ------- |
+| `uploadEnabled` (master switch)                            | boolean           | false   |
 | `<category>.enabled` (`engineHours`, `batteries`, `tanks`) | boolean           | false   |
 | `<category>.recordIntervalMinutes`                         | 60 to 1440        | 1440    |
 | `engineHours.minChangeHours`                               | 0.1 to 24         | 0.1     |
@@ -386,20 +417,20 @@ fall back to the default and out-of-range numbers are clamped; unknown keys are 
 | `<category>.instances.mode`                                | `all`, `selected` | `all`   |
 | `<category>.instances.ids`                                 | up to 64 strings  | empty   |
 | `uploadIntervalMinutes`                                    | 5 to 1440         | 1440    |
-| `samplePeriodSeconds`                                      | 10 to 3600        | 300     |
 | `queueMaxReadings`                                         | 1000 to 50000     | 50000   |
 
-- Instance ids for engines and batteries match `^[A-Za-z0-9_-]{1,40}$`; tank ids match
-  `^[A-Za-z][A-Za-z0-9]{0,30}\.[A-Za-z0-9_-]{1,40}$` (type, a dot, id). Invalid ids are dropped.
-- `<category>.enabled` wins when it is a boolean; otherwise the older `sendEngineHours`,
-  `sendBatteries` or `sendTanks` setting is used; otherwise the default. `sendVesselInfo` is no
-  longer shown and is ignored.
-- Record policy (applies once upload ships): a reading is kept only when the category and instance
-  are on, the SignalK timestamp is newer than the last sample of that channel, at least
+- Instance ids for engines, generators and batteries match `^[A-Za-z0-9_-]{1,40}$`. Tank ids are
+  `<type>.<id>` where the type is one of `fuel`, `freshWater`, `wasteWater`, `blackWater`,
+  `lubrication`, `liveWell`, `baitWell`, `gas`, `ballast` and the id matches
+  `^[A-Za-z0-9_-]{1,40}$`. Invalid ids are dropped.
+- The older `sendEngineHours`, `sendBatteries`, `sendTanks` settings and `samplePeriodSeconds` are
+  read for a warning at most and enable or change nothing. `sendVesselInfo` is ignored.
+- Record policy: a reading is kept only when the master switch, the category and the instance are
+  on, the SignalK timestamp is newer than the last sample of that channel, at least
   `recordIntervalMinutes` passed since the last kept reading, and the value changed by at least the
   minimum (or the minimum is 0, or 24 hours passed). At most 24 readings are kept per channel per UTC
-  day and at most 64 channels are used.
-- `samplePeriodSeconds` used to accept up to 86400; values above 3600 are now clamped to 3600.
+  day and at most 64 channels are used. Values are raw SI as SignalK reports them; the server
+  converts.
 
 ### Configuration errors
 
@@ -421,21 +452,69 @@ Position, tracks, MMSI, callsign, AIS data, crew or owner names, free text, or a
 the documented pairing fields. The server rejects such fields, but the plugin must not read them in the
 first place. See the privacy section of the README.
 
-## Ingest (not used by this plugin yet)
+## Readings (contract 2)
 
-`POST /v1/integrations/signalk/readings` is defined by the platform under contract version 2. This
-plugin speaks contract 1 and **does not call it**; upload stays unavailable and the plugin reports so.
-What clients can rely on: a request carries 1 to 500 readings, and the request body is size-limited
-(`413` when exceeded). The readings route requires contract 2, so a request under contract 1 is
-refused with `426`.
+`POST /v1/integrations/signalk/readings` carries the readings. Only `src/uploader.ts` knows the route.
+Request and response shapes are the vendored schemas in `contracts/signalk/v2/`
+(`readings-request`, `reading-item`, `readings-response`).
 
-`minContract` in the status response is the lowest contract the platform accepts overall; individual
-routes can require a higher one. A `connected` status therefore does not imply that upload is
-supported by this plugin version.
+Request, with the usual `Authorization`, `User-Agent` and `X-VesselTwin-Contract: 2` headers:
 
-Suggesting vessel information is not part of the current contract. The plugin requests no such
-data.
+```json
+{
+  "readings": [
+    {
+      "clientReadingId": "0191c3a4-7b2e-7c11-9f3a-2d5e8a1b4c60",
+      "path": "electrical.batteries.house.voltage",
+      "value": 12.6,
+      "recordedAt": "2026-01-01T08:30:00.000Z"
+    }
+  ]
+}
+```
 
-Do not infer request shapes from the pairing types above. Before the plugin implements upload, the
-ingest JSON Schema has to be vendored into this repo with a contract test, and upload work has to be
-started explicitly by the owner.
+- `path` is one of six shapes: `propulsion.<id>.runTime`, `electrical.generators.<id>.runTime`,
+  `electrical.batteries.<id>.voltage`, `electrical.batteries.<id>.capacity.stateOfCharge`,
+  `tanks.<type>.<id>.currentLevel` and `tanks.<type>.<id>.currentVolume`. `<id>` is the owner's
+  SignalK instance id. `value` is the raw SI number and `recordedAt` is UTC (`Z`). Nothing else is
+  sent per reading.
+- `clientReadingId` is a UUIDv7 made when the reading is recorded. It is kept through every retry and
+  restart, so replaying a reading is safe: the server answers `duplicate`.
+- A request carries 1 to 500 readings, oldest first, and stays under 256 KB. Batches are sent one at
+  a time, at least a couple of seconds apart while a backlog remains.
+- The first attempt after the plugin starts comes after one to five minutes; after that the plugin
+  sends at most every `uploadIntervalMinutes` (default once a day) and drains a backlog in order.
+
+### Response `200`
+
+`{ "serverTime", "results": [...] }`: one result per reading, in request order, each
+`{ "clientReadingId", "status", "reason"? }`. The plugin accepts the reply only if it has exactly the
+ids it sent, in order. Every status is final for that reading, so a valid reply acknowledges the
+whole batch (the readings leave the queue):
+
+| `status`                                                                                            | Meaning for the plugin                        |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `accepted`, `duplicate`                                                                             | Stored (or already stored)                    |
+| `skipped_downsampled`                                                                               | Not needed by the server                      |
+| `held_unmapped`, `held_unconfirmed`, `held_review`                                                  | Kept by VesselTwin until the owner sets it up |
+| `rejected` with `meter_backwards`, `implausible`, `invalid_*`, `future`, `too_old`, `channel_limit` | Final; counted, never retried                 |
+
+An unusable `200` body (wrong ids, wrong count, bad status) acknowledges nothing and is retried with
+backoff.
+
+### Errors the plugin handles
+
+| Response                                                             | Plugin behavior                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `401`                                                                | Stop. Tell the owner to pair again; with `integration_unauthorized` the credential file becomes a tombstone. Keep the queue.                                                                                                                                             |
+| `426`, or `400` with an `integration_contract_*` code                | Stop uploading, keep the queue, show "update the plugin". Never guess another contract number.                                                                                                                                                                           |
+| `403 integration_scope`                                              | Same as `426`.                                                                                                                                                                                                                                                           |
+| `403 integration_paused_plan`, `503 integration_feature_unavailable` | Keep the queue. Hold uploads while the status probe says paused; retry at least hourly or after `Retry-After`.                                                                                                                                                           |
+| `413`                                                                | Halve the batch and send again; a single reading that is still too large stays queued and backs off.                                                                                                                                                                     |
+| `400` without a contract code                                        | Split the batch to find the reading the server refuses. A reading is dropped (and counted `invalid`) only if its sibling half passed. If both halves are refused, or a lone reading is refused, treat it as a plugin/server mismatch: stop and show "update the plugin". |
+| `429`, `5xx`, network error, timeout, unusable reply                 | Exponential backoff with full jitter (5 s to 30 min), never sooner than `Retry-After`.                                                                                                                                                                                   |
+
+`Retry-After` is honoured up to 24 hours. While uploads are stopped or paused, readings stay queued
+under the queue caps (7 days, 50,000 readings, oldest dropped first).
+
+Suggesting vessel information is not part of the current contract. The plugin requests no such data.

@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "clientReadingId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?:propulsion\\.[A-Za-z0-9_-]{1,40}\\.runTime|electrical\\.generators\\.[A-Za-z0-9_-]{1,40}\\.runTime|electrical\\.batteries\\.[A-Za-z0-9_-]{1,40}\\.voltage|electrical\\.batteries\\.[A-Za-z0-9_-]{1,40}\\.capacity\\.stateOfCharge|tanks\\.(?:fuel|freshWater|wasteWater|blackWater|lubrication|liveWell|baitWell|gas|ballast)\\.[A-Za-z0-9_-]{1,40}\\.currentLevel|tanks\\.(?:fuel|freshWater|wasteWater|blackWater|lubrication|liveWell|baitWell|gas|ballast)\\.[A-Za-z0-9_-]{1,40}\\.currentVolume)$"
+    },
+    "value": {
+      "type": "number"
+    },
+    "recordedAt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "clientReadingId",
+    "path",
+    "value",
+    "recordedAt"
+  ],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SignalkReadingItemV2"
+}

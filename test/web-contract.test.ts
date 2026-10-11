@@ -4,8 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LEGACY_SEND_WARNING as SRC_LEGACY } from '../src/config';
 import { CredentialStore } from '../src/credential-store';
 import {
+  SUBSCRIPTIONS_UNAVAILABLE as SRC_SUBSCRIPTIONS,
   createPlugin,
   type PluginState,
   type RequestLike,
@@ -15,11 +17,11 @@ import {
 } from '../src/plugin';
 import {
   KNOWN_STATES,
-  UPLOAD_NOTICE,
+  LEGACY_SEND_WARNING,
+  SUBSCRIPTIONS_UNAVAILABLE,
   actionsFor,
   describeStatus,
   parseStatus,
-  stripUploadNotice,
   type KnownState,
 } from '../web/view.js';
 
@@ -175,8 +177,7 @@ describe('page contract', () => {
       expect(m.message).not.toBe('');
       const screen = describeStatus(m, m.expiresInSeconds);
       expect(screen.message).not.toBe('');
-      // The page shows the upload notice permanently; a message must not repeat it after stripping.
-      expect(stripUploadNotice(m.message)).not.toContain(UPLOAD_NOTICE);
+      expect(m.message).not.toMatch(/not available in this version/i);
       if (state === 'pairing') {
         expect(screen.code).toBe('AAAA-AAAA');
         expect(screen.link?.href).toBe('https://vesseltwin.io/connect');
@@ -204,5 +205,69 @@ describe('page contract', () => {
     const p = await boot({ settings: { apiBaseUrl: 'http://localhost:3001' }, fetch: never });
     const m = parseStatus(await p.waitFor('not_paired'));
     expect(m.apiHint).toBe('http://localhost:3001');
+  });
+});
+
+describe('upload block contract', () => {
+  const statusOk = (summary: unknown) =>
+    json(200, {
+      provider: 'signalk',
+      minContract: 1,
+      latestContract: 2,
+      pluginUpdateRecommended: false,
+      serverTime: new Date().toISOString(),
+      summary,
+    });
+
+  it("uses the plugin's own warning and reason codes", () => {
+    expect(LEGACY_SEND_WARNING).toBe(SRC_LEGACY);
+    expect(SUBSCRIPTIONS_UNAVAILABLE).toBe(SRC_SUBSCRIPTIONS);
+  });
+
+  it('parses sending on, the setup count and the queue from a real /status body', async () => {
+    const p = await boot({
+      credential: true,
+      settings: { uploadEnabled: true, batteries: { enabled: true } },
+      fetch: () => statusOk({ channels: 4, awaitingSetup: 3, held: 0 }),
+    });
+    const m = parseStatus(await p.waitFor('connected'));
+    expect(m.upload).toMatchObject({
+      sending: true,
+      legacyWarning: false,
+      awaitingSetup: 3,
+      queued: 0,
+      lastSentAt: null,
+    });
+  });
+
+  it('shows sending off for default settings', async () => {
+    const p = await boot({ credential: true, fetch: () => statusOk(null) });
+    const m = parseStatus(await p.waitFor('connected'));
+    expect(m.upload).toMatchObject({ sending: false, legacyWarning: false, awaitingSetup: null });
+  });
+
+  it('flags old send* settings so the page can ask to turn sending on again', async () => {
+    const p = await boot({
+      credential: true,
+      settings: { sendEngineHours: true },
+      fetch: () => statusOk(null),
+    });
+    const m = parseStatus(await p.waitFor('connected'));
+    expect(m.upload).toMatchObject({ sending: false, legacyWarning: true });
+    expect(describeStatus(m, null).uploadLines.join(' ')).toContain('turned on again');
+  });
+
+  it('reports a server that cannot provide readings', async () => {
+    // boot() gives the plugin no subscription manager.
+    const p = await boot({
+      credential: true,
+      settings: { uploadEnabled: true, engineHours: { enabled: true } },
+      fetch: () => statusOk(null),
+    });
+    const m = parseStatus(await p.waitFor('connected'));
+    expect(m.upload.subscriptionsUnavailable).toBe(true);
+    expect(describeStatus(m, null).uploadLines).toEqual([
+      'This SignalK server cannot provide readings to the plugin.',
+    ]);
   });
 });

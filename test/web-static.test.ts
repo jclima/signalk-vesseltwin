@@ -43,8 +43,10 @@ describe('public/index.html', () => {
     expect(refs.sort()).toEqual(['app.js', 'style.css']);
     for (const r of refs) expect(r).not.toMatch(/^([a-z]+:)?\/|\.\./i);
   });
-  it('keeps the honesty line, a noscript fallback and the loading hint in static text', () => {
-    expect(html).toContain('Data upload is not available in this version.');
+  it('keeps a noscript fallback and the loading hint in static text, and no stale upload notice', () => {
+    expect(html).not.toMatch(/not available in this version/i);
+    expect(html).not.toContain('upload-notice');
+    expect(html).toContain('id="upload-info"');
     expect(html).toMatch(/<noscript>/);
     expect(html).toMatch(/trailing slash/);
   });

@@ -1,12 +1,12 @@
 import type { Reading } from './contract';
 import { uuidv7 } from './ids';
 import { MAX_CHANNELS, MAX_READINGS_PER_CHANNEL_PER_DAY, type UploadOptions } from './config';
-import { matchPath, PATH_RULES, type PathMatch, type PathRule, type Unit } from './mapping';
+import { isPermittedPath, matchPath, type PathMatch, type Unit } from './mapping';
 import type { ReadingQueue } from './queue';
 
 /**
- * Pure record policy for the planned upload: decides which SignalK samples would be kept.
- * Not wired into the plugin; nothing here subscribes, schedules or uploads.
+ * Pure record policy for upload: decides which SignalK samples are kept. Nothing here subscribes,
+ * schedules or uploads; the plugin feeds it deltas from the collector and gives it a queue sink.
  *
  * Readings are queued in SI, exactly as SignalK delivered them (seconds, volts, ratio, cubic
  * metres); the platform converts server-side. Owner units (hours, percent, litres) are used only
@@ -58,14 +58,18 @@ export interface Delta {
   updates?: unknown;
 }
 
+/** Persisted per-channel state of kept readings; see ReadingQueue.saveChannels. */
+export type ChannelSnapshot = Record<
+  string,
+  { lastKeptMs: number; lastKeptValue: number; day: string; dayCount: number }
+>;
+
 export interface SamplerOptions {
+  /** State from a previous run: a value not newer than the last kept one is skipped. */
+  initial?: unknown;
   options: UploadOptions;
   sink: ReadingSink;
   now: () => number;
-  /** Defaults to the (empty) permitted-path list. */
-  rules?: readonly PathRule[];
-  /** Context name of this vessel besides `vessels.self`. */
-  selfContext?: string;
 }
 
 export interface SamplerStats {
@@ -111,18 +115,44 @@ function isCategoryKey(c: string): c is CategoryKey {
 }
 
 export function createSampler(cfg: SamplerOptions) {
-  const rules = cfg.rules ?? PATH_RULES;
   const channels = new Map<string, ChannelState>();
   const overflow = new Set<string>();
   let kept = 0;
 
-  /** Returns the reading to write, or null. All state is updated synchronously. */
+  // Seed from a previous run. Untrusted file content: validate every field.
+  if (typeof cfg.initial === 'object' && cfg.initial !== null) {
+    for (const [p, v] of Object.entries(cfg.initial as Record<string, unknown>)) {
+      if (channels.size >= MAX_CHANNELS) break;
+      if (!isPermittedPath(p) || typeof v !== 'object' || v === null) continue;
+      const o = v as Record<string, unknown>;
+      const { lastKeptMs, lastKeptValue, day, dayCount } = o;
+      if (
+        typeof lastKeptMs !== 'number' ||
+        !Number.isFinite(lastKeptMs) ||
+        typeof lastKeptValue !== 'number' ||
+        !Number.isFinite(lastKeptValue) ||
+        typeof day !== 'string' ||
+        typeof dayCount !== 'number' ||
+        !Number.isFinite(dayCount)
+      ) {
+        continue;
+      }
+      if (lastKeptMs > cfg.now() + FUTURE_SLACK_MS) continue;
+      const count = Math.min(Math.max(Math.trunc(dayCount), 0), MAX_READINGS_PER_CHANNEL_PER_DAY);
+      channels.set(p, { lastSeenMs: lastKeptMs, lastKeptMs, lastKeptValue, day, dayCount: count });
+    }
+  }
+
+  /**
+   * Returns the reading to write (with a way to take its state change back if the write fails), or
+   * null. All state is updated synchronously.
+   */
   function consider(
     path: string,
     m: PathMatch,
     value: number,
     recordedAtMs: number,
-  ): SampledReading | null {
+  ): { reading: SampledReading; undo: () => void } | null {
     if (!isCategoryKey(m.category)) return null;
     const cat = cfg.options[m.category];
     if (!cat.active) return null;
@@ -140,6 +170,8 @@ export function createSampler(cfg: SamplerOptions) {
       channels.set(path, ch);
     }
 
+    const before = { ...ch };
+    const channel = ch;
     // The SignalK timestamp must have advanced since the last sample of this channel.
     if (recordedAtMs <= ch.lastSeenMs) return null;
     ch.lastSeenMs = recordedAtMs;
@@ -153,6 +185,9 @@ export function createSampler(cfg: SamplerOptions) {
       if (!(min === 0 || changed || elapsed >= DAY_MS)) return null;
     }
 
+    // Defense in depth: nothing outside the closed allowlist is ever emitted.
+    if (!isPermittedPath(path)) return null;
+    // toISOString() is always UTC with a `Z`, whatever offset the delta timestamp used.
     const recordedAt = new Date(recordedAtMs).toISOString();
     const day = recordedAt.slice(0, 10);
     if (ch.day !== day) {
@@ -166,17 +201,23 @@ export function createSampler(cfg: SamplerOptions) {
     ch.lastKeptValue = converted;
     kept += 1;
     // Emit the raw SI value; `converted` is only kept for change detection.
-    return { path, value, recordedAt };
+    return {
+      reading: { path, value, recordedAt },
+      undo: () => {
+        Object.assign(channel, before);
+        kept -= 1;
+      },
+    };
   }
 
   async function handleDelta(delta: unknown): Promise<number> {
     if (typeof delta !== 'object' || delta === null) return 0;
     const d = delta as Delta;
-    if (d.context !== 'vessels.self' && !(cfg.selfContext && d.context === cfg.selfContext)) {
-      return 0;
-    }
+    // No `context` check: the subscription is self-scoped (`vessels.self`), and SignalK delivers
+    // deltas under the full self URN, not the literal `vessels.self`. The collector that subscribes
+    // is the trust boundary; the path allowlist below is the privacy boundary.
     if (!Array.isArray(d.updates)) return 0;
-    const out: SampledReading[] = [];
+    const out: { reading: SampledReading; undo: () => void }[] = [];
     for (const u of d.updates as unknown[]) {
       if (typeof u !== 'object' || u === null) continue;
       const upd = u as DeltaUpdate;
@@ -189,18 +230,43 @@ export function createSampler(cfg: SamplerOptions) {
         if (typeof path !== 'string' || typeof value !== 'number' || !Number.isFinite(value)) {
           continue;
         }
-        const m = matchPath(path, rules);
+        const m = matchPath(path);
         if (!m) continue;
         const r = consider(path, m, value, ts);
         if (r) out.push(r);
       }
     }
-    for (const r of out) await cfg.sink.write(r);
+    // Channel state is committed by consider(); a reading that could not be written must not
+    // count as kept (it would suppress the next sample of the channel), so take it back.
+    let written = 0;
+    try {
+      for (const o of out) {
+        await cfg.sink.write(o.reading);
+        written += 1;
+      }
+    } catch (err) {
+      for (const o of out.slice(written).reverse()) o.undo();
+      throw err;
+    }
     return out.length;
   }
 
   return {
     handleDelta,
+    /** Only channels that have kept a reading. */
+    snapshot: (): ChannelSnapshot => {
+      const out: ChannelSnapshot = {};
+      for (const [p, c] of channels) {
+        if (c.lastKeptMs === null) continue;
+        out[p] = {
+          lastKeptMs: c.lastKeptMs,
+          lastKeptValue: c.lastKeptValue,
+          day: c.day,
+          dayCount: c.dayCount,
+        };
+      }
+      return out;
+    },
     stats: (): SamplerStats => ({
       kept,
       channels: channels.size,

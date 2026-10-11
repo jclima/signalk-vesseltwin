@@ -1,21 +1,35 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseOptions } from '../src/config';
-import { categoryFor, PATH_RULES } from '../src/mapping';
+import { categoryFor } from '../src/mapping';
 import { CredentialStore } from '../src/credential-store';
+import { uuidv7 } from '../src/ids';
+import { ReadingQueue } from '../src/queue';
 import {
   COPY,
   createPlugin,
   FAILURE_COPY,
+  type PluginDeps,
   PLUGIN_VERSION,
   type RequestLike,
   type ResponseLike,
   type SignalKApp,
 } from '../src/plugin';
+
+const OFF = 'Sending readings is off in the plugin settings.';
+const WAITING = 'Sending is on; waiting for readings from SignalK.';
 
 const tempDirs: string[] = [];
 const tempDir = (): string => {
@@ -100,8 +114,7 @@ describe('plugin shell', () => {
     p.stop();
   });
 
-  it('collects nothing yet: mapping registry is empty', () => {
-    expect(PATH_RULES).toHaveLength(0);
+  it('never categorizes location-like paths', () => {
     expect(categoryFor('navigation.position')).toBeNull();
   });
 });
@@ -131,6 +144,10 @@ describe('parseOptions', () => {
 // ---- pairing lifecycle and route hardening -------------------------------------------------
 
 const realSetTimeout = setTimeout;
+// Date is faked by the harness; the wall-clock deadline in `until` needs the real one.
+const realNow = Date.now.bind(Date);
+// Polling is bounded at 15 s in `until`; the default 5 s test timeout is only a safety net on slow runners.
+vi.setConfig({ testTimeout: 30_000 });
 const realPause = (ms: number) =>
   new Promise<void>((r) => {
     realSetTimeout(r, ms);
@@ -158,17 +175,40 @@ const okStatusBody = () => ({
   summary: null,
 });
 
-function harness(opts: { dir?: string } = {}) {
+const READINGS_URL = '/v1/integrations/signalk/readings';
+type ReadingsReply = (init: RequestInit | undefined) => Response | Promise<Response>;
+
+function harness(opts: { dir?: string; deps?: PluginDeps; sm?: FakeSm } = {}) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const dir = opts.dir ?? tempDir();
   const app = fakeApp(dir);
+  if (opts.sm) app.subscriptionmanager = opts.sm.manager;
   const calls: string[] = [];
+  /** Readings POSTs seen (url and parsed body), and scripted replies consumed in order. */
+  const readingCalls: { url: string; body: { readings: Record<string, unknown>[] } }[] = [];
+  const readingReplies: ReadingsReply[] = [];
   const held: Deferred[] = [];
   let starts = 0;
   /** Replies for GET /v1/integrations/status, consumed in order; then a healthy 200. */
   const statusReplies: (() => Response)[] = [];
-  const fetchFn = (url: string): Promise<Response> => {
+  const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
     calls.push(url);
+    if (url.endsWith(READINGS_URL)) {
+      const body = JSON.parse(init?.body as string) as { readings: Record<string, unknown>[] };
+      readingCalls.push({ url, body });
+      const r = readingReplies.shift();
+      if (r) return r(init);
+      return new Response(
+        JSON.stringify({
+          serverTime: new Date().toISOString(),
+          results: body.readings.map((x) => ({
+            clientReadingId: x.clientReadingId,
+            status: 'accepted',
+          })),
+        }),
+        { status: 200 },
+      );
+    }
     if (url.endsWith('/v1/integrations/status')) {
       const r = statusReplies.shift();
       return Promise.resolve(
@@ -195,7 +235,7 @@ function harness(opts: { dir?: string } = {}) {
       held.push({ resolve });
     });
   };
-  const plugin = createPlugin(app, { fetch: fetchFn });
+  const plugin = createPlugin(app, { fetch: fetchFn, ...opts.deps });
   const routes: Record<string, RouteFn> = {};
   plugin.registerWithRouter({
     get: (p, h) => {
@@ -225,11 +265,17 @@ function harness(opts: { dir?: string } = {}) {
     await vi.advanceTimersByTimeAsync(ms);
     await realPause(40);
   };
-  /** Poll until `cond` holds (real fs I/O has no fixed completion time); bounded, no fixed sleep. */
+  /**
+   * Poll until `cond` holds (real fs I/O has no fixed completion time). Polls every few real
+   * milliseconds and is bounded by a wall-clock deadline well inside the test timeout, so a slow
+   * runner makes it wait longer instead of burning a fixed 40 ms per attempt.
+   */
   const until = async (cond: () => boolean | Promise<boolean>) => {
-    for (let i = 0; i < 200; i++) {
+    const started = realNow();
+    while (realNow() - started < 15_000) {
       if (await cond()) return;
-      await tick();
+      await vi.advanceTimersByTimeAsync(0);
+      await realPause(4);
     }
     throw new Error('condition not reached');
   };
@@ -264,6 +310,41 @@ function harness(opts: { dir?: string } = {}) {
     dir,
     statusReplies,
     statusCalls,
+    readingCalls,
+    readingReplies,
+  };
+}
+interface FakeSm {
+  manager: NonNullable<SignalKApp['subscriptionmanager']>;
+  subscriptions: unknown[];
+  unsubscribed: () => number;
+  deliver: (d: unknown) => void;
+}
+/**
+ * By default nothing is replayed, like a signalk-server with token security on (the cached-value
+ * replay is filtered per principal and a plugin has none). `replay` models a security-off server:
+ * it is delivered synchronously inside subscribe().
+ */
+function fakeSm(replay?: () => unknown): FakeSm {
+  const subscriptions: unknown[] = [];
+  let deliver: (d: unknown) => void = () => undefined;
+  let unsubscribed = 0;
+  return {
+    manager: {
+      subscribe: (cmd, u, _onError, onDelta) => {
+        subscriptions.push(cmd);
+        u.push(() => {
+          unsubscribed += 1;
+        });
+        deliver = onDelta;
+        if (replay) onDelta(replay());
+      },
+    },
+    subscriptions,
+    unsubscribed: () => unsubscribed,
+    deliver: (d) => {
+      deliver(d);
+    },
   };
 }
 type RouteFn = (req: RequestLike, res: ResponseLike) => void | Promise<void>;
@@ -301,9 +382,7 @@ describe('pairing lifecycle', () => {
       credential: FAKE_CRED,
       apiOrigin: 'https://api.vesseltwin.io',
     });
-    expect(h.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. Data upload is not available in this version.',
-    );
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
     expect(h.app.statuses).toContain(COPY.pairingInProgress);
     // The status line is broadcast to anonymous clients: it never carries the code or the URL.
     for (const line of h.app.statuses) {
@@ -551,7 +630,7 @@ describe('label and token handling', () => {
     const line = h.app.statuses.at(-1) ?? '';
     expect(line).toMatch(/^Paired with Sea Hag x+\. /);
     expect(line).not.toContain('SIGNALK VESSEL NAME');
-    expect(line.length).toBeLessThan(140);
+    expect(line.length).toBeLessThan(160);
     expect(asked).not.toContain('name');
     expect(asked.every((p) => p === 'uuid')).toBe(true);
     h.plugin.stop();
@@ -567,9 +646,7 @@ describe('label and token handling', () => {
       new Response(JSON.stringify({ ...tokenBody, vesselLabel: null }), { status: 200 }),
     );
     await h.untilState('connected');
-    expect(h.app.statuses.at(-1)).toBe(
-      'Paired with VesselTwin. Data upload is not available in this version.',
-    );
+    expect(h.app.statuses.at(-1)).toBe(`Paired with VesselTwin. ${OFF}`);
     h.plugin.stop();
   });
 
@@ -694,7 +771,6 @@ describe('expired and denied copy', () => {
 // ---- state machine -------------------------------------------------------------------------
 
 const ORIGIN = 'https://api.vesseltwin.io';
-const NO_UPLOAD = 'Data upload is not available in this version.';
 const MIN = 60_000;
 
 async function seed(dir: string, over: Record<string, unknown> = {}) {
@@ -741,7 +817,7 @@ describe('state machine', () => {
     const st = (await h.call('GET /status')).body;
     expect(st).toMatchObject({ state: 'reauth_required', paired: false, vesselLabel: 'Sea Hag' });
     expect(h.app.statuses.at(-1)).toBe(
-      `ERR Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
+      `ERR Pairing with VesselTwin is no longer valid. Pair again.`,
     );
     // The tombstone write (temp file, rename, dir fsync) is async: wait for it to settle.
     await h.untilFiles(['credential.json']);
@@ -840,7 +916,7 @@ describe('state machine', () => {
 
   it('origin-change copy is neutral: no URLs, no server codes; real 401s keep the generic copy', () => {
     expect(COPY.reauthOrigin).toBe(
-      `The VesselTwin API address changed since pairing. Pair again, or restore the previous address. ${NO_UPLOAD}`,
+      `The VesselTwin API address changed since pairing. Pair again, or restore the previous address.`,
     );
     expect(COPY.reauthOrigin).not.toMatch(/https?:|integration_|\.example/);
     expect(COPY.reauth).toMatch(/no longer valid/);
@@ -927,7 +1003,7 @@ describe('state machine', () => {
     [
       'connected',
       () => new Response(JSON.stringify(okStatusBody()), { status: 200 }),
-      `Paired with Sea Hag. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. ${OFF}`,
       { state: 'connected', updateRecommended: false, clockSkewWarning: false },
       false,
     ],
@@ -942,63 +1018,63 @@ describe('state machine', () => {
           }),
           { status: 200 },
         ),
-      `Paired with Sea Hag. This device's clock differs from VesselTwin's. Check the date and time. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This device's clock differs from VesselTwin's. Check the date and time. ${OFF}`,
       { state: 'connected', updateRecommended: true, clockSkewWarning: true },
       false,
     ],
     [
       'connected with a newer server contract (no update claim in the line)',
-      () => new Response(JSON.stringify({ ...okStatusBody(), latestContract: 2 }), { status: 200 }),
-      `Paired with Sea Hag. ${NO_UPLOAD}`,
+      () => new Response(JSON.stringify({ ...okStatusBody(), latestContract: 3 }), { status: 200 }),
+      `Paired with Sea Hag. ${OFF}`,
       { state: 'connected', updateRecommended: true, clockSkewWarning: false },
       false,
     ],
     [
       'paused (feature off)',
       reply(503, { code: 'integration_feature_unavailable' }),
-      `Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking.`,
       { state: 'paused', paired: true },
       false,
     ],
     [
       'paused (plan)',
       reply(403, { code: 'integration_paused_plan' }),
-      `Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking.`,
       { state: 'paused', paired: true },
       false,
     ],
     [
       'offline',
       reply(503, {}),
-      `Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying.`,
       { state: 'offline', paired: true },
       false,
     ],
     [
       'update_required (426)',
       reply(426, { code: 'integration_contract_unsupported' }),
-      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.`,
       { state: 'update_required', paired: true },
       true,
     ],
     [
       'update_required (minContract)',
-      () => new Response(JSON.stringify({ ...okStatusBody(), minContract: 2 }), { status: 200 }),
-      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      () => new Response(JSON.stringify({ ...okStatusBody(), minContract: 3 }), { status: 200 }),
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.`,
       { state: 'update_required', paired: true },
       true,
     ],
     [
       'stopped by a scope error (reported as update_required)',
       reply(403, { code: 'integration_scope' }),
-      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.`,
       { state: 'update_required', paired: true },
       true,
     ],
     [
       'reauth_required',
       reply(401, { code: 'integration_unauthorized' }),
-      `Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
+      `Pairing with VesselTwin is no longer valid. Pair again.`,
       { state: 'reauth_required', paired: false },
       true,
     ],
@@ -1026,9 +1102,7 @@ describe('state machine', () => {
     const plugin = createPlugin(app, { fetch: () => new Promise<Response>(() => undefined) });
     plugin.start({});
     await vi.waitFor(() => {
-      expect(app.statuses.at(-1)).toBe(
-        `Paired with Sea Hag. Checking the connection. ${NO_UPLOAD}`,
-      );
+      expect(app.statuses.at(-1)).toBe(`Paired with Sea Hag. Checking the connection.`);
     });
     plugin.stop();
   });
@@ -2033,10 +2107,45 @@ describe('page copy', () => {
   });
 });
 
+describe('admin status upload summary', () => {
+  it('is null before a summary and carries the server counts once connected; never in the line', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    expect(((await h.call('GET /status')).body.upload as { summary: unknown }).summary).toBeNull();
+
+    const dir = tempDir();
+    await seed(dir);
+    const h2 = harness({ dir });
+    h2.statusReplies.push(
+      () =>
+        new Response(
+          JSON.stringify({
+            ...okStatusBody(),
+            summary: { channels: 4, awaitingSetup: 2, held: 1 },
+          }),
+          { status: 200 },
+        ),
+    );
+    h2.plugin.start({});
+    await h2.tick();
+    const body = (await h2.call('GET /status')).body;
+    expect((body.upload as { summary: unknown }).summary).toEqual({
+      channels: 4,
+      awaitingSetup: 2,
+      held: 1,
+    });
+    expect(h2.app.statuses.at(-1)).not.toMatch(/\d/);
+    h2.plugin.stop();
+    h.plugin.stop();
+  });
+});
+
 describe('admin status upload block', () => {
-  it('reports upload unavailable with the effective settings and neutral warnings', async () => {
+  it('reports the effective upload settings and neutral warnings', async () => {
     const h = harness();
     h.plugin.start({
+      uploadEnabled: true,
       engineHours: {
         enabled: true,
         recordIntervalMinutes: 120,
@@ -2049,7 +2158,15 @@ describe('admin status upload block', () => {
     await h.tick();
     const body = (await h.call('GET /status')).body;
     expect(body.upload).toEqual({
-      available: false,
+      available: true,
+      enabled: true,
+      unavailableReason: null,
+      queued: 0,
+      lastSentAt: null,
+      results: null,
+      rejectedReasons: null,
+      dropped: 0,
+      invalid: 0,
       categories: {
         engineHours: {
           enabled: true,
@@ -2071,6 +2188,7 @@ describe('admin status upload block', () => {
         },
       },
       warnings: expect.arrayContaining([expect.stringMatching(/not valid/)]) as unknown,
+      summary: null,
     });
     const w = (body.upload as { warnings: string[] }).warnings.join(' ');
     expect(w).toMatch(/no valid instances/);
@@ -2087,7 +2205,7 @@ describe('admin status upload block', () => {
     h.plugin.stop();
   });
 
-  it('every status line that mentions a connection says upload is not available', async () => {
+  it('every status line that mentions a connection says whether readings are sent', async () => {
     const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
@@ -2099,7 +2217,1034 @@ describe('admin status upload block', () => {
     msgs.push((await h.call('GET /status')).body.message as string);
     const connected = msgs.filter((m) => m.startsWith('Paired with'));
     expect(connected.length).toBeGreaterThan(0);
-    for (const m of connected) expect(m).toContain(NO_UPLOAD);
+    // Sending is off here, so nothing is queued and the lines never promise to keep readings.
+    for (const m of connected) expect(m).not.toContain('kept');
+    h.plugin.stop();
+  });
+});
+
+// ---- upload pipeline: collector, queue, uploader and the monitor under one coordinator ----------
+
+describe('upload pipeline', () => {
+  const BAT = 'electrical.batteries.house.voltage';
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const on = { uploadAvailable: true, rng: () => 0 } satisfies PluginDeps;
+  const delta = (path: string, value: unknown = 12.6) => ({
+    context: 'vessels.urn:mrn:signalk:uuid:00000000-0000-4000-8000-000000000000',
+    updates: [{ timestamp: new Date().toISOString(), values: [{ path, value }] }],
+  });
+  const segs = (dir: string) => {
+    try {
+      return readdirSync(join(dir, 'queue')).filter((n) => n.startsWith('seg-'));
+    } catch {
+      return [];
+    }
+  };
+  const uploadBlock = async (h: ReturnType<typeof harness>) =>
+    (await h.call('GET /status')).body.upload as Record<string, unknown>;
+  const json =
+    (status: number, body: unknown = {}) =>
+    () =>
+      new Response(JSON.stringify(body), { status });
+  /** Seeded credential, plugin started with the upload settings, first delta queued. */
+  async function running(
+    over: { replies?: ReadingsReply[]; settings?: unknown; sm?: FakeSm } = {},
+  ) {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = over.sm ?? fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.readingReplies.push(...(over.replies ?? []));
+    h.plugin.start(over.settings ?? UP);
+    await h.untilState('connected');
+    // A delta delivered before the collector has subscribed is dropped; wait for the subscription.
+    if (over.settings === undefined) await h.until(() => sm.subscriptions.length > 0);
+    return { h, dir, sm };
+  }
+  const queueOne = async (h: ReturnType<typeof harness>, sm: FakeSm) => {
+    await h.until(() => sm.subscriptions.length > 0);
+    sm.deliver(delta(BAT));
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+  };
+  /** Fires the uploader's first attempt (60 s with rng 0). */
+  const firstAttempt = async (h: ReturnType<typeof harness>) => {
+    await h.tick(61_000);
+    await h.until(() => h.readingCalls.length >= 1);
+  };
+  const existing = (over: Partial<{ path: string }> = {}) => ({
+    clientReadingId: uuidv7(),
+    path: BAT,
+    value: 12.4,
+    recordedAt: new Date().toISOString(),
+    ...over,
+  });
+
+  it('security-off server: the value replayed synchronously inside subscribe() is queued and uploaded', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm(() => delta(BAT));
+    const h = harness({ dir, deps: on, sm });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await firstAttempt(h);
+    expect(h.readingCalls[0]?.body.readings).toHaveLength(1);
+    await h.until(async () => (await uploadBlock(h)).queued === 0);
+    h.plugin.stop();
+  });
+
+  // ---- current values read at start (a security-on server does not replay them) ----
+  const leaf = (value: unknown, timestamp: unknown = new Date().toISOString()) => ({
+    value,
+    timestamp,
+    $source: 'x.y',
+  });
+  const treeApp = (h: ReturnType<typeof harness>, tree: Record<string, unknown>) => {
+    const asked: string[] = [];
+    h.app.getSelfPath = (p: string) => {
+      asked.push(p);
+      return tree[p];
+    };
+    return asked;
+  };
+  const batTree = (v: unknown = 12.6, ts?: unknown) => ({
+    electrical: undefined,
+    'electrical.batteries': { house: { voltage: leaf(v, ts) } },
+  });
+  /**
+   * Distinct readings seen so far, queued on disk or posted. Counted by clientReadingId: the
+   * `queued` stat lags an ack by a real fs round-trip, so adding it to the posted count could
+   * count a reading that is in flight twice.
+   */
+  const total = (h: ReturnType<typeof harness>): Promise<number> => {
+    const ids = new Set<unknown>();
+    for (const c of h.readingCalls) for (const r of c.body.readings) ids.add(r.clientReadingId);
+    for (const name of segs(h.dir)) {
+      const text = readFileSync(join(h.dir, 'queue', name), 'utf8');
+      for (const line of text.split('\n')) {
+        try {
+          ids.add((JSON.parse(line) as { clientReadingId?: unknown }).clientReadingId);
+        } catch {
+          // blank or torn line
+        }
+      }
+    }
+    ids.delete(undefined);
+    return Promise.resolve(ids.size);
+  };
+
+  it('a steady value present only in the self tree is queued once and uploaded', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h, batTree());
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await h.tick(10 * MIN);
+    expect(await total(h)).toBe(1);
+    await firstAttempt(h);
+    expect(h.readingCalls[0]?.body.readings).toHaveLength(1);
+    expect(h.readingCalls[0]?.body.readings[0]).toMatchObject({ path: BAT, value: 12.6 });
+    h.plugin.stop();
+  });
+
+  it('a replay and the self tree carrying the same value give exactly one reading', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const ts = new Date().toISOString();
+    const sm = fakeSm(() => ({
+      context: 'vessels.self',
+      updates: [{ timestamp: ts, values: [{ path: BAT, value: 12.6 }] }],
+    }));
+    const h = harness({ dir, deps: on, sm });
+    treeApp(h, batTree(12.6, ts));
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await total(h)) >= 1);
+    await h.tick(10 * MIN);
+    expect(await total(h)).toBe(1);
+    h.plugin.stop();
+  });
+
+  it('reads only the rule prefixes and queues nothing that is not permitted', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    const asked = treeApp(h, {
+      name: 'SECRET BOAT',
+      mmsi: '123456789',
+      'navigation.position': {
+        value: { latitude: 1, longitude: 2 },
+        timestamp: new Date().toISOString(),
+      },
+      design: { length: { value: 10 } },
+      propulsion: { main: { temperature: leaf(300) } },
+      'electrical.batteries': {
+        house: {
+          voltage: {
+            ...leaf(12.6),
+            values: { 'a.b': { value: 99, timestamp: new Date().toISOString() } },
+          },
+          name: leaf(5),
+        },
+      },
+    });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await h.tick(10 * MIN);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(new Set(asked)).toEqual(new Set(['electrical.batteries']));
+    expect(await total(h)).toBe(1);
+    h.plugin.stop();
+  });
+
+  it('garbage leaves queue nothing and do not crash', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h, {
+      'electrical.batteries': {
+        a: { voltage: leaf('12.6') },
+        b: { voltage: { value: 12.6 } },
+        c: { voltage: leaf(12.6, 'not a date') },
+        d: { voltage: leaf(12.6, new Date(Date.now() + 3600_000).toISOString()) },
+        e: 'text',
+      },
+    });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.tick(10 * MIN);
+    expect(await total(h)).toBe(0);
+    h.plugin.stop();
+    const h2 = harness({ dir, deps: on, sm: fakeSm() });
+    h2.app.getSelfPath = () => 'not an object';
+    h2.plugin.start(UP);
+    await h2.untilState('connected');
+    expect(await total(h2)).toBe(0);
+    h2.plugin.stop();
+    const h3 = harness({ dir, deps: on, sm: fakeSm() });
+    h3.app.getSelfPath = () => {
+      throw new Error('boom');
+    };
+    h3.plugin.start(UP);
+    await h3.untilState('connected');
+    expect(await total(h3)).toBe(0);
+    h3.plugin.stop();
+  });
+
+  /**
+   * stop() is synchronous but its final sampler-state save runs in the background. Wait until that
+   * save has really finished, so the test never races it (a late save would overwrite the file the
+   * test edits next). Deterministic: awaits the save promise itself, no fixed sleep.
+   */
+  async function stopAndSettle(h: ReturnType<typeof harness>) {
+    const saves: Promise<void>[] = [];
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const real = ReadingQueue.prototype.saveChannels;
+    const spy = vi.spyOn(ReadingQueue.prototype, 'saveChannels').mockImplementation(function (
+      this: ReadingQueue,
+      state: unknown,
+    ) {
+      const p = real.call(this, state);
+      saves.push(p);
+      return p;
+    });
+    try {
+      h.plugin.stop();
+      await h.until(() => saves.length > 0); // the final save has been issued
+      await Promise.all(saves);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('a restart with the same steady value queues nothing new; a newer one after the interval does', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const ts = new Date().toISOString();
+    const file = join(dir, 'queue', 'channels.json');
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h, batTree(12.6, ts));
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await stopAndSettle(h);
+    vi.useRealTimers();
+
+    const h2 = harness({ dir, deps: on, sm: fakeSm() });
+    expect(readFileSync(file, 'utf8')).toContain(BAT);
+    treeApp(h2, batTree(12.6, ts));
+    h2.plugin.start(UP);
+    await h2.untilState('connected');
+    await h2.tick(10 * MIN);
+    expect(await total(h2)).toBe(1); // the one from before the restart; no new one
+    await stopAndSettle(h2); // its final save must land before the file is edited below
+    vi.useRealTimers();
+
+    // Pretend the last kept reading is older than the 24 h default interval: the same tree value is now newer and recorded.
+    const st = JSON.parse(readFileSync(file, 'utf8')) as Record<string, { lastKeptMs: number }>;
+    (st[BAT] as { lastKeptMs: number }).lastKeptMs -= 25 * 60 * MIN;
+    writeFileSync(file, JSON.stringify(st));
+    const h3 = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h3, batTree(13.9));
+    h3.plugin.start(UP);
+    await h3.untilState('connected');
+    await h3.until(async () => (await total(h3)) === 1); // the old one went out already
+    h3.plugin.stop();
+  });
+
+  it('with the release flag off: no subscription, no readings request, no queue directory', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, sm, deps: { uploadAvailable: false } });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    sm.deliver(delta(BAT));
+    await h.tick(3 * 60 * MIN);
+    expect(sm.subscriptions).toHaveLength(0);
+    expect(h.readingCalls).toHaveLength(0);
+    expect(h.calls.every((u) => u.endsWith('/v1/integrations/status'))).toBe(true);
+    expect(readdirSync(dir)).toEqual(['credential.json']);
+    expect(await uploadBlock(h)).toMatchObject({ available: false, enabled: true, queued: 0 });
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
+    h.plugin.stop();
+  });
+
+  it('subscribes to the active categories only, sends one clean batch and reports it to the admin', async () => {
+    const { h, sm } = await running();
+    expect(sm.subscriptions).toEqual([
+      {
+        context: 'vessels.self',
+        subscribe: [
+          { path: 'electrical.batteries.*.voltage', policy: 'instant', minPeriod: 60_000 },
+          {
+            path: 'electrical.batteries.*.capacity.stateOfCharge',
+            policy: 'instant',
+            minPeriod: 60_000,
+          },
+        ],
+      },
+    ]);
+    // Deltas that must never reach the queue: location, identity, free text, other categories.
+    for (const [path, value] of [
+      ['navigation.position.latitude', 41.1],
+      ['navigation.position.longitude', -8.6],
+      ['navigation.courseOverGroundTrue', 1.2],
+      ['mmsi', 123456789],
+      ['name', 7],
+      ['communication.callsignVhf', 1],
+      ['design.length.overall', 12],
+      ['electrical.batteries.house.name', 3],
+      ['propulsion.main.runTime', 3600],
+      ['tanks.fuel.0.currentLevel', 0.5],
+    ] as const) {
+      sm.deliver(delta(path, value));
+    }
+    await queueOne(h, sm);
+    await firstAttempt(h);
+    await h.until(async () => (await uploadBlock(h)).queued === 0);
+    expect(h.readingCalls).toHaveLength(1);
+    const body = h.readingCalls[0]?.body.readings ?? [];
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ path: BAT, value: 12.6 });
+    expect(Object.keys(body[0] ?? {}).sort()).toEqual([
+      'clientReadingId',
+      'path',
+      'recordedAt',
+      'value',
+    ]);
+    const wire = JSON.stringify(h.readingCalls);
+    expect(wire).not.toMatch(
+      /navigation|position|latitude|mmsi|callsign|design|name|propulsion|tanks/i,
+    );
+    const block = await uploadBlock(h);
+    expect(block).toMatchObject({
+      available: true,
+      enabled: true,
+      unavailableReason: null,
+      queued: 0,
+      dropped: 0,
+      invalid: 0,
+      results: { accepted: 1 },
+    });
+    expect(typeof block.lastSentAt).toBe('string');
+    // The broadcast line carries no numbers, URL or code.
+    for (const line of h.app.statuses) {
+      expect(line).not.toMatch(/\d|https?:|[A-Z0-9]{4}-[A-Z0-9]{4}/);
+    }
+    expect(h.app.statuses.at(-1)).toBe('Paired with Sea Hag. Sending readings to VesselTwin.');
+    expect(h.calls.every((u) => u.startsWith(ORIGIN))).toBe(true);
+    h.plugin.stop();
+  });
+
+  it('reports upload unavailable on this server when the subscription manager is missing', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on }); // no subscriptionmanager
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.tick(10 * MIN);
+    expect(await uploadBlock(h)).toMatchObject({
+      available: false,
+      unavailableReason: 'subscriptions_unavailable',
+    });
+    expect(h.readingCalls).toHaveLength(0);
+    expect(readdirSync(dir)).toEqual(['credential.json']);
+    expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    h.plugin.stop();
+  });
+
+  it('does not collect when upload is switched off or nothing is selected', async () => {
+    for (const settings of [{}, { uploadEnabled: true }]) {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.plugin.start(settings);
+      await h.untilState('connected');
+      await h.tick(10 * MIN);
+      expect(sm.subscriptions).toHaveLength(0);
+      expect(h.readingCalls).toHaveLength(0);
+      h.plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  describe('error matrix at plugin level', () => {
+    it('401 on readings: re-pair state, tombstone, collector and monitor stopped, queue kept, pairing allowed', async () => {
+      const { h, dir, sm } = await running({
+        replies: [json(401, { code: 'integration_unauthorized' })],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('reauth_required');
+      await h.until(async () => {
+        const f = JSON.parse(await readFile(join(dir, 'credential.json'), 'utf8')) as Record<
+          string,
+          unknown
+        >;
+        return f.reauthRequired === true;
+      });
+      expect(await readFile(join(dir, 'credential.json'), 'utf8')).not.toContain(FAKE_CRED);
+      expect(sm.unsubscribed()).toBe(1);
+      const probes = h.statusCalls();
+      await h.tick(3 * 60 * MIN);
+      expect(h.statusCalls()).toBe(probes);
+      expect(h.readingCalls).toHaveLength(1);
+      expect(segs(dir).length).toBeGreaterThan(0);
+      expect((await h.call('GET /status')).body).toMatchObject({
+        state: 'reauth_required',
+        paired: false,
+      });
+      expect(h.app.statuses.at(-1)).toMatch(/Pair again/);
+      expect((await h.call('POST /pair')).status).toBe(202);
+      h.plugin.stop();
+    });
+
+    it('a 401 without the platform code stops everything but keeps the credential file', async () => {
+      const { h, dir, sm } = await running({ replies: [json(401, { message: 'proxy' })] });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('reauth_required');
+      await h.tick(MIN);
+      expect(JSON.parse(await readFile(join(dir, 'credential.json'), 'utf8'))).toMatchObject({
+        credential: FAKE_CRED,
+      });
+      expect(sm.unsubscribed()).toBe(1);
+      h.plugin.stop();
+    });
+
+    it('update required is sticky: a connected monitor does not revive uploading', async () => {
+      const { h, sm } = await running({
+        replies: [json(426, { code: 'integration_contract_unsupported' })],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('update_required');
+      const probes = h.statusCalls();
+      await h.tick(61 * MIN);
+      await h.until(() => h.statusCalls() > probes);
+      expect((await h.call('GET /status')).body.state).toBe('update_required');
+      expect(h.app.statuses.at(-1)).toMatch(/Update the plugin/);
+      await h.tick(3 * 60 * MIN);
+      expect(h.readingCalls).toHaveLength(1);
+      expect(await uploadBlock(h)).toMatchObject({ queued: 1 });
+      h.plugin.stop();
+    });
+
+    it('paused by the readings route keeps the queue; the monitor reporting connected resumes it', async () => {
+      const { h, sm } = await running({
+        replies: [json(503, { code: 'integration_feature_unavailable' })],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.untilState('paused');
+      expect(await uploadBlock(h)).toMatchObject({ queued: 1 });
+      await h.tick(61 * MIN); // the next monitor probe is healthy and kicks the uploader
+      await h.until(() => h.readingCalls.length === 2);
+      expect(h.readingCalls[1]?.body.readings[0]?.clientReadingId).toBe(
+        h.readingCalls[0]?.body.readings[0]?.clientReadingId,
+      );
+      await h.untilState('connected');
+      await h.until(async () => (await uploadBlock(h)).queued === 0);
+      h.plugin.stop();
+    });
+
+    it('a paused monitor holds the uploader, a later connected probe releases it', async () => {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.statusReplies.push(reply(503, { code: 'integration_feature_unavailable' }));
+      h.plugin.start(UP);
+      await h.untilState('paused');
+      await queueOne(h, sm);
+      await h.tick(30 * MIN);
+      expect(h.readingCalls).toHaveLength(0);
+      await h.tick(40 * MIN); // hourly probe now answers 200
+      await h.untilState('connected');
+      await h.until(() => h.readingCalls.length === 1);
+      h.plugin.stop();
+    });
+
+    it('network failure backs off and the same reading is replayed', async () => {
+      const { h, sm } = await running({
+        replies: [
+          () => {
+            throw new Error('ECONNRESET');
+          },
+        ],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      await h.tick(60_000);
+      await h.until(() => h.readingCalls.length === 2);
+      expect(h.readingCalls[1]?.body).toEqual(h.readingCalls[0]?.body);
+      await h.until(async () => (await uploadBlock(h)).queued === 0);
+      h.plugin.stop();
+    });
+  });
+
+  it('the status line stops claiming to send after repeated failures and recovers on success', async () => {
+    const SENDING = 'Paired with Sea Hag. Sending readings to VesselTwin.';
+    const CANT =
+      "Paired with Sea Hag. VesselTwin can't be reached right now. Readings are kept for up to 7 days.";
+    const { h, sm } = await running({ replies: [json(502), json(502), json(502)] });
+    await queueOne(h, sm);
+    await firstAttempt(h);
+    await h.until(() => h.app.statuses.at(-1) === SENDING && h.readingCalls.length === 1);
+    expect(h.app.statuses).not.toContain(CANT);
+    await h.tick(30_000);
+    await h.until(() => h.readingCalls.length === 2);
+    expect(h.app.statuses.at(-1)).toBe(SENDING); // two failures are not enough
+    await h.tick(60_000);
+    await h.until(() => h.readingCalls.length === 3);
+    await h.until(() => h.app.statuses.at(-1) === CANT);
+    expect(CANT).not.toMatch(/\d{2}|503|502/);
+    await h.tick(10 * 60_000); // the fourth attempt succeeds
+    await h.until(() => h.readingCalls.length === 4);
+    await h.until(() => h.app.statuses.at(-1) === SENDING);
+    h.plugin.stop();
+  });
+
+  describe('lifecycle', () => {
+    it('stop() aborts the in-flight POST; the next start replays the same reading', async () => {
+      let aborted = false;
+      const { h, sm } = await running({
+        replies: [
+          (init) =>
+            new Promise<Response>((_res, rej) => {
+              init?.signal?.addEventListener('abort', () => {
+                aborted = true;
+                rej(new DOMException('aborted', 'AbortError'));
+              });
+            }),
+        ],
+      });
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      const id = h.readingCalls[0]?.body.readings[0]?.clientReadingId;
+      h.plugin.stop();
+      expect(aborted).toBe(true);
+      h.plugin.start(UP);
+      await h.untilState('connected');
+      await h.tick(61_000);
+      await h.until(() => h.readingCalls.length === 2);
+      expect(h.readingCalls[1]?.body.readings[0]?.clientReadingId).toBe(id);
+      await h.until(async () => (await uploadBlock(h)).queued === 0);
+      expect(sm.subscriptions).toHaveLength(2);
+      h.plugin.stop();
+    });
+
+    it('a late delta after stop() is not queued', async () => {
+      const { h, dir, sm } = await running();
+      h.plugin.stop();
+      sm.deliver(delta(BAT));
+      await h.tick(MIN);
+      expect(segs(dir)).toHaveLength(0);
+    });
+
+    it('a restart with a pending queue resumes and replays the same clientReadingIds', async () => {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.readingReplies.push(json(502));
+      h.plugin.start(UP);
+      await h.untilState('connected');
+      await queueOne(h, sm);
+      await firstAttempt(h);
+      const first = h.readingCalls[0]?.body.readings.map((r) => r.clientReadingId);
+      h.plugin.stop();
+      vi.useRealTimers();
+
+      const h2 = harness({ dir, deps: on, sm: fakeSm() });
+      h2.plugin.start(UP);
+      await h2.untilState('connected');
+      await firstAttempt(h2);
+      expect(h2.readingCalls[0]?.body.readings.map((r) => r.clientReadingId)).toEqual(first);
+      h2.plugin.stop();
+    });
+
+    it('never sends to an origin other than the one the credential was issued for', async () => {
+      const dir = tempDir();
+      await seed(dir, { apiOrigin: 'https://elsewhere.example' });
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.plugin.start(UP);
+      await h.untilState('reauth_required');
+      await h.tick(3 * 60 * MIN);
+      expect(h.calls).toHaveLength(0);
+      expect(sm.subscriptions).toHaveLength(0);
+      h.plugin.stop();
+      vi.useRealTimers();
+
+      const dir2 = tempDir();
+      await seed(dir2, { apiOrigin: 'http://localhost:3999' });
+      const sm2 = fakeSm();
+      const h2 = harness({ dir: dir2, deps: on, sm: sm2 });
+      h2.plugin.start({ ...UP, apiBaseUrl: 'http://localhost:3999' });
+      await h2.untilState('connected');
+      await queueOne(h2, sm2);
+      await firstAttempt(h2);
+      expect(h2.calls.length).toBeGreaterThan(1);
+      expect(h2.calls.every((u) => u.startsWith('http://localhost:3999/'))).toBe(true);
+      h2.plugin.stop();
+    });
+  });
+
+  describe('queue clearing', () => {
+    it('on start while upload is off (and only when the release flag is on)', async () => {
+      for (const [available, remaining] of [
+        [true, 0],
+        [false, 1],
+      ] as const) {
+        const dir = tempDir();
+        await seed(dir);
+        const q = new ReadingQueue({ dir: join(dir, 'queue') });
+        await q.append(existing());
+        await q.close();
+        const h = harness({
+          dir,
+          deps: { uploadAvailable: available, rng: () => 0 },
+          sm: fakeSm(),
+        });
+        h.plugin.start({});
+        await h.untilState('connected');
+        await h.until(() => segs(dir).length === remaining);
+        await h.tick(MIN);
+        expect(segs(dir)).toHaveLength(remaining);
+        h.plugin.stop();
+        vi.useRealTimers();
+      }
+    });
+
+    it('on unpair', async () => {
+      const { h, dir, sm } = await running();
+      await queueOne(h, sm);
+      expect(segs(dir).length).toBeGreaterThan(0);
+      expect((await h.call('POST /unpair')).status).toBe(200);
+      expect(segs(dir)).toHaveLength(0);
+      sm.deliver(delta(BAT)); // collector is gone
+      await h.tick(MIN);
+      expect(segs(dir)).toHaveLength(0);
+      expect(sm.unsubscribed()).toBe(1);
+      h.plugin.stop();
+    });
+
+    it('a new pairing clears the old queue before it stores the new credential', async () => {
+      const dir = tempDir();
+      const q = new ReadingQueue({ dir: join(dir, 'queue') });
+      await q.append(existing());
+      await q.close();
+      const h = harness({ dir, deps: on, sm: fakeSm() });
+      h.plugin.start(UP);
+      await h.tick();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+      const realWrite = CredentialStore.prototype.write;
+      let queueAtWrite = -1;
+      const spy = vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(function (
+        this: CredentialStore,
+        c,
+      ) {
+        queueAtWrite = segs(dir).length;
+        return realWrite.call(this, c);
+      });
+      try {
+        await h.call('POST /pair');
+        await h.tick(5_000);
+        await h.resolveHeld(h.ok());
+        await h.untilState('connected');
+        expect(queueAtWrite).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+      h.plugin.stop();
+    });
+
+    it('a start() racing the post-pairing clear waits for it: no second writer, no stored credential', async () => {
+      const dir = tempDir();
+      const q = new ReadingQueue({ dir: join(dir, 'queue') });
+      await q.append(existing());
+      await q.close();
+      const h = harness({ dir, deps: on, sm: fakeSm() });
+      h.plugin.start(UP);
+      await h.tick();
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+      const realClear = ReadingQueue.prototype.clear;
+      const clearSpy = vi.spyOn(ReadingQueue.prototype, 'clear').mockImplementation(async function (
+        this: ReadingQueue,
+      ) {
+        await gate;
+        return realClear.call(this);
+      });
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- counting only
+      const realRead = CredentialStore.prototype.read;
+      let reads = 0;
+      const readSpy = vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(function (
+        this: CredentialStore,
+      ) {
+        reads += 1;
+        return realRead.call(this);
+      });
+      try {
+        await h.call('POST /pair');
+        await h.tick(5_000);
+        await h.resolveHeld(h.ok());
+        await h.until(() => clearSpy.mock.calls.length === 1); // the clear is held open
+        const before = reads;
+        h.plugin.start(UP); // a restart while the clear is in flight
+        await h.tick(200);
+        expect(reads).toBe(before); // the new lifecycle has not loaded anything yet
+        release();
+        await h.until(() => reads > before);
+        await h.until(() => segs(dir).length === 0);
+        expect(h.files()).not.toContain('credential.json'); // the cancelled pairing stored nothing
+        expect(clearSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        release();
+        clearSpy.mockRestore();
+        readSpy.mockRestore();
+      }
+      h.plugin.stop();
+    });
+
+    it('on a successful new pairing, before the new credential uploads anything', async () => {
+      const dir = tempDir();
+      const q = new ReadingQueue({ dir: join(dir, 'queue') });
+      await q.append(existing());
+      await q.append(existing());
+      await q.close();
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      h.plugin.start(UP);
+      await h.tick();
+      expect((await h.call('POST /pair')).status).toBe(202);
+      await h.tick();
+      await h.tick(5_000);
+      await h.resolveHeld(h.ok());
+      await h.untilState('connected');
+      expect(segs(dir)).toHaveLength(0);
+      await h.until(() => sm.subscriptions.length === 1);
+      await h.tick(61_000);
+      expect(h.readingCalls).toHaveLength(0);
+      h.plugin.stop();
+    });
+  });
+});
+
+// ---- broadcast status line copy while sending is on or off -----------------------------------------
+
+describe('status line copy for sending readings', () => {
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const withSummary = (awaitingSetup: number) => () =>
+    new Response(
+      JSON.stringify({ ...okStatusBody(), summary: { channels: 3, awaitingSetup, held: 0 } }),
+      { status: 200 },
+    );
+
+  async function started(settings: unknown, replies: (() => Response)[] = [], sm?: FakeSm) {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, ...(sm ? { sm } : {}) });
+    h.statusReplies.push(...replies);
+    h.plugin.start(settings);
+    await h.until(() => h.app.statuses.length > 0 && h.statusCalls() > 0);
+    await h.tick();
+    return h;
+  }
+
+  it('says sending is on, without numbers, a URL or a code', async () => {
+    const h = await started(UP, [], fakeSm());
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
+    h.plugin.stop();
+  });
+
+  it('adds the setup prompt only when channels are waiting, and never the count', async () => {
+    const h = await started(UP, [withSummary(2)], fakeSm());
+    expect(h.app.statuses.at(-1)).toBe(
+      `Paired with Sea Hag. ${WAITING} Some channels need setup in VesselTwin.`,
+    );
+    expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    const body = (await h.call('GET /status')).body.upload as { summary: unknown };
+    expect(body.summary).toEqual({ channels: 3, awaitingSetup: 2, held: 0 });
+    h.plugin.stop();
+    const h2 = await started(UP, [withSummary(0)], fakeSm());
+    expect(h2.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
+    h2.plugin.stop();
+  });
+
+  it('says sending is off in the plugin settings when it is not switched on', async () => {
+    for (const settings of [{}, { uploadEnabled: true }, { batteries: { enabled: true } }]) {
+      const h = await started(settings, [withSummary(2)]);
+      expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
+      h.plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('old send* settings alone send nothing and the page is told to turn sending on again', async () => {
+    const h = await started({ sendBatteries: true, sendEngineHours: true, sendTanks: true });
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
+    const up = (await h.call('GET /status')).body.upload as {
+      enabled: boolean;
+      warnings: string[];
+    };
+    expect(up.enabled).toBe(false);
+    expect(up.warnings).toContain('legacy_send_settings');
+    expect(h.readingCalls).toHaveLength(0);
+    h.plugin.stop();
+  });
+
+  it('says readings are kept for up to 7 days while paused or offline with sending on', async () => {
+    const paused = await started(
+      UP,
+      [reply(503, { code: 'integration_feature_unavailable' })],
+      fakeSm(),
+    );
+    expect(paused.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking. Readings are kept for up to 7 days.',
+    );
+    paused.plugin.stop();
+    vi.useRealTimers();
+    const plan = await started(UP, [reply(403, { code: 'integration_paused_plan' })], fakeSm());
+    expect(plan.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking. Readings are kept for up to 7 days.',
+    );
+    plan.plugin.stop();
+    vi.useRealTimers();
+    const offline = await started(UP, [reply(500)], fakeSm());
+    expect(offline.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying. Readings are kept for up to 7 days.',
+    );
+    offline.plugin.stop();
+  });
+
+  it('does not promise to keep readings when sending is off', async () => {
+    const h = await started({}, [reply(500)]);
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying.',
+    );
+    h.plugin.stop();
+  });
+
+  it('says so when this SignalK server cannot provide readings', async () => {
+    const h = await started(UP); // no subscription manager
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. This SignalK server cannot provide readings to the plugin.',
+    );
+    h.plugin.stop();
+  });
+
+  it('keeps the neutral update and re-pair copy', async () => {
+    const upd = await started(
+      UP,
+      [reply(426, { code: 'integration_contract_unsupported' })],
+      fakeSm(),
+    );
+    expect(upd.app.statuses.at(-1)).toBe(
+      'ERR Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.',
+    );
+    upd.plugin.stop();
+    vi.useRealTimers();
+    const re = await started(UP, [reply(401, { code: 'integration_unauthorized' })], fakeSm());
+    expect(re.app.statuses.at(-1)).toBe(
+      'ERR Pairing with VesselTwin is no longer valid. Pair again.',
+    );
+    re.plugin.stop();
+  });
+
+  it('never hands the server the same line twice in a row', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, sm, deps: { rng: () => 0 } });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(() => sm.subscriptions.length > 0); // a delta before the subscription is dropped
+    sm.deliver({
+      context: 'vessels.self',
+      updates: [
+        {
+          timestamp: new Date().toISOString(),
+          values: [{ path: 'electrical.batteries.house.voltage', value: 12.6 }],
+        },
+      ],
+    });
+    await h.tick(61_000);
+    await h.until(() => h.readingCalls.length >= 1);
+    await h.tick(3 * 60 * MIN);
+    const lines = h.app.statuses;
+    expect(lines.length).toBeGreaterThan(0);
+    lines.forEach((l, i) => {
+      if (i > 0) expect(l).not.toBe(lines[i - 1]);
+    });
+    h.plugin.stop();
+  });
+});
+
+describe('review fixes', () => {
+  const BAT = 'electrical.batteries.house.voltage';
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const on = { uploadAvailable: true, rng: () => 0 };
+  const delta = () => ({
+    context: 'vessels.self',
+    updates: [{ timestamp: new Date().toISOString(), values: [{ path: BAT, value: 12.6 }] }],
+  });
+  const seg = (dir: string) => readdirSync(join(dir, 'queue')).some((n) => n.startsWith('seg-'));
+  const seedReading = async (dir: string) => {
+    const q = new ReadingQueue({ dir: join(dir, 'queue') });
+    await q.append({
+      clientReadingId: uuidv7(),
+      path: BAT,
+      value: 12.4,
+      recordedAt: new Date().toISOString(),
+    });
+    await q.close();
+  };
+
+  it('a state save armed by an append in flight at stop() cannot recreate channels.json after the clear', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    const realAppend = fsp.appendFile.bind(fsp);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let entered = false;
+    const spy = vi.spyOn(fsp, 'appendFile').mockImplementation(async (...a: unknown[]) => {
+      entered = true;
+      await gate;
+      return (realAppend as (...x: unknown[]) => Promise<void>)(...a);
+    });
+    await h.until(() => sm.subscriptions.length > 0); // a delta before the subscription is dropped
+    sm.deliver(delta());
+    await h.until(() => entered);
+    h.plugin.stop();
+    await h.tick(0);
+    release();
+    await h.tick(0);
+    spy.mockRestore();
+    h.plugin.start({ uploadEnabled: false });
+    await h.until(
+      async () => (await h.call('GET /status')).body.message === `Paired with Sea Hag. ${OFF}`,
+    );
+    await h.until(() => !seg(dir));
+    await h.tick(3_000);
+    await h.tick(100);
+    expect(existsSync(join(dir, 'queue', 'channels.json'))).toBe(false);
+    h.plugin.stop();
+  });
+
+  it('master switch on with every category off clears waiting readings', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    await seedReading(dir);
+    expect(seg(dir)).toBe(true);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    h.plugin.start({ uploadEnabled: true });
+    await h.untilState('connected');
+    await h.until(() => !seg(dir));
+    h.plugin.stop();
+  });
+
+  it('a 401 while sampler state is loading never starts the collector', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    await seedReading(dir);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const real = ReadingQueue.prototype.loadChannels;
+    const spy = vi.spyOn(ReadingQueue.prototype, 'loadChannels').mockImplementation(async function (
+      this: ReadingQueue,
+    ) {
+      await gate;
+      return real.call(this);
+    });
+    const sm = fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.readingReplies.push(
+      () => new Response(JSON.stringify({ code: 'integration_unauthorized' }), { status: 401 }),
+    );
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.tick(61_000);
+    await h.untilState('reauth_required');
+    release();
+    await h.tick(100);
+    spy.mockRestore();
+    expect(sm.subscriptions).toHaveLength(0);
+    h.plugin.stop();
+  });
+
+  it('says it is waiting until a reading is recorded, then the normal line', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, deps: on, sm });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${WAITING}`);
+    expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    await h.until(() => sm.subscriptions.length > 0); // a delta before the subscription is dropped
+    sm.deliver(delta());
+    await h.until(
+      () => h.app.statuses.at(-1) === 'Paired with Sea Hag. Sending readings to VesselTwin.',
+    );
     h.plugin.stop();
   });
 });

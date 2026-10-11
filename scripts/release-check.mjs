@@ -23,6 +23,9 @@ const README_UPLOAD_COPY = [
   'Uploading is not available yet',
 ];
 const INGEST_ROUTE = '/v1/integrations/signalk/';
+// Stable README phrase required once UPLOAD_AVAILABLE is true.
+const README_CONSENT_COPY = 'Sending readings is off until you turn it on';
+const FORBIDDEN_MAPPING_RE = /navigation|position|mmsi|callsign|ais|design\./i;
 const REGISTRY = 'https://registry.npmjs.org/';
 const NPM_NAME_RE = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
 
@@ -369,44 +372,94 @@ export function checkVersionSync({ pkgVersion, pluginTs, readme }) {
   return f;
 }
 
-export function checkUploadHonesty({ mappingTs, pluginTs, readme, srcFiles }) {
+export function checkUploadHonesty({
+  mappingTs,
+  pluginTs,
+  readme,
+  srcFiles,
+  webFiles = [],
+  pkgDescription = '',
+}) {
   const f = [];
+  // Always: the closed path list stays free of location-like and identifying paths, and the
+  // ingest route is referenced only from the uploader module.
   const mapping = stripComments(mappingTs);
-  if (!/\bPATH_RULES\b[^=;]*=\s*\[\s*\]\s*;/.test(mapping)) {
+  if (FORBIDDEN_MAPPING_RE.test(mapping)) {
     f.push(
       err(
-        'upload/mapping-empty',
+        'upload/mapping-forbidden',
         'src/mapping.ts',
-        'PATH_RULES is not the empty list: upload work not approved; see AGENTS.md',
+        'mapping.ts mentions a location-like or identifying path; see AGENTS.md',
       ),
     );
-  }
-  if (!pluginTs.includes(NO_UPLOAD_COPY)) {
-    f.push(
-      err(
-        'upload/status-copy',
-        'src/plugin.ts',
-        'the "upload not available" status copy is missing',
-      ),
-    );
-  }
-  const norm = normaliseReadme(readme);
-  if (!README_UPLOAD_COPY.every((s) => norm.includes(s))) {
-    f.push(err('upload/readme', 'README.md', 'README no longer says that upload is unavailable'));
   }
   for (const file of srcFiles) {
+    if (file.path === 'src/uploader.ts') continue;
     file.text.split('\n').forEach((l, i) => {
       if (l.includes(INGEST_ROUTE)) {
         f.push(
           err(
             'upload/no-ingest-route',
             file.path,
-            'ingest route referenced: upload work not approved; see AGENTS.md',
+            'ingest route referenced outside src/uploader.ts; see AGENTS.md',
             i + 1,
           ),
         );
       }
     });
+  }
+
+  const flag = /\bconst\s+UPLOAD_AVAILABLE\b[^=;]*=\s*(true|false)\b/.exec(stripComments(pluginTs));
+  if (!flag) {
+    f.push(
+      err(
+        'upload/flag',
+        'src/plugin.ts',
+        'UPLOAD_AVAILABLE is not declared as a true/false literal',
+      ),
+    );
+    return f;
+  }
+  const norm = normaliseReadme(readme);
+  if (flag[1] === 'false') {
+    if (!pluginTs.includes(NO_UPLOAD_COPY)) {
+      f.push(
+        err(
+          'upload/status-copy',
+          'src/plugin.ts',
+          'the "upload not available" status copy is missing',
+        ),
+      );
+    }
+    if (!README_UPLOAD_COPY.every((s) => norm.includes(s))) {
+      f.push(err('upload/readme', 'README.md', 'README no longer says that upload is unavailable'));
+    }
+    return f;
+  }
+
+  // Upload is available: the "not available" copy must be gone and the README must say that
+  // sending is opt-in.
+  const stale = [
+    ...srcFiles.map((x) => ({ path: x.path, text: x.text })),
+    ...webFiles.map((x) => ({ path: x.path, text: x.text })),
+    { path: 'README.md', text: norm },
+    { path: 'package.json', text: pkgDescription },
+  ];
+  for (const file of stale) {
+    if (/not available in this version/i.test(file.text.replace(/\s+/g, ' '))) {
+      f.push(
+        err(
+          'upload/stale-copy',
+          file.path,
+          'upload is available but the "not available in this version" copy remains',
+        ),
+      );
+    }
+  }
+  if (!norm.includes(README_CONSENT_COPY)) {
+    f.push(
+      err('upload/consent', 'README.md', 'README lacks the opt-in sentence for sending readings'),
+    );
   }
   return f;
 }
@@ -589,17 +642,18 @@ function readFile(root, rel) {
   }
 }
 
-function walkSrc(root, rel) {
+function walkSrc(root, rel, optional = false) {
   const out = [];
   let entries;
   try {
     entries = readdirSync(join(root, rel), { withFileTypes: true });
   } catch {
+    if (optional) return [];
     throw new EnvError('cannot read src/');
   }
   for (const e of entries) {
     const p = `${rel}/${e.name}`;
-    if (e.isDirectory()) out.push(...walkSrc(root, p));
+    if (e.isDirectory()) out.push(...walkSrc(root, p, optional));
     else if (e.isFile()) out.push({ path: p, text: readFile(root, p) });
   }
   return out;
@@ -626,6 +680,8 @@ function loadContext(root) {
     apiMd: readFile(root, 'docs/api.md'),
     changelogText: readFile(root, CL),
     srcFiles: walkSrc(root, 'src'),
+    webFiles: walkSrc(root, 'web', true),
+    pkgDescription: typeof pkg.description === 'string' ? pkg.description : '',
   };
 }
 

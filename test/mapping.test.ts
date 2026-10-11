@@ -1,62 +1,72 @@
 import { describe, expect, it } from 'vitest';
-import { categoryFor, matchPath, PATH_RULES, type PathRule } from '../src/mapping';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { categoryFor, isPermittedPath, matchPath, PATH_RULES } from '../src/mapping';
 
 describe('mapping registry', () => {
-  it('is empty until upload ships', () => {
-    expect(PATH_RULES).toHaveLength(0);
+  it('has the six contract v2 path shapes', () => {
+    expect(PATH_RULES.map((r) => r.kind)).toEqual([
+      'engineRunTime',
+      'generatorRunTime',
+      'batteryVoltage',
+      'batteryStateOfCharge',
+      'tankLevel',
+      'tankVolume',
+    ]);
+    for (const r of PATH_RULES) {
+      expect(r.re.source.startsWith('^')).toBe(true);
+      expect(r.re.source.endsWith('$')).toBe(true);
+    }
   });
 
-  it('categorizes nothing today', () => {
-    for (const p of [
-      'navigation.position',
-      'propulsion.main.runTime',
-      'electrical.batteries.house.voltage',
-      'tanks.fuel.0.currentLevel',
-      'name',
-      '',
-    ]) {
+  it('categorizes the permitted paths', () => {
+    expect(categoryFor('propulsion.main.runTime')).toBe('engineHours');
+    expect(categoryFor('electrical.generators.gen1.runTime')).toBe('engineHours');
+    expect(categoryFor('electrical.batteries.house.voltage')).toBe('batteries');
+    expect(categoryFor('electrical.batteries.house.capacity.stateOfCharge')).toBe('batteries');
+    expect(categoryFor('tanks.fuel.0.currentLevel')).toBe('tanks');
+    expect(categoryFor('tanks.ballast.0.currentVolume')).toBe('tanks');
+    for (const p of ['navigation.position', 'name', '', 'tanks.diesel.0.currentLevel']) {
       expect(categoryFor(p)).toBeNull();
     }
+  });
+
+  it('returns category, unit and instance parts', () => {
+    expect(matchPath('propulsion.port.runTime')).toEqual({
+      category: 'engineHours',
+      unit: 's',
+      instance: 'port',
+    });
+    expect(matchPath('tanks.freshWater.2.currentVolume')).toEqual({
+      category: 'tanks',
+      unit: 'm3',
+      instance: 'freshWater.2',
+    });
+    expect(matchPath('electrical.batteries.h.capacity.stateOfCharge')?.unit).toBe('ratio');
+    expect(matchPath('electrical.batteries.h.voltage')?.unit).toBe('V');
+  });
+
+  it('isPermittedPath rejects non-strings and malformed paths', () => {
+    expect(isPermittedPath(5)).toBe(false);
+    expect(isPermittedPath(null)).toBe(false);
+    expect(isPermittedPath('propulsion..runTime')).toBe(false);
+    expect(isPermittedPath('propulsion.a.b.runTime')).toBe(false);
+    expect(isPermittedPath('xpropulsion.a.runTime')).toBe(false);
+    expect(isPermittedPath('propulsion.a.runTime\n')).toBe(false);
   });
 
   it('never permits location-like or identifying paths', () => {
     const banned = ['position', 'mmsi', 'callsign', 'ais', 'course', 'heading', 'track', 'name'];
     for (const rule of PATH_RULES) {
-      const pat = rule.pattern.toLowerCase();
+      const pat = rule.subscribe.toLowerCase();
       expect(pat.startsWith('navigation.')).toBe(false);
       for (const word of banned) expect(pat).not.toContain(word);
     }
-  });
-
-  it('matchPath matches nothing against the production rules', () => {
-    for (const p of [
-      'navigation.position',
-      'propulsion.main.runTime',
-      'tanks.fuel.0.currentLevel',
-      '',
-    ]) {
-      expect(matchPath(p)).toBeNull();
-    }
-  });
-
-  it('matchPath returns category, unit and the joined wildcard captures', () => {
-    const rules: PathRule[] = [
-      { pattern: 'test.alpha.*.value', category: 'engineHours', unit: 's' },
-      { pattern: 'test.gamma.*.*.level', category: 'tanks', unit: 'ratio' },
-      { pattern: 'test.delta.fixed', category: 'batteries', unit: 'V' },
-    ];
-    expect(matchPath('test.alpha.main.value', rules)).toEqual({
-      category: 'engineHours',
-      unit: 's',
-      instance: 'main',
-    });
-    expect(matchPath('test.gamma.fuel.0.level', rules)?.instance).toBe('fuel.0');
-    expect(matchPath('test.delta.fixed', rules)).toEqual({
-      category: 'batteries',
-      unit: 'V',
-      instance: '',
-    });
-    expect(matchPath('test.alpha.a.b.value', rules)).toBeNull();
-    expect(matchPath('xtest.alpha.main.value', rules)).toBeNull();
+    const src = readFileSync(join(__dirname, '..', 'src', 'mapping.ts'), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\*|\/\*|\/\/)/.test(l))
+      .join('\n')
+      .toLowerCase();
+    for (const word of banned) expect(src).not.toContain(word);
   });
 });

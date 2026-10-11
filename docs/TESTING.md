@@ -79,7 +79,10 @@ node dev/pair.mjs
 ```
 
 After a later `pnpm build`, restart the signalk container so it loads the new plugin code
-(`docker compose -f dev/docker-compose.yml restart signalk`, then `node dev/setup-signalk.mjs`);
+(`docker compose -f dev/docker-compose.yml restart signalk`, then
+`docker compose -f dev/docker-compose.yml restart relay`, then `node dev/setup-signalk.mjs`;
+the relay shares signalk's network namespace, so restart it after signalk, as a separate command,
+because one combined command makes it try to join the old namespace);
 `up -d --build` alone keeps serving the old code.
 
 `dev/pair.mjs` starts pairing, prints the pending status (with `pairing.userCode`), approves that code
@@ -90,10 +93,10 @@ final status: {"state":"connected","paired":true,"vesselLabel":"Mock Boat", ... 
 PAIRED (state: connected)
 ```
 
-The status line (admin UI) reads `Paired with Mock Boat. Data upload is
-not available in this version.` The mock mirrors the real server's contract window (min 1, latest 2),
-so `updateRecommended` is `true` in the admin `/status` response (an informational hint only; the
-status line does not mention it). The mock log shows `POST pairing/start`, `POST pairing/token`, then `GET status` (200, with
+The status line (admin UI) reads `Paired with Mock Boat. Sending readings is off in the plugin
+settings.` because sending is off by default (see "Track A: upload end to end" to turn it on). The
+mock mirrors the real server's contract window (min 1, latest 2) and the plugin speaks contract 2, so
+`updateRecommended` is `false` in the admin `/status` response. The mock log shows `POST pairing/start`, `POST pairing/token`, then `GET status` (200, with
 auth).
 
 ### Fault injections
@@ -101,7 +104,7 @@ auth).
 Inject with `fault`, restart the plugin (see above), then check `st` and `mlog`. Clear with
 `fault '{"route":"clear"}'`. Full option list: [dev/README.md](../dev/README.md).
 
-| Inject (`route: "status"`)                          | Expected `state`  | Status line (after `Paired with Mock Boat.`)                                                               |
+| Inject (`route: "status"`)                          | Expected `state`  | Status line (after `Paired with Mock Boat.`; sending off)                                                  |
 | --------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
 | `{"status":503}`                                    | `paused`          | `VesselTwin integrations are not available for your account right now. The plugin will keep checking. ...` |
 | `{"status":403}`                                    | `paused`          | `The connection is paused for your VesselTwin plan. The plugin will keep checking. ...`                    |
@@ -109,9 +112,12 @@ Inject with `fault`, restart the plugin (see above), then check `st` and `mlog`.
 | `{"status":426,"minContract":2}`                    | `update_required` | same as above                                                                                              |
 | `{"status":401}`                                    | `reauth_required` | `Pairing with VesselTwin is no longer valid. Pair again. ...` (no `Paired with` prefix)                    |
 | `{"status":429,"retryAfter":30}` or `5xx`           | `offline`         | `Cannot reach VesselTwin right now. The plugin will keep trying. ...`                                      |
-| `{"status":200,"minContract":1,"latestContract":1}` | `connected`       | same line as the default; `updateRecommended` is `false` (the default window 1..2 gives `true`)            |
+| `{"status":200,"minContract":1,"latestContract":1}` | `connected`       | same line as the default; `updateRecommended` is `false` (as with the default window 1..2)                 |
 
-Every line also ends with `Data upload is not available in this version.` unless noted.
+With sending on (see below) the `paused` and `offline` lines end with `Readings are kept for up to 7
+days.` and the `connected` line reads `Sending readings to VesselTwin.`; with sending off the lines
+carry neither. The `connected` line ends with `Sending readings is off in the plugin settings.` when it
+is off.
 
 Details worth checking:
 
@@ -157,6 +163,98 @@ Tear down (removes the SignalK volume and with it the stored credential):
 ```sh
 docker compose -f dev/docker-compose.yml down -v
 ```
+
+## Track A: upload end to end
+
+Checks that readings really flow from SignalK through the plugin to the mock, and that the fault paths
+behave. Local only: the plugin talks to the mock at `http://localhost:3001`, never production.
+
+**Saving the plugin settings replaces all of them**, so `node dev/setup-signalk.mjs` without
+`PLUGIN_CONFIG` switches sending off again, and a restart with sending off deletes any waiting
+readings. Pass the full settings every time you restart the plugin in this section:
+
+```sh
+CFG='{"uploadEnabled":true,"uploadIntervalMinutes":5,"engineHours":{"enabled":true},"batteries":{"enabled":true},"tanks":{"enabled":true}}'
+pnpm build && docker compose -f dev/docker-compose.yml up -d --build
+curl -s -X POST localhost:3001/__mock/reset
+PLUGIN_CONFIG="$CFG" node dev/setup-signalk.mjs
+node dev/pair.mjs
+node dev/feed-deltas.mjs --round 1      # permitted paths AND position, MMSI, names (all fake)
+```
+
+The status line now reads `Paired with Mock Boat. Sending readings to VesselTwin.` The first send comes
+one to five minutes after the plugin starts (then every `uploadIntervalMinutes`); each channel records
+at most once an hour at the fastest setting, so feed new `--round N` values after an hour of mock time
+or restart the plugin to record again. `GET localhost:3001/__mock/readings` shows every batch the mock
+accepted: the contract header, and per reading the id, path, value and `recordedAt`.
+
+**Steady value (security on).** SignalK does not replay cached values to plugins when security is on,
+so the plugin reads the current values from the server at start. After the first feed has been
+recorded, wait a minute, then re-save the same plugin settings (this restarts the plugin) and confirm
+`GET localhost:3001/__mock/readings` shows each steady channel exactly once. Re-save again: still no new
+reading. Note that after a SignalK **server** restart a value appears only once a device sends it again
+(the server keeps no values across restarts).
+
+Check:
+
+- [ ] Every batch has `contractHeader` `2`, only permitted paths (the six shapes in `docs/api.md`), and
+      `recordedAt` ending in `Z`. No `navigation`, `mmsi`, `name`, `callsign` or `design` path appears,
+      and the mock log shows no other `signalk/*` route:
+
+  ```sh
+  curl -s localhost:3001/__mock/readings | node -e '
+    const b=JSON.parse(require("fs").readFileSync(0,"utf8")).batches;
+    const r=b.flatMap(x=>x.readings);
+    console.log("contract",[...new Set(b.map(x=>x.contractHeader))],"readings",r.length);
+    console.log("bad paths",r.filter(x=>/navigation|mmsi|name|callsign|design/i.test(x.path)).length);
+    console.log("non-Z times",r.filter(x=>!x.recordedAt.endsWith("Z")).length)'
+  ```
+
+- [ ] Admin `/status` shows `upload.queued` 0, `upload.lastSentAt` set and `results.accepted` equal to
+      the number of readings the mock holds.
+- [ ] Setup prompt: `curl -s -X POST localhost:3001/__mock/summary -H 'content-type: application/json'
+-d '{"channels":3,"awaitingSetup":2,"held":0}'`, restart the plugin (full `PLUGIN_CONFIG` again);
+      the status line ends `Some channels need setup in VesselTwin.` and the VesselTwin page says
+      `2 channels need setup in the VesselTwin app.` Clear it with `{"summary":null}`.
+- [ ] 0.1.1-style settings send nothing: `PLUGIN_CONFIG='{"sendEngineHours":true,"sendBatteries":true,"sendTanks":true}'
+node dev/setup-signalk.mjs`, feed deltas, wait six minutes: the mock holds no new readings, the line
+      says `Sending readings is off in the plugin settings.`, and `upload.warnings` contains
+      `legacy_send_settings`.
+
+### Upload faults
+
+Inject with `fault` on route `signalk/readings`, feed a new round so something is queued, and watch
+`st` and the mock log (`mlog`; fault entries are marked). Run the ones that do not stick first.
+
+With the default 1440-minute record interval a channel records at most once a day, so after the first
+upload a new feed round queues nothing. Before each fault test, unpair and pair again (which clears
+the queue and the saved channel state), or lower the record interval.
+
+| Inject (`route: "signalk/readings"`) | Expected                                                                                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{"status":500}`                     | Readings stay queued (`upload.queued` > 0), retries back off from 5 s; after `fault clear` they go out with the same ids                     |
+| `{"status":429,"retryAfter":30}`     | Backs off and does not retry before 30 s; queue kept                                                                                         |
+| `{"status":413,"once":true}`         | The batch is halved and sent again; nothing is lost                                                                                          |
+| `{"status":503}`                     | Paused: status line says `...will keep checking. Readings are kept for up to 7 days.`; the queue is kept; no retry for an hour               |
+| `{"status":426}`                     | `update_required` (status line: `Update the plugin.`), uploading stops, the queue is kept; sticky until the plugin restarts                  |
+| `{"status":401}`                     | `reauth_required` (`Pair again.`), a tombstone replaces the credential, uploading and probing stop. Pairing again starts with an empty queue |
+
+Restart the plugin after each sticky one (`426`, `401`, and `503` if you do not want to wait an hour).
+
+### Replay after a restart
+
+1. `fault '{"route":"signalk/readings","status":500}'`, then `node dev/feed-deltas.mjs --round 2`.
+2. Wait until `upload.queued` is above 0, and list the queued ids and paths from the container:
+
+   ```sh
+   docker exec vesseltwin-dev-signalk-1 sh -c 'cat /home/node/.signalk/plugin-config-data/signalk-vesseltwin/queue/seg-*.ndjson' \
+     | node -e 'require("fs").readFileSync(0,"utf8").trim().split("\n").forEach(l=>{const r=JSON.parse(l);console.log(r.clientReadingId,r.path)})'
+   ```
+
+3. Restart the plugin with the same full `PLUGIN_CONFIG`, then `fault '{"route":"clear"}'`.
+4. Within a few minutes the mock receives exactly those ids (`GET /__mock/readings`), `upload.queued`
+   returns to 0, and the mock never reports one as `rejected` (`results` in `/status` shows `accepted`,
+   not `duplicate` or `rejected`, for the replayed ones).
 
 ## Track B: a VesselTwin API running locally
 
@@ -207,15 +305,16 @@ After a successful pairing (either track), and before `down -v`:
       credential.
 - [ ] Checking the settings form: sign in at `/admin/` with the rig login from `dev/README.md`, then
       open Plugin Config > VesselTwin. The record intervals default to 1440, "Record from" appears once per
-      section, a bad id blocks Save, and tank ids need the form `type.id`.
+      section, no description says "not active" or "future release", a bad id blocks Save, and tank ids need the form `type.id`.
 - [ ] The webapp: with the plugin enabled, Webapps lists VesselTwin (with the plugin disabled it does
       not). `GET /signalk-vesseltwin/` serves the page with no login (static files only);
       `GET /plugins/signalk-vesseltwin/status` without a token still answers 401. Open
       `/signalk-vesseltwin/` in a browser signed in as admin: Pair shows the code and a link, a
       countdown runs, Cancel returns to Not paired, and Pair again plus approving on the mock ends in
       Connected. Unpair asks for a second click before it acts. Signed out, the page says to sign in as
-      an administrator and links to the SignalK login. The honesty line "Data upload is not
-      available in this version." stays visible in every state.
+      an administrator and links to the SignalK login. Once paired, the page lists whether
+      sending is on, how many channels need setup, how many readings wait and when the last batch went
+      out; there is no "upload not available" notice anywhere.
 - [ ] Cancel racing an approval: if you approve in the mock (or VesselTwin) just as you press Cancel,
       the connection may be created on the VesselTwin side while the page shows Not paired. Remove it
       in VesselTwin (the plugin cannot revoke it).
@@ -230,5 +329,5 @@ After a successful pairing (either track), and before `down -v`:
       UUID (bare or with that prefix); a server id based on an MMSI is left out.
 - [ ] Unpair removes `credential.json`, the state is `not_paired`, and the status line says to revoke
       the connection in VesselTwin too (until the next start or pairing).
-- [ ] Nothing else is sent: the mock log lists only `pairing/start`, `pairing/token` and `status`
-      requests.
+- [ ] With sending off (the default), nothing else is sent: the mock log lists only `pairing/start`,
+      `pairing/token` and `status` requests, and `GET /__mock/readings` is empty.

@@ -8,6 +8,9 @@
 //
 // Env: SK_PORT (3100)  SK_URL (overrides the URL)  SK_ADMIN_USER (dev-admin)
 //      SK_ADMIN_PASSWORD (dev-admin-password)  PLUGIN_API_URL (http://localhost:3001)
+//      PLUGIN_CONFIG (JSON object merged over { apiBaseUrl }, e.g. to turn sending on:
+//        '{"uploadEnabled":true,"batteries":{"enabled":true}}'). Saving replaces ALL plugin
+//        settings, so without it sending is switched off again and waiting readings are cleared.
 // Developed against signalk-server 2.33.0 (the image tag pinned in docker-compose.yml).
 import { saveToken } from './token-store.mjs';
 
@@ -16,6 +19,19 @@ const user = process.env.SK_ADMIN_USER ?? 'dev-admin';
 const password = process.env.SK_ADMIN_PASSWORD ?? 'dev-admin-password'; // fake, local rig only
 const apiBaseUrl = process.env.PLUGIN_API_URL ?? 'http://localhost:3001';
 const json = { 'content-type': 'application/json' };
+let extraConfig = {};
+if (process.env.PLUGIN_CONFIG) {
+  try {
+    extraConfig = JSON.parse(process.env.PLUGIN_CONFIG);
+  } catch {
+    console.error('PLUGIN_CONFIG is not valid JSON');
+    process.exit(1);
+  }
+  if (typeof extraConfig !== 'object' || extraConfig === null || Array.isArray(extraConfig)) {
+    console.error('PLUGIN_CONFIG must be a JSON object');
+    process.exit(1);
+  }
+}
 
 async function login() {
   return fetch(`${base}/signalk/v1/auth/login`, {
@@ -60,7 +76,7 @@ const auth = { ...json, authorization: `Bearer ${token}` };
 const cfg = await fetch(`${base}/skServer/plugins/signalk-vesseltwin/config`, {
   method: 'POST',
   headers: auth,
-  body: JSON.stringify({ enabled: true, configuration: { apiBaseUrl } }),
+  body: JSON.stringify({ enabled: true, configuration: { apiBaseUrl, ...extraConfig } }),
 });
 console.log('plugin config saved:', cfg.status);
 

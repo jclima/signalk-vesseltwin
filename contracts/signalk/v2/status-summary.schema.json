@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "channels": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "awaitingSetup": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "held": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "channels",
+    "awaitingSetup",
+    "held"
+  ],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SignalkStatusSummaryV2"
+}

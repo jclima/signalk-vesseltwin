@@ -8,9 +8,10 @@ Volatile detail lives in the code (`ls src test`), `README.md`, and `docs/api.md
 
 `signalk-vesseltwin` is a public, Apache-2.0 [SignalK](https://signalk.org) server plugin that pairs a
 boat's SignalK server with VesselTwin (the owner approves a device code in the VesselTwin web app) and,
-in a later release, uploads engine hours, battery readings and tank levels to the boat's maintenance
-record. Status: version 0.1.1, published to npm. Pairing and credential handling work; **uploading is not built**
-and the plugin must say so honestly (status line: "Data upload is not available in this version").
+when the owner turns it on, uploads engine hours, battery readings and tank levels to the boat's
+maintenance record. Status: version 0.1.1 is published to npm; upload is built and off by default.
+Pairing, credential handling and upload work. **Sending readings is off by default** and
+needs the owner's explicit `uploadEnabled` setting plus a category.
 
 ## Commands
 
@@ -44,7 +45,11 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 - `src/redact.ts` secret redaction for anything that may be logged
 - `src/config.ts` settings schema and defensive parsing (API URL rules)
 - `src/contract.ts` wire constants and types mirrored from the platform contract
-- `src/mapping.ts` permitted-path list, intentionally empty until upload ships; `src/ids.ts` UUIDv7
+- `src/mapping.ts` closed list of permitted paths (equals the schema allowlist); `src/ids.ts` UUIDv7
+- `src/collector.ts` SignalK subscriptions for the active categories; `src/sampler.ts` record policy;
+  `src/uploader.ts` store-and-forward sender (the only module that knows the ingest route);
+  `src/wire.ts` validators for the contract 2 wire shapes
+- `contracts/signalk/v2/` vendored ingest JSON Schemas and fixtures, byte-identical to the platform's
 - `scripts/check-public.mjs` public-repo guard (forbidden files, secrets, personal paths, tarball contents)
 - `scripts/release-check.mjs` release-train checks (version sync, changelog, upload honesty, tag, registry); `docs/RELEASING.md`
 - `web/` pairing page sources (`view.ts` and `controller.ts` are DOM-free logic, `app.ts` is DOM glue;
@@ -86,7 +91,7 @@ list of permitted paths; never add anything location-like.
   forward raw fetch errors.
 - Show the user code only in the `/status` response while pairing is pending. Plugin routes are
   admin-only when SignalK security is enabled (open to the LAN when it is off). The status
-  line is broadcast to read-only and anonymous clients and never carries the code or the URL.
+  line is broadcast to read-only and anonymous clients and never carries counts, codes or the URL.
 - The credential is bound to `apiOrigin`: it is only ever sent to that origin. Never send it elsewhere.
 - Keep the same-origin (`Origin`) check (`guarded`) on every plugin route.
 - Credentials are write-scoped. Treat any change to storage, logging or redaction as security-sensitive.
@@ -112,13 +117,13 @@ repaired; acks rewrite via temp file + rename; segments rotate. Caps: 7 days and
 oldest dropped first and the drop count surfaced in status. Single writer. Each reading carries a
 UUIDv7 `clientReadingId` and its original `recordedAt` so replays are idempotent.
 
-**Upload not built yet.** The platform's ingest API is defined under a newer contract version than the
-plugin's current `CONTRACT_VERSION`. Do not build, guess or call any `/v1/integrations/signalk/*` route,
-and do not invent request shapes, bump `CONTRACT_VERSION`, or add a path to `src/mapping.ts`, until (1) the
-ingest JSON Schema for that contract version has been vendored into this repo with a contract test that
-validates fixtures against it, and (2) the owner explicitly says to start upload work in that session.
-Until then the plugin pairs, stores the credential, monitors status, and reports that upload is
-unavailable.
+**Upload contract.** The uploader speaks only the vendored contract in `contracts/signalk/v2` (files
+byte-identical to the platform's, hashes in `SOURCE.json`, covered by `test/contract-v2.test.ts`). Any
+contract change needs re-vendoring, an updated contract test and an explicit go-ahead from the owner in
+that session; never invent request shapes or bump `CONTRACT_VERSION` otherwise. `src/mapping.ts` must
+equal the schema's path allowlist. Only `src/uploader.ts` may contain the ingest route. Upload stays off
+by default and sends nothing without the owner's explicit `uploadEnabled`; old `send*` settings never
+enable it.
 
 ## Public repo hygiene
 

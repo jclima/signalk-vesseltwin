@@ -4,7 +4,12 @@ import {
   EXPIRED_COPY,
   GENERIC_STATUS_COPY,
   KNOWN_STATES,
-  UPLOAD_NOTICE,
+  LEGACY_COPY,
+  LEGACY_SEND_WARNING,
+  SENDING_OFF_COPY,
+  SENDING_ON_COPY,
+  SUBSCRIPTIONS_COPY,
+  SUBSCRIPTIONS_UNAVAILABLE,
   actionsFor,
   cleanText,
   describeProblem,
@@ -13,7 +18,8 @@ import {
   parseStatus,
   remainingSeconds,
   safeVerificationUrl,
-  stripUploadNotice,
+  formatLastSent,
+  uploadLines,
 } from '../web/view.js';
 
 const BIDI = '‮';
@@ -233,9 +239,13 @@ describe('describeStatus and actions', () => {
       describeStatus(model('connected', { warnings: 'credential_permissions' }), null).warning,
     ).toBeNull();
   });
-  it('strips an exact trailing upload notice only', () => {
-    expect(stripUploadNotice(`Paired. ${UPLOAD_NOTICE}`)).toBe('Paired.');
-    expect(stripUploadNotice(`${UPLOAD_NOTICE} Paired.`)).toBe(`${UPLOAD_NOTICE} Paired.`);
+  it('shows the server message as it is, with no permanent upload notice', () => {
+    const m = model('connected', {
+      message: 'Paired with Sea Hag. Sending readings to VesselTwin.',
+    });
+    expect(describeStatus(m, null).message).toBe(
+      'Paired with Sea Hag. Sending readings to VesselTwin.',
+    );
   });
 });
 
@@ -266,5 +276,90 @@ describe('describeProblem', () => {
         message: 'Cannot reach the plugin.',
       });
     }
+  });
+});
+
+describe('upload lines', () => {
+  const NOW = Date.parse('2026-01-01T12:00:00.000Z');
+  const mk = (upload: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    parseStatus({ state: 'connected', paired: true, message: 'x', upload, ...extra });
+  const sendingOn = {
+    enabled: true,
+    categories: { batteries: { active: true } },
+    queued: 0,
+    lastSentAt: null,
+  };
+
+  it('says sending is off, and nothing else, for default settings', () => {
+    expect(uploadLines(mk({ enabled: false, categories: {} }), NOW)).toEqual([SENDING_OFF_COPY]);
+  });
+  it('treats a switch with no active category as off', () => {
+    const m = mk({ enabled: true, categories: { batteries: { active: false } } });
+    expect(uploadLines(m, NOW)).toEqual([SENDING_OFF_COPY]);
+  });
+  it('shows on, queue and never-sent when sending is on', () => {
+    expect(uploadLines(mk({ ...sendingOn, queued: 3 }), NOW)).toEqual([
+      SENDING_ON_COPY,
+      '3 readings are waiting to be sent.',
+      'Nothing has been sent yet.',
+    ]);
+    expect(uploadLines(mk({ ...sendingOn, queued: 1 }), NOW)[1]).toBe(
+      '1 reading is waiting to be sent.',
+    );
+  });
+  it('shows how long ago the last batch went out', () => {
+    const m = mk({ ...sendingOn, lastSentAt: '2026-01-01T11:55:00.000Z' });
+    expect(uploadLines(m, NOW).at(-1)).toBe('Last sent: 5 minutes ago.');
+  });
+  it('says channels need setup, singular and plural, only above zero', () => {
+    const setup = (n: number) =>
+      uploadLines(mk({ ...sendingOn, summary: { awaitingSetup: n } }), NOW);
+    expect(setup(2)).toContain('2 channels need setup in the VesselTwin app.');
+    expect(setup(1)).toContain('1 channel needs setup in the VesselTwin app.');
+    expect(setup(0).join(' ')).not.toMatch(/setup/);
+  });
+  it('asks to turn sending on again for old settings, but only while it is off', () => {
+    expect(
+      uploadLines(mk({ enabled: false, categories: {}, warnings: [LEGACY_SEND_WARNING] }), NOW),
+    ).toEqual([LEGACY_COPY, SENDING_OFF_COPY]);
+    expect(LEGACY_COPY).toBe(
+      'Sending readings now needs to be turned on again in the plugin settings.',
+    );
+    const on = mk({ ...sendingOn, warnings: [LEGACY_SEND_WARNING] });
+    expect(uploadLines(on, NOW)).not.toContain(LEGACY_COPY);
+  });
+  it('shows only the subscription message when the server cannot provide readings', () => {
+    const m = mk({ ...sendingOn, unavailableReason: SUBSCRIPTIONS_UNAVAILABLE });
+    expect(uploadLines(m, NOW)).toEqual([SUBSCRIPTIONS_COPY]);
+  });
+  it('shows nothing when unpaired, re-pair is needed, or the block is missing or junk', () => {
+    expect(uploadLines(parseStatus({ state: 'not_paired', paired: false }), NOW)).toEqual([]);
+    expect(
+      uploadLines(parseStatus({ state: 'reauth_required', paired: false, upload: sendingOn }), NOW),
+    ).toEqual([]);
+    for (const junk of [null, 'x', 7, [], { queued: 'many', summary: 'x', categories: 'x' }]) {
+      const m = parseStatus({ state: 'connected', paired: true, upload: junk });
+      expect(uploadLines(m, NOW)).toEqual([SENDING_OFF_COPY]);
+    }
+  });
+  it('is carried by describeStatus and takes the clock from the caller', () => {
+    const m = mk({ ...sendingOn, lastSentAt: '2026-01-01T11:00:00.000Z' });
+    expect(describeStatus(m, null, NOW).uploadLines.at(-1)).toBe('Last sent: 1 hour ago.');
+    expect(describeStatus(m, null).uploadLines.at(-1)).toBe('Last sent: 2026-01-01 11:00 UTC.');
+  });
+});
+
+describe('formatLastSent', () => {
+  const NOW = Date.parse('2026-01-03T12:00:00.000Z');
+  it('rounds down to minutes, hours and days', () => {
+    expect(formatLastSent('2026-01-03T11:59:40.000Z', NOW)).toBe('just now');
+    expect(formatLastSent('2026-01-03T11:59:00.000Z', NOW)).toBe('1 minute ago');
+    expect(formatLastSent('2026-01-03T09:30:00.000Z', NOW)).toBe('2 hours ago');
+    expect(formatLastSent('2026-01-01T12:00:00.000Z', NOW)).toBe('2 days ago');
+  });
+  it('falls back to a UTC stamp without a clock or for a time in the future', () => {
+    expect(formatLastSent('2026-01-03T09:30:00.000Z', null)).toBe('2026-01-03 09:30 UTC');
+    expect(formatLastSent('2026-01-03T13:30:00.000Z', NOW)).toBe('2026-01-03 13:30 UTC');
+    expect(formatLastSent('garbage', NOW)).toBe('');
   });
 });

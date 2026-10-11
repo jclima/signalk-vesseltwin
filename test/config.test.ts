@@ -5,9 +5,12 @@ import {
   MAX_CHANNELS,
   MAX_READINGS_PER_CHANNEL_PER_DAY,
   parseOptions,
+  LEGACY_SEND_WARNING,
   QUEUE_FLOOR_FOR_FULL_LOAD,
+  TANK_TYPES,
   UPLOAD_CATEGORIES,
 } from '../src/config';
+import { matchPath } from '../src/mapping';
 
 const url = (v: unknown) => parseOptions({ apiBaseUrl: v }).apiBaseUrl;
 const err = (v: unknown) => parseOptions({ apiBaseUrl: v }).configError;
@@ -63,10 +66,13 @@ describe('parseOptions apiBaseUrl', () => {
 });
 
 describe('parseOptions numbers and booleans', () => {
-  it('clamps samplePeriodSeconds', () => {
-    expect(parseOptions({ samplePeriodSeconds: 1 }).samplePeriodSeconds).toBe(10);
-    expect(parseOptions({ samplePeriodSeconds: 10 ** 9 }).samplePeriodSeconds).toBe(3_600);
-    expect(parseOptions({ samplePeriodSeconds: 60 }).samplePeriodSeconds).toBe(60);
+  it('tolerates a saved samplePeriodSeconds, ignores it, and no longer offers it', () => {
+    for (const v of [1, 60, 10 ** 9, 'x', null, NaN, {}]) {
+      const o = parseOptions({ samplePeriodSeconds: v });
+      expect(o).toEqual(parseOptions({}));
+      expect(o).not.toHaveProperty('samplePeriodSeconds');
+    }
+    expect(Object.keys(configSchema.properties)).not.toContain('samplePeriodSeconds');
   });
 
   it('clamps queueMaxReadings', () => {
@@ -76,8 +82,7 @@ describe('parseOptions numbers and booleans', () => {
   });
 
   it.each([NaN, Infinity, -Infinity, '60', null, {}])('falls back to defaults for %j', (v) => {
-    const o = parseOptions({ samplePeriodSeconds: v, queueMaxReadings: v });
-    expect(o.samplePeriodSeconds).toBe(300);
+    const o = parseOptions({ queueMaxReadings: v });
     expect(o.queueMaxReadings).toBe(50_000);
   });
 
@@ -90,9 +95,9 @@ describe('parseOptions numbers and booleans', () => {
       vesselInfo: false,
     });
     const o = parseOptions({
-      sendEngineHours: true,
-      sendBatteries: 'no',
-      sendTanks: false,
+      engineHours: { enabled: true },
+      batteries: { enabled: 'no' },
+      tanks: { enabled: false },
       sendVesselInfo: true,
     });
     expect(o.categories).toEqual({
@@ -143,17 +148,17 @@ describe('upload settings defaults', () => {
     expect(u.engineHours.minChangeHours).toBe(0.1);
     expect(u.batteries).toMatchObject({ minChangeVolts: 0, minChangePercent: 0 });
     expect(u.tanks).toMatchObject({ minChangePercent: 0, minChangeLiters: 0 });
-    expect(parseOptions({}).samplePeriodSeconds).toBe(300);
+    expect(parseOptions({}).uploadEnabled).toBe(false);
+    expect(parseOptions({}).activeCategories).toEqual([]);
     expect(parseOptions({}).queueMaxReadings).toBe(50_000);
     expect(parseOptions({}).warnings).toEqual([]);
   });
 
-  it('defaults every upload category to off in the schema, and says upload is unavailable', () => {
+  it('defaults every upload category to off in the schema, with plain copy', () => {
     for (const cat of UPLOAD_CATEGORIES) {
       const node = child(schemaRoot, cat);
       expect((child(node, 'enabled') as { default?: unknown }).default).toBe(false);
-      expect(node.description).toContain('Data upload is not available in this version');
-      expect(node.description).toContain('future release');
+      expect(node.description).toContain('"Send readings to VesselTwin" is on');
     }
   });
 
@@ -162,30 +167,9 @@ describe('upload settings defaults', () => {
     expect(Object.keys(configSchema.properties)).not.toContain('sendVesselInfo');
   });
 
-  it('says "Not active yet." once per upload section, never on individual fields', () => {
-    const hits: string[] = [];
-    const walk = (node: Record<string, unknown>, trail: string): void => {
-      const d = node.description;
-      if (typeof d === 'string') {
-        const n = d.split('Not active yet.').length - 1;
-        expect(n, trail).toBeLessThanOrEqual(1);
-        if (n === 1) hits.push(trail);
-      }
-      const props = (node.properties ?? {}) as Record<string, Record<string, unknown>>;
-      for (const [k, v] of Object.entries(props)) walk(v, trail ? `${trail}.${k}` : k);
-    };
-    const root = configSchema as unknown as { properties: Record<string, Record<string, unknown>> };
-    for (const [k, v] of Object.entries(root.properties)) walk(v, k);
-    expect(hits.sort()).toEqual(
-      [
-        'batteries',
-        'engineHours',
-        'queueMaxReadings',
-        'samplePeriodSeconds',
-        'tanks',
-        'uploadIntervalMinutes',
-      ].sort(),
-    );
+  it('has no "not active" or "future release" copy anywhere in the schema', () => {
+    const text = JSON.stringify(configSchema);
+    expect(text).not.toMatch(/not active|not available|future release/i);
   });
 
   it('shows the format hint once on the id items and the list hint in the array title only, with friendly labels', () => {
@@ -220,22 +204,86 @@ describe('upload settings defaults', () => {
   });
 });
 
-describe('upload settings precedence', () => {
-  it('uses nested enabled when boolean, else the legacy toggle, else the default', () => {
+describe('upload master switch and legacy settings', () => {
+  it('has a boolean uploadEnabled schema entry, default false, that says nothing is sent until on', () => {
+    const n = child(schemaRoot, 'uploadEnabled') as Node & { type?: string; default?: unknown };
+    expect(n.type).toBe('boolean');
+    expect(n.default).toBe(false);
+    expect(n.title).toBe('Send readings to VesselTwin');
+    expect(n.description).toContain('Nothing is sent until this is on');
+    expect(n.description).not.toMatch(/not available|not active|future release/i);
+  });
+
+  it('a 0.1.1-shaped object with send* true activates nothing and warns', () => {
     const o = parseOptions({
-      sendEngineHours: false,
-      engineHours: { enabled: true },
-      sendBatteries: false,
-      batteries: {},
+      sendEngineHours: true,
+      sendBatteries: true,
       sendTanks: true,
-      tanks: { enabled: 'no' },
+      sendVesselInfo: false,
+      samplePeriodSeconds: 300,
     });
-    expect(o.upload.engineHours.enabled).toBe(true);
-    expect(o.upload.batteries.enabled).toBe(false);
-    expect(o.upload.tanks.enabled).toBe(true);
-    expect(o.categories).toMatchObject({ engineHours: true, batteries: false, tanks: true });
-    expect(parseOptions({ sendTanks: 'x' }).upload.tanks.enabled).toBe(false);
-    expect(parseOptions({ tanks: { enabled: 'no' } }).upload.tanks.enabled).toBe(false);
+    expect(o.uploadEnabled).toBe(false);
+    expect(o.activeCategories).toEqual([]);
+    expect(o.categories).toEqual({
+      engineHours: false,
+      batteries: false,
+      tanks: false,
+      vesselInfo: false,
+    });
+    for (const c of [o.upload.engineHours, o.upload.batteries, o.upload.tanks]) {
+      expect(c.enabled).toBe(false);
+      expect(c.active).toBe(false);
+    }
+    expect(o.warnings).toEqual([LEGACY_SEND_WARNING]);
+    expect(LEGACY_SEND_WARNING).toBe('legacy_send_settings');
+  });
+
+  it('even with uploadEnabled, a legacy send* never enables a category', () => {
+    const o = parseOptions({ uploadEnabled: true, sendTanks: true });
+    expect(o.activeCategories).toEqual([]);
+    expect(o.warnings).toContain(LEGACY_SEND_WARNING);
+  });
+
+  it('only a literal true counts as a legacy setting', () => {
+    expect(parseOptions({ sendTanks: false, sendBatteries: 'yes' }).warnings).toEqual([]);
+  });
+
+  it('uploadEnabled off keeps every enabled category inactive', () => {
+    const cats = {
+      engineHours: { enabled: true },
+      batteries: { enabled: true },
+      tanks: { enabled: true },
+    };
+    for (const v of [false, undefined, 'true', 1, null]) {
+      const o = parseOptions({ uploadEnabled: v, ...cats });
+      expect(o.uploadEnabled).toBe(false);
+      expect(o.activeCategories).toEqual([]);
+      expect(o.upload.uploadEnabled).toBe(false);
+      expect(o.upload.engineHours).toMatchObject({ enabled: true, active: false });
+      expect(o.categories).toMatchObject({ engineHours: true, batteries: true, tanks: true });
+    }
+  });
+
+  it('uploadEnabled with enabled categories activates exactly those', () => {
+    const o = parseOptions({
+      uploadEnabled: true,
+      engineHours: { enabled: true },
+      batteries: { enabled: false },
+      tanks: { enabled: true, instances: { mode: 'selected', ids: ['fuel.0'] } },
+    });
+    expect(o.uploadEnabled).toBe(true);
+    expect(o.activeCategories).toEqual(['engineHours', 'tanks']);
+    expect(o.upload.batteries.active).toBe(false);
+    expect(o.warnings).toEqual([]);
+  });
+
+  it('uploadEnabled with a selected category that has no valid ids stays inactive and warns', () => {
+    const o = parseOptions({
+      uploadEnabled: true,
+      tanks: { enabled: true, instances: { mode: 'selected', ids: ['fuel'] } },
+    });
+    expect(o.activeCategories).toEqual([]);
+    expect(o.warnings.join(' ')).toMatch(/no valid instances/);
   });
 });
 
@@ -281,15 +329,13 @@ describe('upload settings clamping', () => {
     for (const bad of ['5', null, NaN, Infinity, {}, true]) expect(set(bad)).toBe(def);
   });
 
-  it('clamps the global upload interval and sample period', () => {
+  it('clamps the global upload interval', () => {
     const g = (v: unknown) =>
       parseOptions({ uploadIntervalMinutes: v }).upload.uploadIntervalMinutes;
     expect(g(1)).toBe(5);
     expect(g(10 ** 6)).toBe(1440);
     expect(g(30)).toBe(30);
     expect(g('x')).toBe(1440);
-    expect(parseOptions({ samplePeriodSeconds: 86_400 }).samplePeriodSeconds).toBe(3_600);
-    expect(parseOptions({ samplePeriodSeconds: 1 }).samplePeriodSeconds).toBe(10);
   });
 });
 
@@ -357,7 +403,7 @@ describe('instance ids', () => {
   });
 
   it('accepts and rejects tank ids by pattern', () => {
-    const good = ['fuel.0', 'freshWater.main', 'a.b', `${'a'.repeat(31)}.${'b'.repeat(40)}`];
+    const good = ['fuel.0', 'freshWater.main', 'gas.a_b-c', `ballast.${'b'.repeat(40)}`];
     const bad = [
       'fuel',
       'fuel.',
@@ -365,10 +411,34 @@ describe('instance ids', () => {
       '0fuel.1',
       'fuel.0.1',
       'fu_el.0',
-      `${'a'.repeat(32)}.1`,
-      'fuel.' + 'x'.repeat(41),
+      'a.b',
+      'Fuel.0',
+      'fuels.0',
+      'fuelx.0',
+      'water.0',
+      'freshwater.0',
+      'fuel.a b',
+      `fuel.${'x'.repeat(41)}`,
     ];
     expect(ids('tanks', [...good, ...bad]).instanceIds).toEqual(good);
+  });
+
+  it('accepts every one of the 9 tank types and nothing else as the type', () => {
+    expect(TANK_TYPES).toHaveLength(9);
+    for (const t of TANK_TYPES) {
+      expect(ids('tanks', [`${t}.0`, `${t}.main-1`]).instanceIds).toEqual([
+        `${t}.0`,
+        `${t}.main-1`,
+      ]);
+      expect(ids('tanks', [`${t}x.0`, `x${t}.0`, t]).instanceIds).toEqual([]);
+    }
+  });
+
+  it('stays consistent with the permitted tank paths in mapping', () => {
+    for (const t of [...TANK_TYPES, 'fuels', 'water', 'Fuel']) {
+      const permitted = matchPath(`tanks.${t}.0.currentLevel`)?.instance === `${t}.0`;
+      expect(permitted, t).toBe(TANK_TYPES.includes(t));
+    }
   });
 
   it('dedupes, caps at 64, and treats non-arrays as empty', () => {
@@ -383,14 +453,17 @@ describe('instance ids', () => {
     expect(c.enabled).toBe(true);
     expect(c.active).toBe(false);
     const o = parseOptions({
+      uploadEnabled: true,
       engineHours: { enabled: true, instances: { mode: 'selected', ids: [] } },
     });
     expect(o.upload.engineHours.active).toBe(false);
     expect(o.warnings.join(' ')).toMatch(/no valid instances/);
     // all mode ignores the list
     expect(
-      parseOptions({ engineHours: { enabled: true, instances: { mode: 'all', ids: [] } } }).upload
-        .engineHours.active,
+      parseOptions({
+        uploadEnabled: true,
+        engineHours: { enabled: true, instances: { mode: 'all', ids: [] } },
+      }).upload.engineHours.active,
     ).toBe(true);
     // unknown mode falls back to all
     expect(
@@ -469,6 +542,7 @@ describe('parseOptions properties', () => {
         tanks: junk(r),
         uploadIntervalMinutes: junk(r),
         samplePeriodSeconds: junk(r),
+        uploadEnabled: junk(r),
         queueMaxReadings: junk(r),
         instances: junk(r),
       };
@@ -476,8 +550,8 @@ describe('parseOptions properties', () => {
       const u = o.upload;
       expect(u.uploadIntervalMinutes).toBeGreaterThanOrEqual(5);
       expect(u.uploadIntervalMinutes).toBeLessThanOrEqual(1440);
-      expect(o.samplePeriodSeconds).toBeGreaterThanOrEqual(10);
-      expect(o.samplePeriodSeconds).toBeLessThanOrEqual(3600);
+      expect(o).not.toHaveProperty('samplePeriodSeconds');
+      if (!o.uploadEnabled) expect(o.activeCategories).toEqual([]);
       expect(o.queueMaxReadings).toBeGreaterThanOrEqual(1000);
       expect(o.queueMaxReadings).toBeLessThanOrEqual(50_000);
       for (const c of [u.engineHours, u.batteries, u.tanks]) {

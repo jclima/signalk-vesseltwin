@@ -8,29 +8,52 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Status line "Sending is on; waiting for readings from SignalK." until a first reading is recorded.
+- Downgrade note: turn sending off before going back to 0.1.x so waiting readings are deleted.
+- Upload of engine and generator hours, battery voltage and state of charge, and tank level and
+  volume to the boat's maintenance record. **Off by default**: nothing is sent until the owner turns
+  on "Send readings to VesselTwin" and a category in the plugin settings. Only the SignalK path
+  (with the owner's instance id), the raw value, a UTC timestamp and a random reading id are sent;
+  never position, MMSI, names or AIS.
+- A "channels need setup" prompt: when VesselTwin is waiting for the owner to map or confirm
+  channels, the status line says so (without numbers) and the VesselTwin page shows how many.
+- A store-and-forward queue on disk (7 days, 50,000 readings, oldest dropped first) so readings
+  survive outages and restarts, with idempotent replays. The VesselTwin page shows whether sending
+  is on, how many readings are waiting and when the last batch went out.
 - Upload settings per category (engine hours, batteries, tanks): on/off, how often to record
-  (60 to 1440 minutes), minimum change, and which instances. Also a single send interval. They are
-  checked and shown in the admin status, but not active yet: upload is still not available.
-  Defaults send the least data (at most once a day).
+  (60 to 1440 minutes), minimum change, and which instances. Also a single send interval. Defaults
+  send the least data (at most once a day).
 
 ### Fixed
 
+- Saved channel state is never rewritten after the queue was cleared, is sanity-checked when loaded,
+  and the queue is cleared when sending is on but no category is selected. A 401 during start no
+  longer leaves a collector running.
 - Saving the pairing credential works on filesystems that do not support changing file
   permissions (for example FAT-formatted USB drives). When the file cannot be restricted to the
   server's user there, the plugin page now warns about it (admin only; nothing in the status line).
 - Two overlapping unpair requests no longer reopen pairing before the later one has finished.
 - Restarting the plugin while an unpair is in progress no longer leaves the status monitor in an
   inconsistent state.
-- The sampler keeps readings in raw SignalK (SI) units for upload; conversion happens server-side.
-- Upload settings form: tank ids such as `fuel.0` are no longer rejected by the form, the "not active"
-  note appears once per section, labels and hints are clearer, and the admin status reports both the
-  configured (`enabled`) and effective (`active`) state per category.
+- Readings are kept in raw SignalK (SI) units for upload; conversion happens server-side.
+- Upload settings form: tank ids such as `fuel.0` are no longer rejected by the form, labels and
+  hints are clearer, and the admin status reports both the configured (`enabled`) and effective
+  (`active`) state per category.
+- The status line is no longer sent to the server again when it has not changed.
 
 ### Changed
 
-- Upload settings default to off and are labelled as not available in this version.
-- The sample period setting now accepts 10 to 3600 seconds (it was up to 86400); larger saved values
-  are clamped to 3600.
+- The plugin now speaks contract 2 (the VesselTwin server still accepts contract 1).
+- `uploadEnabled` ("Send readings to VesselTwin") is the master switch. The older `sendEngineHours`,
+  `sendBatteries` and `sendTanks` settings no longer enable anything: owners who had them on must turn
+  sending on again, and the VesselTwin page says so.
+- The status line now says whether readings are being sent, and no longer says that upload is not
+  available. While paused or offline with sending on, it says readings are kept for up to 7 days.
+- The `samplePeriodSeconds` setting is removed; a saved value is ignored.
+- Tank ids are limited to the nine tank types the contract defines (`fuel`, `freshWater`,
+  `wasteWater`, `blackWater`, `lubrication`, `liveWell`, `baitWell`, `gas`, `ballast`).
+- `Retry-After` is honoured up to 24 hours (larger values are capped).
+- Turning sending off, restarting with it off, or unpairing deletes any readings still waiting.
 - The offline queue now applies its age and count caps when it starts.
 - The old "suggest vessel dimensions" setting is hidden; it is ignored.
 - Supports Node.js 20.3 and newer, so the plugin runs on Victron Cerbo GX (Venus OS).

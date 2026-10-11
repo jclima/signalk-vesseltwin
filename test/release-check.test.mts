@@ -38,8 +38,8 @@ const FAKE_VTI = 'vti_' + 'x'.repeat(43);
 const ids = (f: Finding[]) => f.map((x) => x.id);
 
 const PLUGIN = (v: string) =>
-  `export const PLUGIN_VERSION = '${v}';\nconst NO_UPLOAD = 'Data upload is not available in this version.';\n`;
-const MAPPING = 'export const PATH_RULES: readonly PathRule[] = [];\n';
+  `export const PLUGIN_VERSION = '${v}';\nconst UPLOAD_AVAILABLE = false;\nconst NO_UPLOAD = 'Data upload is not available in this version.';\n`;
+const MAPPING = "export const PATH_RULES = [{ kind: 'engineRunTime' }];\n";
 const README = (v: string, extra = '') =>
   `# x\n\n> **Status: pre-release (${v}).** Connecting works. **Sending readings is not available\n> in this version**; the plugin says so. ${extra}\n\nUploading is not available yet.\n`;
 const CHANGELOG_GOOD = `# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-06-01\n\n### Added\n\n- Pairing.\n`;
@@ -298,28 +298,92 @@ describe('upload honesty', () => {
     expect(checkUploadHonesty(base())).toEqual([]);
   });
 
-  it('fails when PATH_RULES is not empty, even if a comment says it is', () => {
-    const mappingTs = `// PATH_RULES = [];\nexport const PATH_RULES: readonly PathRule[] = [{ pattern: 'a.*.b', category: 'tanks' }];\n`;
-    expect(ids(checkUploadHonesty({ ...base(), mappingTs }))).toEqual(['upload/mapping-empty']);
-    expect(ids(checkUploadHonesty({ ...base(), mappingTs: '' }))).toEqual(['upload/mapping-empty']);
+  it('fails when mapping.ts mentions location-like or identifying paths', () => {
+    for (const w of [
+      'navigation.position',
+      'mmsi',
+      'communication.callsign',
+      'ais',
+      'design.beam',
+    ]) {
+      const mappingTs = `export const PATH_RULES = ['${w}'];\n`;
+      expect(ids(checkUploadHonesty({ ...base(), mappingTs })), w).toEqual([
+        'upload/mapping-forbidden',
+      ]);
+    }
+    // comments may mention them
+    const ok = `// NEVER navigation.position, mmsi\n${MAPPING}`;
+    expect(checkUploadHonesty({ ...base(), mappingTs: ok })).toEqual([]);
   });
 
-  it('fails when the status copy or README wording is removed', () => {
+  it('fails when the UPLOAD_AVAILABLE flag is missing or not a literal', () => {
+    const pluginTs = "const NO_UPLOAD = 'Data upload is not available in this version.';\n";
+    expect(ids(checkUploadHonesty({ ...base(), pluginTs }))).toEqual(['upload/flag']);
+    const dyn = 'const UPLOAD_AVAILABLE = process.env.X === "1";\n';
+    expect(ids(checkUploadHonesty({ ...base(), pluginTs: dyn }))).toEqual(['upload/flag']);
+    const commented = '// const UPLOAD_AVAILABLE = false;\n';
+    expect(ids(checkUploadHonesty({ ...base(), pluginTs: commented }))).toEqual(['upload/flag']);
+  });
+
+  it('fails when the status copy or README wording is removed (flag false)', () => {
     expect(
-      ids(checkUploadHonesty({ ...base(), pluginTs: PLUGIN('0.0.0').split('\n')[0] ?? '' })),
+      ids(
+        checkUploadHonesty({
+          ...base(),
+          pluginTs: 'const UPLOAD_AVAILABLE = false;\n',
+        }),
+      ),
     ).toEqual(['upload/status-copy']);
     expect(ids(checkUploadHonesty({ ...base(), readme: '> Status: 0.0.0\n' }))).toEqual([
       'upload/readme',
     ]);
   });
 
-  it('fails when an ingest route appears in src, with a line number', () => {
-    const srcFiles = [
-      { path: 'src/u.ts', text: "a;\nfetch('/v1/integrations/signalk/ingest');\n" },
-    ];
-    const f = checkUploadHonesty({ ...base(), srcFiles });
+  it('fails when an ingest route appears in src outside uploader.ts, with a line number', () => {
+    const text = "a;\nfetch('/v1/integrations/signalk/readings');\n";
+    const f = checkUploadHonesty({ ...base(), srcFiles: [{ path: 'src/u.ts', text }] });
     expect(ids(f)).toEqual(['upload/no-ingest-route']);
     expect(f[0]).toMatchObject({ file: 'src/u.ts', line: 2 });
+    expect(
+      checkUploadHonesty({ ...base(), srcFiles: [{ path: 'src/uploader.ts', text }] }),
+    ).toEqual([]);
+  });
+
+  describe('when UPLOAD_AVAILABLE is true', () => {
+    const ON_README = 'Sending readings is off until you turn it on.\n';
+    const on = () => ({
+      ...base(),
+      pluginTs: 'const UPLOAD_AVAILABLE = true;\n',
+      readme: ON_README,
+      webFiles: [{ path: 'web/view.ts', text: 'x' }],
+      pkgDescription: 'Uploads readings.',
+    });
+
+    it('passes with the consent sentence and no stale copy', () => {
+      expect(checkUploadHonesty(on())).toEqual([]);
+    });
+
+    it('fails on stale copy in src, web, README and the package description', () => {
+      const stale = 'Data upload is not available in this version.';
+      expect(
+        ids(checkUploadHonesty({ ...on(), srcFiles: [{ path: 'src/plugin.ts', text: stale }] })),
+      ).toEqual(['upload/stale-copy']);
+      expect(
+        checkUploadHonesty({ ...on(), webFiles: [{ path: 'web/view.ts', text: stale }] })[0],
+      ).toMatchObject({ file: 'web/view.ts' });
+      expect(checkUploadHonesty({ ...on(), readme: `${ON_README}${stale}` })[0]).toMatchObject({
+        file: 'README.md',
+      });
+      expect(
+        checkUploadHonesty({ ...on(), pkgDescription: 'Not available in this version.' })[0],
+      ).toMatchObject({ file: 'package.json' });
+    });
+
+    it('fails without the README consent sentence', () => {
+      expect(ids(checkUploadHonesty({ ...on(), readme: 'Uploads readings.\n' }))).toEqual([
+        'upload/consent',
+      ]);
+    });
   });
 });
 
@@ -452,14 +516,14 @@ describe('formatFindings', () => {
   it('prints lines and a summary, never file text', () => {
     const f = checkUploadHonesty({
       mappingTs: `export const PATH_RULES = [{ pattern: '${FAKE_VTI}' }];`,
-      pluginTs: `const s = '${FAKE_VTI}';`,
+      pluginTs: `const UPLOAD_AVAILABLE = false; const s = '${FAKE_VTI}';`,
       readme: FAKE_VTI,
       srcFiles: [{ path: 'src/x.ts', text: `${FAKE_VTI} /v1/integrations/signalk/x` }],
     });
     const out = formatFindings(f);
     expect(out).not.toContain(FAKE_VTI);
     expect(out).toContain('ERROR upload/no-ingest-route  src/x.ts:1  ');
-    expect(out.split('\n').at(-1)).toBe('release-check: 4 error(s), 0 warning(s)');
+    expect(out.split('\n').at(-1)).toBe('release-check: 3 error(s), 0 warning(s)');
     expect(formatFindings([])).toBe('release-check: ok');
     expect(formatFindings([{ sev: 'WARN', id: 'a/b', file: '-', line: 0, message: 'm' }])).toBe(
       'WARN a/b  -  m\nrelease-check: 0 error(s), 1 warning(s)',
