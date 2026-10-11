@@ -37,7 +37,7 @@ export function apiOrigin(url: string): string | null {
 export type UploadCategory = 'engineHours' | 'batteries' | 'tanks';
 export const UPLOAD_CATEGORIES: readonly UploadCategory[] = ['engineHours', 'batteries', 'tanks'];
 
-/** Product limits of the planned upload. */
+/** Product limits of the upload. */
 export const MAX_CHANNELS = 64;
 export const MAX_READINGS_PER_CHANNEL_PER_DAY = 24;
 export const MIN_RECORD_INTERVAL_MINUTES = 60;
@@ -87,10 +87,6 @@ export interface UploadOptions {
   tanks: ChannelOptions & { minChangePercent: number; minChangeLiters: number };
 }
 
-const NOT_ACTIVE = 'Not active yet.';
-const UPLOAD_UNAVAILABLE =
-  'Data upload is not available in this version. These settings take effect in a future release.';
-
 const ID_RULE = 'Use letters, digits, underscore or hyphen, up to 40 characters.';
 const TANK_ID_RULE = `Use the tank type, a dot, then the tank id, for example "fuel.0". The type is one of ${TANK_TYPES.join(', ')}; the id is letters, digits, underscore or hyphen, up to 40 characters.`;
 
@@ -103,7 +99,8 @@ function categorySchema(
   return {
     type: 'object',
     title,
-    description: `${NOT_ACTIVE} ${UPLOAD_UNAVAILABLE}`,
+    description:
+      'Used only when "Send readings to VesselTwin" is on. By default it records at most once a day.',
     properties: {
       enabled: {
         type: 'boolean',
@@ -173,13 +170,14 @@ export const configSchema = {
     uploadEnabled: {
       type: 'boolean',
       title: 'Send readings to VesselTwin',
-      description: `${NOT_ACTIVE} Nothing is sent until this is on. ${UPLOAD_UNAVAILABLE}`,
+      description:
+        'Nothing is sent until this is on. Then the categories you enable below are sent to VesselTwin: the SignalK path (including the instance id), the value and the time of each reading. Never position, MMSI, names or AIS.',
       default: false,
     },
     uploadIntervalMinutes: {
       type: 'number',
       title: 'Send to VesselTwin at most every (minutes)',
-      description: `${NOT_ACTIVE} Between 5 and 1440. The default is once a day.`,
+      description: 'Between 5 and 1440. The default is once a day.',
       default: 1440,
       minimum: 5,
       maximum: 1440,
@@ -221,7 +219,8 @@ export const configSchema = {
     queueMaxReadings: {
       type: 'number',
       title: 'Offline queue cap (readings)',
-      description: NOT_ACTIVE,
+      description:
+        'Readings wait here while VesselTwin cannot be reached. The oldest are dropped first; they are also dropped after 7 days.',
       default: 50000,
       minimum: 1000,
       maximum: 50000,

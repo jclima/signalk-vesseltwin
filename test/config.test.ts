@@ -154,12 +154,11 @@ describe('upload settings defaults', () => {
     expect(parseOptions({}).warnings).toEqual([]);
   });
 
-  it('defaults every upload category to off in the schema, and says upload is unavailable', () => {
+  it('defaults every upload category to off in the schema, with plain copy', () => {
     for (const cat of UPLOAD_CATEGORIES) {
       const node = child(schemaRoot, cat);
       expect((child(node, 'enabled') as { default?: unknown }).default).toBe(false);
-      expect(node.description).toContain('Data upload is not available in this version');
-      expect(node.description).toContain('future release');
+      expect(node.description).toContain('"Send readings to VesselTwin" is on');
     }
   });
 
@@ -168,30 +167,9 @@ describe('upload settings defaults', () => {
     expect(Object.keys(configSchema.properties)).not.toContain('sendVesselInfo');
   });
 
-  it('says "Not active yet." once per upload section, never on individual fields', () => {
-    const hits: string[] = [];
-    const walk = (node: Record<string, unknown>, trail: string): void => {
-      const d = node.description;
-      if (typeof d === 'string') {
-        const n = d.split('Not active yet.').length - 1;
-        expect(n, trail).toBeLessThanOrEqual(1);
-        if (n === 1) hits.push(trail);
-      }
-      const props = (node.properties ?? {}) as Record<string, Record<string, unknown>>;
-      for (const [k, v] of Object.entries(props)) walk(v, trail ? `${trail}.${k}` : k);
-    };
-    const root = configSchema as unknown as { properties: Record<string, Record<string, unknown>> };
-    for (const [k, v] of Object.entries(root.properties)) walk(v, k);
-    expect(hits.sort()).toEqual(
-      [
-        'batteries',
-        'engineHours',
-        'queueMaxReadings',
-        'tanks',
-        'uploadEnabled',
-        'uploadIntervalMinutes',
-      ].sort(),
-    );
+  it('has no "not active" or "future release" copy anywhere in the schema', () => {
+    const text = JSON.stringify(configSchema);
+    expect(text).not.toMatch(/not active|not available|future release/i);
   });
 
   it('shows the format hint once on the id items and the list hint in the array title only, with friendly labels', () => {
@@ -233,7 +211,7 @@ describe('upload master switch and legacy settings', () => {
     expect(n.default).toBe(false);
     expect(n.title).toBe('Send readings to VesselTwin');
     expect(n.description).toContain('Nothing is sent until this is on');
-    expect(n.description).toContain('Data upload is not available in this version');
+    expect(n.description).not.toMatch(/not available|not active|future release/i);
   });
 
   it('a 0.1.1-shaped object with send* true activates nothing and warns', () => {

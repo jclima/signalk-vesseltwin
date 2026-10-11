@@ -86,10 +86,11 @@ export type PluginState =
   | 'reauth_required'
   | 'config_error';
 
-/** Upload is built but not released. Flip only together with the release work (copy, README, docs). */
-const UPLOAD_AVAILABLE = false;
+/** Whether this build can upload readings. Sending itself stays off until the owner turns it on. */
+const UPLOAD_AVAILABLE = true;
 
-const NO_UPLOAD = 'Data upload is not available in this version.';
+const READINGS_KEPT = 'Readings are kept for up to 7 days.';
+const NEEDS_SETUP = 'Some channels need setup in VesselTwin.';
 
 /** Neutral copy per failed pairing outcome. Never shows raw server codes. */
 export const FAILURE_COPY: Record<PairingFailure, string> = {
@@ -109,8 +110,9 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
 
 export const COPY = {
   notPaired: 'Not paired. Open VesselTwin under Webapps in the SignalK admin UI to pair.',
-  reauth: `Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
-  reauthOrigin: `The VesselTwin API address changed since pairing. Pair again, or restore the previous address. ${NO_UPLOAD}`,
+  reauth: 'Pairing with VesselTwin is no longer valid. Pair again.',
+  reauthOrigin:
+    'The VesselTwin API address changed since pairing. Pair again, or restore the previous address.',
   credentialUnreadable:
     'Cannot read the stored VesselTwin connection. Check the permissions of the plugin data folder.',
   notRunning: 'The VesselTwin plugin is not running. Enable it first.',
@@ -166,6 +168,15 @@ interface Pipeline {
   pairedAt: string | undefined;
 }
 
+function isErrorState(st: PluginState): boolean {
+  return (
+    st === 'config_error' ||
+    st === 'update_required' ||
+    st === 'reauth_required' ||
+    st === 'pairing_failed'
+  );
+}
+
 export const SUBSCRIPTIONS_UNAVAILABLE = 'subscriptions_unavailable';
 
 interface PendingPairing {
@@ -205,6 +216,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
    * so a later non-error state clears it explicitly (see report()).
    */
   let errorShown = false;
+  /** The last line handed to the server (kind plus text); identical lines are not sent twice. */
+  let lastReported: string | null = null;
   let snap: MonitorSnapshot | null = null;
   /** The in-flight tombstone write, so unpair and a new pairing never race it. */
   let tombstoneWrite: Promise<void> | null = null;
@@ -518,12 +531,17 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     }
   }
 
+  /** Upload is built in, switched on by the owner, and at least one category is active. */
+  function sendingOn(): boolean {
+    return uploadAvailable && options.uploadEnabled && options.activeCategories.length > 0;
+  }
+
   function message(st: PluginState = state()): string {
     const lead = vesselLabel ? `Paired with ${vesselLabel}` : 'Paired with VesselTwin';
     const pausedReason: PauseReason | null = uploadPaused ?? snap?.pausedReason ?? null;
-    // The "not available" sentence goes away once upload is built in (the flag is flipped at release).
-    const tail = uploadAvailable ? '' : ` ${NO_UPLOAD}`;
-    const strip = (t: string): string => (uploadAvailable ? t.replace(` ${NO_UPLOAD}`, '') : t);
+    const sending = sendingOn();
+    // Readings only wait in the queue while sending is on and this server can feed the plugin.
+    const kept = sending && !subscriptionsMissing ? ` ${READINGS_KEPT}` : '';
     switch (st) {
       case 'config_error':
         return options.configError ?? COPY.credentialUnreadable;
@@ -536,8 +554,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       case 'pairing_failed':
         return FAILURE_COPY[failure ?? 'unavailable'];
       case 'checking':
-        if (finalizing) return `Pairing approved. Saving the connection.${tail}`;
-        return `${lead}. Checking the connection.${tail}`;
+        if (finalizing) return 'Pairing approved. Saving the connection.';
+        return `${lead}. Checking the connection.`;
       case 'connected': {
         // `updateRecommended` is only an informational hint in the admin /status response. A newer
         // server contract does not mean a newer plugin exists, so the broadcast line never claims it.
@@ -546,32 +564,31 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             ? "This device's clock differs from VesselTwin's. Check the date and time."
             : '',
         ].filter(Boolean);
-        let upline = NO_UPLOAD;
-        if (uploadAvailable) {
-          upline = subscriptionsMissing
-            ? 'This server cannot provide readings to the plugin.'
-            : options.uploadEnabled && options.activeCategories.length > 0
-              ? 'Selected readings are sent to VesselTwin.'
-              : 'Sending readings is off.';
+        let upline: string;
+        if (subscriptionsMissing) {
+          upline = 'This SignalK server cannot provide readings to the plugin.';
+        } else if (sending) {
+          upline = 'Sending readings to VesselTwin.';
+          if ((snap?.summary?.awaitingSetup ?? 0) > 0) upline += ` ${NEEDS_SETUP}`;
+        } else {
+          upline = 'Sending readings is off in the plugin settings.';
         }
         return `${lead}. ${extras.length ? `${extras.join(' ')} ` : ''}${upline}`;
       }
       case 'paused':
         return pausedReason === 'plan'
-          ? `${lead}. The connection is paused for your VesselTwin plan. The plugin will keep checking.${tail}`
-          : `${lead}. VesselTwin integrations are not available for your account right now. The plugin will keep checking.${tail}`;
+          ? `${lead}. The connection is paused for your VesselTwin plan. The plugin will keep checking.${kept}`
+          : `${lead}. VesselTwin integrations are not available for your account right now. The plugin will keep checking.${kept}`;
       case 'offline':
-        return `${lead}. Cannot reach VesselTwin right now. The plugin will keep trying.${tail}`;
+        return `${lead}. Cannot reach VesselTwin right now. The plugin will keep trying.${kept}`;
       case 'update_required':
-        return `${lead}. This plugin version is not supported by VesselTwin. Update the plugin.${tail}`;
+        return `${lead}. This plugin version is not supported by VesselTwin. Update the plugin.`;
       case 'reauth_required': {
         // A credential issued for another origin never reached the network (no 401): say what changed.
         const configured = options.apiBaseUrl === null ? null : apiOrigin(options.apiBaseUrl);
-        return strip(
-          monitor && credentialOrigin !== null && credentialOrigin !== configured
-            ? COPY.reauthOrigin
-            : COPY.reauth,
-        );
+        return monitor && credentialOrigin !== null && credentialOrigin !== configured
+          ? COPY.reauthOrigin
+          : COPY.reauth;
       }
     }
   }
@@ -580,12 +597,10 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     if (!loaded && options.configError === null) return;
     const st = state();
     const msg = message(st);
-    if (
-      st === 'config_error' ||
-      st === 'update_required' ||
-      st === 'reauth_required' ||
-      st === 'pairing_failed'
-    ) {
+    const key = `${isErrorState(st) ? 'E' : 'S'}${msg}`;
+    if (key === lastReported) return; // the same line again would only re-broadcast it
+    lastReported = key;
+    if (isErrorState(st)) {
       app.setPluginError(msg);
       errorShown = true;
     } else {
@@ -797,7 +812,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   return {
     id: PLUGIN_ID,
     name: 'VesselTwin',
-    description: 'Pairs this boat with VesselTwin. Never sends position or MMSI.',
+    description:
+      'Pairs this boat with VesselTwin and, when you turn it on, sends engine hours, battery and tank readings. Never sends position or MMSI.',
     schema: () => configSchema,
 
     start(settings: unknown): void {
@@ -805,6 +821,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       const mine = epoch;
       stopSession();
       sticky = null;
+      lastReported = null; // a new lifecycle always sends its first line
       cancelPairing();
       options = parseOptions(settings);
       store = new CredentialStore(app.getDataDirPath());
@@ -866,6 +883,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       epoch += 1;
       stopSession();
       sticky = null;
+      lastReported = null;
       cancelPairing();
       store = null;
       loaded = false;

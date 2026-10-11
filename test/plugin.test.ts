@@ -20,6 +20,8 @@ import {
   type SignalKApp,
 } from '../src/plugin';
 
+const OFF = 'Sending readings is off in the plugin settings.';
+
 const tempDirs: string[] = [];
 const tempDir = (): string => {
   const d = mkdtempSync(join(tmpdir(), 'vt-plugin-'));
@@ -355,9 +357,7 @@ describe('pairing lifecycle', () => {
       credential: FAKE_CRED,
       apiOrigin: 'https://api.vesseltwin.io',
     });
-    expect(h.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. Data upload is not available in this version.',
-    );
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
     expect(h.app.statuses).toContain(COPY.pairingInProgress);
     // The status line is broadcast to anonymous clients: it never carries the code or the URL.
     for (const line of h.app.statuses) {
@@ -605,7 +605,7 @@ describe('label and token handling', () => {
     const line = h.app.statuses.at(-1) ?? '';
     expect(line).toMatch(/^Paired with Sea Hag x+\. /);
     expect(line).not.toContain('SIGNALK VESSEL NAME');
-    expect(line.length).toBeLessThan(140);
+    expect(line.length).toBeLessThan(160);
     expect(asked).not.toContain('name');
     expect(asked.every((p) => p === 'uuid')).toBe(true);
     h.plugin.stop();
@@ -621,9 +621,7 @@ describe('label and token handling', () => {
       new Response(JSON.stringify({ ...tokenBody, vesselLabel: null }), { status: 200 }),
     );
     await h.untilState('connected');
-    expect(h.app.statuses.at(-1)).toBe(
-      'Paired with VesselTwin. Data upload is not available in this version.',
-    );
+    expect(h.app.statuses.at(-1)).toBe(`Paired with VesselTwin. ${OFF}`);
     h.plugin.stop();
   });
 
@@ -748,7 +746,6 @@ describe('expired and denied copy', () => {
 // ---- state machine -------------------------------------------------------------------------
 
 const ORIGIN = 'https://api.vesseltwin.io';
-const NO_UPLOAD = 'Data upload is not available in this version.';
 const MIN = 60_000;
 
 async function seed(dir: string, over: Record<string, unknown> = {}) {
@@ -795,7 +792,7 @@ describe('state machine', () => {
     const st = (await h.call('GET /status')).body;
     expect(st).toMatchObject({ state: 'reauth_required', paired: false, vesselLabel: 'Sea Hag' });
     expect(h.app.statuses.at(-1)).toBe(
-      `ERR Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
+      `ERR Pairing with VesselTwin is no longer valid. Pair again.`,
     );
     // The tombstone write (temp file, rename, dir fsync) is async: wait for it to settle.
     await h.untilFiles(['credential.json']);
@@ -894,7 +891,7 @@ describe('state machine', () => {
 
   it('origin-change copy is neutral: no URLs, no server codes; real 401s keep the generic copy', () => {
     expect(COPY.reauthOrigin).toBe(
-      `The VesselTwin API address changed since pairing. Pair again, or restore the previous address. ${NO_UPLOAD}`,
+      `The VesselTwin API address changed since pairing. Pair again, or restore the previous address.`,
     );
     expect(COPY.reauthOrigin).not.toMatch(/https?:|integration_|\.example/);
     expect(COPY.reauth).toMatch(/no longer valid/);
@@ -981,7 +978,7 @@ describe('state machine', () => {
     [
       'connected',
       () => new Response(JSON.stringify(okStatusBody()), { status: 200 }),
-      `Paired with Sea Hag. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. ${OFF}`,
       { state: 'connected', updateRecommended: false, clockSkewWarning: false },
       false,
     ],
@@ -996,63 +993,63 @@ describe('state machine', () => {
           }),
           { status: 200 },
         ),
-      `Paired with Sea Hag. This device's clock differs from VesselTwin's. Check the date and time. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This device's clock differs from VesselTwin's. Check the date and time. ${OFF}`,
       { state: 'connected', updateRecommended: true, clockSkewWarning: true },
       false,
     ],
     [
       'connected with a newer server contract (no update claim in the line)',
       () => new Response(JSON.stringify({ ...okStatusBody(), latestContract: 3 }), { status: 200 }),
-      `Paired with Sea Hag. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. ${OFF}`,
       { state: 'connected', updateRecommended: true, clockSkewWarning: false },
       false,
     ],
     [
       'paused (feature off)',
       reply(503, { code: 'integration_feature_unavailable' }),
-      `Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking.`,
       { state: 'paused', paired: true },
       false,
     ],
     [
       'paused (plan)',
       reply(403, { code: 'integration_paused_plan' }),
-      `Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking.`,
       { state: 'paused', paired: true },
       false,
     ],
     [
       'offline',
       reply(503, {}),
-      `Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying.`,
       { state: 'offline', paired: true },
       false,
     ],
     [
       'update_required (426)',
       reply(426, { code: 'integration_contract_unsupported' }),
-      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.`,
       { state: 'update_required', paired: true },
       true,
     ],
     [
       'update_required (minContract)',
       () => new Response(JSON.stringify({ ...okStatusBody(), minContract: 3 }), { status: 200 }),
-      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.`,
       { state: 'update_required', paired: true },
       true,
     ],
     [
       'stopped by a scope error (reported as update_required)',
       reply(403, { code: 'integration_scope' }),
-      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
+      `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.`,
       { state: 'update_required', paired: true },
       true,
     ],
     [
       'reauth_required',
       reply(401, { code: 'integration_unauthorized' }),
-      `Pairing with VesselTwin is no longer valid. Pair again. ${NO_UPLOAD}`,
+      `Pairing with VesselTwin is no longer valid. Pair again.`,
       { state: 'reauth_required', paired: false },
       true,
     ],
@@ -1080,9 +1077,7 @@ describe('state machine', () => {
     const plugin = createPlugin(app, { fetch: () => new Promise<Response>(() => undefined) });
     plugin.start({});
     await vi.waitFor(() => {
-      expect(app.statuses.at(-1)).toBe(
-        `Paired with Sea Hag. Checking the connection. ${NO_UPLOAD}`,
-      );
+      expect(app.statuses.at(-1)).toBe(`Paired with Sea Hag. Checking the connection.`);
     });
     plugin.stop();
   });
@@ -2122,7 +2117,7 @@ describe('admin status upload summary', () => {
 });
 
 describe('admin status upload block', () => {
-  it('reports upload unavailable with the effective settings and neutral warnings', async () => {
+  it('reports the effective upload settings and neutral warnings', async () => {
     const h = harness();
     h.plugin.start({
       uploadEnabled: true,
@@ -2138,7 +2133,7 @@ describe('admin status upload block', () => {
     await h.tick();
     const body = (await h.call('GET /status')).body;
     expect(body.upload).toEqual({
-      available: false,
+      available: true,
       enabled: true,
       unavailableReason: null,
       queued: 0,
@@ -2185,7 +2180,7 @@ describe('admin status upload block', () => {
     h.plugin.stop();
   });
 
-  it('every status line that mentions a connection says upload is not available', async () => {
+  it('every status line that mentions a connection says whether readings are sent', async () => {
     const dir = tempDir();
     await seed(dir);
     const h = harness({ dir });
@@ -2197,7 +2192,8 @@ describe('admin status upload block', () => {
     msgs.push((await h.call('GET /status')).body.message as string);
     const connected = msgs.filter((m) => m.startsWith('Paired with'));
     expect(connected.length).toBeGreaterThan(0);
-    for (const m of connected) expect(m).toContain(NO_UPLOAD);
+    // Sending is off here, so nothing is queued and the lines never promise to keep readings.
+    for (const m of connected) expect(m).not.toContain('kept');
     h.plugin.stop();
   });
 });
@@ -2259,7 +2255,7 @@ describe('upload pipeline', () => {
     const dir = tempDir();
     await seed(dir);
     const sm = fakeSm();
-    const h = harness({ dir, sm }); // default deps: UPLOAD_AVAILABLE is false
+    const h = harness({ dir, sm, deps: { uploadAvailable: false } });
     h.plugin.start(UP);
     await h.untilState('connected');
     sm.deliver(delta(BAT));
@@ -2269,7 +2265,7 @@ describe('upload pipeline', () => {
     expect(h.calls.every((u) => u.endsWith('/v1/integrations/status'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['credential.json']);
     expect(await uploadBlock(h)).toMatchObject({ available: false, enabled: true, queued: 0 });
-    expect(h.app.statuses.at(-1)).toContain('Data upload is not available in this version.');
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
     h.plugin.stop();
   });
 
@@ -2334,11 +2330,8 @@ describe('upload pipeline', () => {
     // The broadcast line carries no numbers, URL or code.
     for (const line of h.app.statuses) {
       expect(line).not.toMatch(/\d|https?:|[A-Z0-9]{4}-[A-Z0-9]{4}/);
-      expect(line).not.toContain('Data upload is not available');
     }
-    expect(h.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. Selected readings are sent to VesselTwin.',
-    );
+    expect(h.app.statuses.at(-1)).toBe('Paired with Sea Hag. Sending readings to VesselTwin.');
     expect(h.calls.every((u) => u.startsWith(ORIGIN))).toBe(true);
     h.plugin.stop();
   });
@@ -2637,5 +2630,154 @@ describe('upload pipeline', () => {
       expect(h.readingCalls).toHaveLength(0);
       h.plugin.stop();
     });
+  });
+});
+
+// ---- broadcast status line copy while sending is on or off -----------------------------------------
+
+describe('status line copy for sending readings', () => {
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const withSummary = (awaitingSetup: number) => () =>
+    new Response(
+      JSON.stringify({ ...okStatusBody(), summary: { channels: 3, awaitingSetup, held: 0 } }),
+      { status: 200 },
+    );
+
+  async function started(settings: unknown, replies: (() => Response)[] = [], sm?: FakeSm) {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, ...(sm ? { sm } : {}) });
+    h.statusReplies.push(...replies);
+    h.plugin.start(settings);
+    await h.until(() => h.app.statuses.length > 0 && h.statusCalls() > 0);
+    await h.tick();
+    return h;
+  }
+
+  it('says sending is on, without numbers, a URL or a code', async () => {
+    const h = await started(UP, [], fakeSm());
+    expect(h.app.statuses.at(-1)).toBe('Paired with Sea Hag. Sending readings to VesselTwin.');
+    h.plugin.stop();
+  });
+
+  it('adds the setup prompt only when channels are waiting, and never the count', async () => {
+    const h = await started(UP, [withSummary(2)], fakeSm());
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Sending readings to VesselTwin. Some channels need setup in VesselTwin.',
+    );
+    expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
+    const body = (await h.call('GET /status')).body.upload as { summary: unknown };
+    expect(body.summary).toEqual({ channels: 3, awaitingSetup: 2, held: 0 });
+    h.plugin.stop();
+    const h2 = await started(UP, [withSummary(0)], fakeSm());
+    expect(h2.app.statuses.at(-1)).toBe('Paired with Sea Hag. Sending readings to VesselTwin.');
+    h2.plugin.stop();
+  });
+
+  it('says sending is off in the plugin settings when it is not switched on', async () => {
+    for (const settings of [{}, { uploadEnabled: true }, { batteries: { enabled: true } }]) {
+      const h = await started(settings, [withSummary(2)]);
+      expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
+      h.plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('old send* settings alone send nothing and the page is told to turn sending on again', async () => {
+    const h = await started({ sendBatteries: true, sendEngineHours: true, sendTanks: true });
+    expect(h.app.statuses.at(-1)).toBe(`Paired with Sea Hag. ${OFF}`);
+    const up = (await h.call('GET /status')).body.upload as {
+      enabled: boolean;
+      warnings: string[];
+    };
+    expect(up.enabled).toBe(false);
+    expect(up.warnings).toContain('legacy_send_settings');
+    expect(h.readingCalls).toHaveLength(0);
+    h.plugin.stop();
+  });
+
+  it('says readings are kept for up to 7 days while paused or offline with sending on', async () => {
+    const paused = await started(
+      UP,
+      [reply(503, { code: 'integration_feature_unavailable' })],
+      fakeSm(),
+    );
+    expect(paused.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. VesselTwin integrations are not available for your account right now. The plugin will keep checking. Readings are kept for up to 7 days.',
+    );
+    paused.plugin.stop();
+    vi.useRealTimers();
+    const plan = await started(UP, [reply(403, { code: 'integration_paused_plan' })], fakeSm());
+    expect(plan.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. The connection is paused for your VesselTwin plan. The plugin will keep checking. Readings are kept for up to 7 days.',
+    );
+    plan.plugin.stop();
+    vi.useRealTimers();
+    const offline = await started(UP, [reply(500)], fakeSm());
+    expect(offline.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying. Readings are kept for up to 7 days.',
+    );
+    offline.plugin.stop();
+  });
+
+  it('does not promise to keep readings when sending is off', async () => {
+    const h = await started({}, [reply(500)]);
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying.',
+    );
+    h.plugin.stop();
+  });
+
+  it('says so when this SignalK server cannot provide readings', async () => {
+    const h = await started(UP); // no subscription manager
+    expect(h.app.statuses.at(-1)).toBe(
+      'Paired with Sea Hag. This SignalK server cannot provide readings to the plugin.',
+    );
+    h.plugin.stop();
+  });
+
+  it('keeps the neutral update and re-pair copy', async () => {
+    const upd = await started(
+      UP,
+      [reply(426, { code: 'integration_contract_unsupported' })],
+      fakeSm(),
+    );
+    expect(upd.app.statuses.at(-1)).toBe(
+      'ERR Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin.',
+    );
+    upd.plugin.stop();
+    vi.useRealTimers();
+    const re = await started(UP, [reply(401, { code: 'integration_unauthorized' })], fakeSm());
+    expect(re.app.statuses.at(-1)).toBe(
+      'ERR Pairing with VesselTwin is no longer valid. Pair again.',
+    );
+    re.plugin.stop();
+  });
+
+  it('never hands the server the same line twice in a row', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm();
+    const h = harness({ dir, sm, deps: { rng: () => 0 } });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    sm.deliver({
+      context: 'vessels.self',
+      updates: [
+        {
+          timestamp: new Date().toISOString(),
+          values: [{ path: 'electrical.batteries.house.voltage', value: 12.6 }],
+        },
+      ],
+    });
+    await h.tick(61_000);
+    await h.until(() => h.readingCalls.length >= 1);
+    await h.tick(3 * 60 * MIN);
+    const lines = h.app.statuses;
+    expect(lines.length).toBeGreaterThan(0);
+    lines.forEach((l, i) => {
+      if (i > 0) expect(l).not.toBe(lines[i - 1]);
+    });
+    h.plugin.stop();
   });
 });
