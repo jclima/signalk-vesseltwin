@@ -79,8 +79,10 @@ node dev/pair.mjs
 ```
 
 After a later `pnpm build`, restart the signalk container so it loads the new plugin code
-(`docker compose -f dev/docker-compose.yml restart signalk relay`, then `node dev/setup-signalk.mjs`;
-the relay shares signalk's network namespace, so restart it together with signalk);
+(`docker compose -f dev/docker-compose.yml restart signalk`, then
+`docker compose -f dev/docker-compose.yml restart relay`, then `node dev/setup-signalk.mjs`;
+the relay shares signalk's network namespace, so restart it after signalk, as a separate command,
+because one combined command makes it try to join the old namespace);
 `up -d --build` alone keeps serving the old code.
 
 `dev/pair.mjs` starts pairing, prints the pending status (with `pairing.userCode`), approves that code
@@ -223,6 +225,10 @@ node dev/setup-signalk.mjs`, feed deltas, wait six minutes: the mock holds no ne
 
 Inject with `fault` on route `signalk/readings`, feed a new round so something is queued, and watch
 `st` and the mock log (`mlog`; fault entries are marked). Run the ones that do not stick first.
+
+With the default 1440-minute record interval a channel records at most once a day, so after the first
+upload a new feed round queues nothing. Before each fault test, unpair and pair again (which clears
+the queue and the saved channel state), or lower the record interval.
 
 | Inject (`route: "signalk/readings"`) | Expected                                                                                                                                     |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
