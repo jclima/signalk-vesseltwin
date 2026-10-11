@@ -375,13 +375,53 @@ describe('Uploader', () => {
         expect(t.up.snapshot()).toMatchObject({ state: 'paused', pausedReason: reason });
         expect(t.sched.pendingMs).toBe(HOUR);
         expect(await t.queue.size()).toBe(2);
-        t.up.kick(); // the monitor saw the server come back
-        expect(t.sched.pendingMs).toBe(0);
+        t.up.kick(); // the monitor saw the server come back: still no sooner than the hour asked for
+        expect(t.sched.pendingMs).toBeGreaterThan(HOUR - 5_000);
+        expect(t.sched.pendingMs).toBeLessThanOrEqual(HOUR);
+        expect(t.calls).toHaveLength(1);
         await t.fire();
         expect(t.sched.pendingMs).toBe(2 * HOUR); // Retry-After wins over the hour
         expect(await t.queue.size()).toBe(2);
         await t.up.stop();
       }
+    });
+
+    it('Retry-After is never undercut by kick() or resume() (monitor connected)', async () => {
+      const t = setup({
+        responders: [() => json(429, {}, { 'retry-after': '600' }), (c) => acceptAll(c)],
+      });
+      await t.fill(2);
+      t.up.start();
+      await t.fire();
+      expect(t.up.snapshot().state).toBe('backoff');
+      expect(t.sched.pendingMs).toBe(600_000);
+      t.up.kick();
+      expect(t.sched.pendingMs).toBeGreaterThan(595_000);
+      t.up.resume();
+      expect(t.sched.pendingMs).toBeGreaterThan(595_000);
+      t.up.hold();
+      expect(t.sched.timers.size).toBe(0);
+      t.up.resume(); // leaving a hold honors the wait too
+      expect(t.sched.pendingMs).toBeGreaterThan(595_000);
+      expect(t.calls).toHaveLength(1);
+      await t.fire();
+      expect(await t.queue.size()).toBe(0);
+      await t.up.stop();
+    });
+
+    it('counts consecutive failures and clears them on an accepted batch', async () => {
+      const t = setup({
+        responders: [() => json(502, {}), () => json(502, {}), (c) => acceptAll(c)],
+      });
+      await t.fill(1);
+      t.up.start();
+      await t.fire();
+      await t.fire();
+      expect(t.up.snapshot().failures).toBe(2);
+      expect(t.up.snapshot().failingSince).not.toBeNull();
+      await t.fire();
+      expect(t.up.snapshot()).toMatchObject({ failures: 0, failingSince: null });
+      await t.up.stop();
     });
 
     it('update required (426, contract codes, 403 scope): stops for good and keeps the queue', async () => {
@@ -459,6 +499,22 @@ describe('Uploader', () => {
       expect(t2.up.snapshot().state).toBe('backoff');
       expect(await t2.queue.size()).toBe(1);
       await t2.up.stop();
+    });
+
+    it('413 regrowth: the limit halves, then doubles after 10 consecutive full-size successes', async () => {
+      const t = setup({ responders: [() => json(413, {})] });
+      await t.fill(2);
+      t.up.start();
+      await t.fire();
+      expect(t.calls[0]?.body.readings).toHaveLength(2);
+      await t.fill(11); // queue: 2 old + 11 new
+      for (let i = 0; i < 10; i++) {
+        await t.fire();
+        expect(t.calls[i + 1]?.body.readings).toHaveLength(1); // limit is 1 (halved from 2)
+      }
+      await t.fire(); // ten full-size successes in a row: the limit is back to 2
+      expect(t.calls[11]?.body.readings).toHaveLength(2);
+      await t.up.stop();
     });
 
     describe('400 without a code', () => {

@@ -116,6 +116,10 @@ export interface UploadSnapshot {
   invalid: number;
   /** Epoch ms of the last fully valid server reply. */
   lastSentAt: number | null;
+  /** Consecutive failed attempts (reset by an accepted batch or an empty queue). */
+  failures: number;
+  /** Epoch ms of the first failure in the current run of failures (null when none). */
+  failingSince: number | null;
   /** Reading results reported by the server since start, by status. */
   results: Record<ReadingStatus, number>;
   /** Reasons given for `rejected` results since start. */
@@ -175,6 +179,10 @@ export class Uploader {
   private ctl: AbortController | null = null;
   private inflight: Promise<void> | null = null;
   private attempt = 0;
+  private failures = 0;
+  private failingSince: number | null = null;
+  /** The server told us to wait (Retry-After, pause): kick() and resume() never go earlier. */
+  private notBefore = 0;
   private limit = MAX_BATCH;
   /** Full batches accepted since the limit last shrank; the limit regrows slowly, never at once. */
   private okStreak = 0;
@@ -207,6 +215,8 @@ export class Uploader {
       dropped: this.dropped,
       invalid: this.invalid,
       lastSentAt: this.lastSentAt,
+      failures: this.failures,
+      failingSince: this.failingSince,
       results: { ...this.results },
       rejectedReasons: { ...this.reasons },
     };
@@ -256,7 +266,7 @@ export class Uploader {
     if (this.held) {
       this.held = false;
       this.pausedReason = null;
-      if (this.inflight === null) this.schedule(0);
+      if (this.inflight === null) this.schedule(this.untilAllowed());
       return;
     }
     this.kick();
@@ -265,7 +275,12 @@ export class Uploader {
   /** Retries now, but only an upload that is waiting after a failure or a pause. */
   kick(): void {
     if (!this.running || this.sticky || this.held || this.inflight) return;
-    if (this.state === 'backoff' || this.state === 'paused') this.schedule(0);
+    if (this.state === 'backoff' || this.state === 'paused') this.schedule(this.untilAllowed());
+  }
+
+  /** Time left on a wait the server imposed (0 when none): an early retry must not undercut it. */
+  private untilAllowed(): number {
+    return Math.max(0, this.notBefore - this.now());
   }
 
   private clearTimer(): void {
@@ -355,6 +370,7 @@ export class Uploader {
     if (!this.live(ctl)) return;
     if (!picked) {
       this.attempt = 0;
+      this.notBefore = 0;
       this.setState('idle');
       this.schedule(this.interval());
       return;
@@ -402,6 +418,7 @@ export class Uploader {
       case 'paused':
         this.pausedReason = cls.reason;
         this.setState('paused');
+        this.notBefore = this.now() + cls.delayMs;
         this.o.onEvent?.({ kind: 'paused', reason: cls.reason });
         this.schedule(cls.delayMs);
         return;
@@ -428,7 +445,12 @@ export class Uploader {
   private backoff(retryAfter: number | null): void {
     const delay = offlineDelay(this.attempt, retryAfter, this.rng);
     this.attempt += 1;
+    this.failures += 1;
+    this.failingSince ??= this.now();
+    // Only a wait the server asked for is binding; plain backoff may be cut short by a kick.
+    if (retryAfter !== null) this.notBefore = this.now() + delay;
     this.setState('backoff');
+    this.o.onEvent?.({ kind: 'changed' }); // the failure count feeds the status line
     this.schedule(delay);
   }
 
@@ -454,6 +476,9 @@ export class Uploader {
     }
     this.lastSentAt = this.now();
     this.attempt = 0;
+    this.failures = 0;
+    this.failingSince = null;
+    this.notBefore = 0;
     this.pausedReason = null;
     if (this.work && slot !== null) {
       this.work.res[slot] = 'ok';
@@ -480,7 +505,10 @@ export class Uploader {
     } else if (items.length > 1) {
       this.work = { halves: split(items), res: [null, null] };
     } else {
-      // A lone reading with no sibling to compare against: the plugin and server disagree.
+      // A lone reading with no sibling to compare against: the plugin and server disagree. This
+      // (and the both-halves-refused case in resolveBisect) is deliberately treated as systemic:
+      // update_required is sticky until the plugin restarts, rather than guessing which reading
+      // is at fault or retrying a request the server keeps refusing.
       this.stopFor('update_required');
       this.o.onEvent?.({ kind: 'update_required' });
       return;
