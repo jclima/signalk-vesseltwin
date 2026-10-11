@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CREDENTIAL_PERMISSION_COPY,
   EXPIRED_COPY,
   GENERIC_STATUS_COPY,
   KNOWN_STATES,
@@ -221,6 +222,16 @@ describe('describeStatus and actions', () => {
       '/admin/#/serverConfiguration/plugins/signalk-vesseltwin',
     );
     expect(describeStatus(model('update_required'), null).hint).toContain('Appstore');
+  });
+  it('shows the credential permission warning only when the status carries the code', () => {
+    const w = describeStatus(model('connected', { warnings: ['credential_permissions'] }), null);
+    expect(w.warning).toBe(CREDENTIAL_PERMISSION_COPY);
+    expect(w.warning).not.toMatch(/credential_permissions|\/|vti_/);
+    expect(describeStatus(model('connected'), null).warning).toBeNull();
+    expect(describeStatus(model('connected', { warnings: ['other'] }), null).warning).toBeNull();
+    expect(
+      describeStatus(model('connected', { warnings: 'credential_permissions' }), null).warning,
+    ).toBeNull();
   });
   it('strips an exact trailing upload notice only', () => {
     expect(stripUploadNotice(`Paired. ${UPLOAD_NOTICE}`)).toBe('Paired.');

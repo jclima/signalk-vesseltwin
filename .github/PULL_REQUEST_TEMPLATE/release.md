@@ -5,7 +5,7 @@
 - [ ] `pnpm check:release --release X.Y.Z` exits 0 (paste its last line below; the first release also shows a "no earlier release" warning)
 - [ ] README privacy section is unchanged, or updated in this PR together with the code that changed it
 - [ ] The plugin still reports that data upload is unavailable (or this release is explicitly approved to change that)
-- [ ] CI is green on Node 22 and 24
+- [ ] CI is green on Node 20, 22 and 24
 
 ```
 release-check: ...

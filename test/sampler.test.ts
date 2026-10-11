@@ -28,10 +28,22 @@ class MemSink {
   }
 }
 
+/** Upload categories default to off; the policy tests turn them on unless a test says otherwise. */
+function enableAll(settings: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...settings };
+  const legacy = { engineHours: 'sendEngineHours', batteries: 'sendBatteries', tanks: 'sendTanks' };
+  for (const [k, toggle] of Object.entries(legacy)) {
+    if (toggle in settings) continue; // the legacy toggle decides
+    const c = settings[k];
+    out[k] = { enabled: true, ...(typeof c === 'object' && c !== null ? c : {}) };
+  }
+  return out;
+}
+
 function setup(settings: Record<string, unknown> = {}, now = T0 + 400 * 24 * 60 * MIN) {
   const sink = new MemSink();
   const sampler = createSampler({
-    options: parseOptions(settings).upload,
+    options: parseOptions(enableAll(settings)).upload,
     sink,
     now: () => now,
     rules: RULES,
@@ -76,7 +88,7 @@ describe('delta adapter', () => {
   it('accepts a configured own-vessel context name', async () => {
     const sink = new MemSink();
     const s = createSampler({
-      options: parseOptions({}).upload,
+      options: parseOptions(enableAll({})).upload,
       sink,
       now: () => T0 + 1,
       rules: RULES,
@@ -90,7 +102,7 @@ describe('delta adapter', () => {
     expect(await s.handleDelta(d('vessels.urn:test:else'))).toBe(0);
   });
 
-  it('converts to owner units and records the SignalK timestamp', async () => {
+  it('queues raw SI values and records the SignalK timestamp', async () => {
     const { sink, send } = setup(allHourly);
     await send('test.alpha.main.run', 7200, T0);
     await send('test.beta.house.charge', 0.5, T0);
@@ -98,12 +110,34 @@ describe('delta adapter', () => {
     await send('test.gamma.fuel.0.level', 0.25, T0);
     await send('test.gamma.fuel.0.volume', 0.2, T0);
     expect(sink.readings).toEqual([
-      { path: 'test.alpha.main.run', value: 2, recordedAt: iso(T0) },
-      { path: 'test.beta.house.charge', value: 50, recordedAt: iso(T0) },
+      { path: 'test.alpha.main.run', value: 7200, recordedAt: iso(T0) },
+      { path: 'test.beta.house.charge', value: 0.5, recordedAt: iso(T0) },
       { path: 'test.beta.house.volts', value: 12.5, recordedAt: iso(T0) },
-      { path: 'test.gamma.fuel.0.level', value: 25, recordedAt: iso(T0) },
-      { path: 'test.gamma.fuel.0.volume', value: 200, recordedAt: iso(T0) },
+      { path: 'test.gamma.fuel.0.level', value: 0.25, recordedAt: iso(T0) },
+      { path: 'test.gamma.fuel.0.volume', value: 0.2, recordedAt: iso(T0) },
     ]);
+  });
+
+  it.each([
+    ['test.alpha.a.run', [0, 1, 3599.5, 7200, 1e9]],
+    ['test.beta.a.volts', [0, 11.9, 12.5, 14.4]],
+    ['test.beta.a.charge', [0, 0.01, 0.5, 1]],
+    ['test.gamma.fuel.0.level', [0, 0.333, 0.25, 1]],
+    ['test.gamma.fuel.0.volume', [0, 0.0005, 0.2, 1.5]],
+  ] as const)('emits the input value unchanged for %s', async (p, values) => {
+    // threshold 0 so every sample at a new interval passes; the value must never be converted
+    const { sink, send } = setup({
+      engineHours: { recordIntervalMinutes: 60, minChangeHours: 0.1 },
+      batteries: hourly,
+      tanks: hourly,
+    });
+    let t = T0;
+    for (const v of values) {
+      // jump a day so the owner-unit change threshold never blocks
+      t += 24 * 60 * MIN;
+      await send(p, v, t);
+    }
+    expect(sink.readings.map((r) => r.value)).toEqual([...values]);
   });
 
   it('ignores timestamps far in the future', async () => {
@@ -273,7 +307,7 @@ describe('production rules', () => {
   it('a sampler built from PATH_RULES keeps nothing, including position', async () => {
     const sink = new MemSink();
     const s = createSampler({
-      options: parseOptions({}).upload,
+      options: parseOptions(enableAll({})).upload,
       sink,
       now: () => T0 + 1,
     });
@@ -320,7 +354,7 @@ describe('sinks', () => {
   it('QueueSink appends readings with a UUIDv7 id', async () => {
     const queue = new ReadingQueue({ dir, now: () => T0 + 1 });
     const sampler = createSampler({
-      options: parseOptions({}).upload,
+      options: parseOptions(enableAll({})).upload,
       sink: new QueueSink(queue, () => T0 + 1),
       now: () => T0 + 1,
       rules: RULES,
@@ -330,7 +364,7 @@ describe('sinks', () => {
       updates: [{ timestamp: iso(T0), values: [{ path: 'test.alpha.a.run', value: 3600 }] }],
     });
     const [r] = await queue.peek(5);
-    expect(r).toMatchObject({ path: 'test.alpha.a.run', value: 1, recordedAt: iso(T0) });
+    expect(r).toMatchObject({ path: 'test.alpha.a.run', value: 3600, recordedAt: iso(T0) });
     expect(r?.clientReadingId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-/);
   });
 });

@@ -14,7 +14,7 @@ and the plugin must say so honestly (status line: "Data upload is not available 
 
 ## Commands
 
-Node >= 22 (`.nvmrc` = 22; CI runs 22 and 24), pnpm 10 (`packageManager` in `package.json`).
+Node >= 20.3 (`.nvmrc` = 22 as the dev default; CI runs 20, 22 and 24), pnpm 10 (`packageManager` in `package.json`).
 
 ```sh
 pnpm install
@@ -84,7 +84,8 @@ list of permitted paths; never add anything location-like.
 - Never log an Authorization header, a credential, a device code, or a user code. Every string that may
   be logged goes through `redact`/`redactError`; wrap errors in `HttpError` (it redacts) and never
   forward raw fetch errors.
-- Show the user code only in the admin-only `/status` response while pairing is pending. The status
+- Show the user code only in the `/status` response while pairing is pending. Plugin routes are
+  admin-only when SignalK security is enabled (open to the LAN when it is off). The status
   line is broadcast to read-only and anonymous clients and never carries the code or the URL.
 - The credential is bound to `apiOrigin`: it is only ever sent to that origin. Never send it elsewhere.
 - Keep the same-origin (`Origin`) check (`guarded`) on every plugin route.
@@ -132,7 +133,7 @@ long-lived npm token). **Releasing is a human step.**
 
 ## Git workflow
 
-- Work on a branch, open a PR, wait for CI (`check` on Node 22 and 24). Never push directly to `main`
+- Work on a branch, open a PR, wait for CI (`check` on Node 20, 22 and 24). Never push directly to `main`
   once branch protection is on. Squash-merge.
 - Agent commits end with a trailer: `Co-Authored-By: <agent name> <noreply address>`.
 - Never publish to npm, create tags, create GitHub releases, change repo settings, or push, unless the

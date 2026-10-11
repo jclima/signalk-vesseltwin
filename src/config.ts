@@ -67,6 +67,8 @@ export interface UploadOptions {
 }
 
 const NOT_ACTIVE = 'Not active yet.';
+const UPLOAD_UNAVAILABLE =
+  'Data upload is not available in this version. These settings take effect in a future release.';
 
 const ID_RULE = 'Use letters, digits, underscore or hyphen, up to 40 characters.';
 const TANK_ID_RULE =
@@ -81,12 +83,12 @@ function categorySchema(
   return {
     type: 'object',
     title,
-    description: NOT_ACTIVE,
+    description: `${NOT_ACTIVE} ${UPLOAD_UNAVAILABLE}`,
     properties: {
       enabled: {
         type: 'boolean',
         title: 'Enabled',
-        default: true,
+        default: false,
       },
       recordIntervalMinutes: {
         type: 'number',
@@ -260,7 +262,7 @@ function parseChannel(
   warnings: string[],
 ): ChannelOptions {
   const c = obj(raw);
-  const enabled = typeof c.enabled === 'boolean' ? c.enabled : bool(legacy, true);
+  const enabled = typeof c.enabled === 'boolean' ? c.enabled : bool(legacy, false);
   const inst = obj(c.instances);
   const mode: InstanceMode = inst.mode === 'selected' ? 'selected' : 'all';
   const ids: string[] = [];

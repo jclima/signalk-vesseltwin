@@ -14,6 +14,7 @@ const els = {
   title: byId('state-title'),
   message: byId('state-message'),
   hint: byId('state-hint'),
+  warning: byId('state-warning'),
   codeBlock: byId('code-block'),
   code: byId('code'),
   copy: byId('copy'),
@@ -127,6 +128,7 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
   let title: string;
   let message: string;
   let hint: string | null = null;
+  let warning: string | null = null;
   let code: string | null = null;
   let link: LinkInfo | null = null;
   let countdown: string | null = null;
@@ -143,6 +145,7 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
     title = s.title;
     message = s.message;
     hint = s.hint;
+    warning = s.warning;
     code = s.code;
     link = s.link;
     countdown = s.countdown;
@@ -164,6 +167,7 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
     lastLive = live;
   }
   setText(els.hint, hint);
+  setText(els.warning, warning);
   setText(els.code, code);
   els.codeBlock.hidden = code === null;
   if (code !== lastCode) {

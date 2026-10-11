@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, stat, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
@@ -132,17 +132,116 @@ describe('CredentialStore', () => {
       expect(await readdir(dir)).toEqual([]);
     });
 
-    it('the temp file is 0600 before the rename and a chmod failure cannot fail the write', async () => {
+    it('the temp file is 0600 before the rename, and a rejected fchmod cannot fail the write', async () => {
       const realRename = fsp.rename.bind(fsp);
+      const realOpen = fsp.open.bind(fsp);
       let modeAtRename = 0;
+      let chmodCalled = false;
       vi.spyOn(fsp, 'rename').mockImplementationOnce(async (from, to) => {
         modeAtRename = (await stat(String(from))).mode & 0o777;
         return realRename(from, to);
       });
-      vi.spyOn(fsp, 'chmod').mockRejectedValue(new Error('EPERM'));
+      // Filesystems such as vfat/exFAT reject fchmod with EPERM or ENOTSUP.
+      vi.spyOn(fsp, 'open').mockImplementationOnce(async (...a: Parameters<typeof fsp.open>) => {
+        const fh = await realOpen(...a);
+        vi.spyOn(fh, 'chmod').mockImplementation(() => {
+          chmodCalled = true;
+          return Promise.reject(
+            Object.assign(new Error('EPERM: operation not permitted, fchmod'), { code: 'EPERM' }),
+          );
+        });
+        return fh;
+      });
       await expect(new CredentialStore(dir).write(cred)).resolves.toBeUndefined();
+      expect(chmodCalled).toBe(true);
       if (process.platform !== 'win32') expect(modeAtRename).toBe(0o600);
       expect(await new CredentialStore(dir).read()).toMatchObject({ credential: cred.credential });
+      expect(await readdir(dir)).toEqual(['credential.json']);
+    });
+
+    const failChmodWith = (code: string, mode: number | null) => {
+      const realOpen = fsp.open.bind(fsp);
+      vi.spyOn(fsp, 'open').mockImplementationOnce(async (...a: Parameters<typeof fsp.open>) => {
+        const fh = await realOpen(...a);
+        vi.spyOn(fh, 'chmod').mockRejectedValue(Object.assign(new Error(code), { code }));
+        if (mode !== null) {
+          const real = fh.stat.bind(fh);
+          vi.spyOn(fh, 'stat').mockImplementation(async (...x: []) => {
+            const st = await real(...x);
+            return Object.assign(st, { mode: 0o100000 | mode });
+          });
+        }
+        return fh;
+      });
+    };
+
+    it.skipIf(process.platform === 'win32')(
+      'tolerated chmod errors with a group/other-readable file: write succeeds, permissions not restricted',
+      async () => {
+        for (const code of ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']) {
+          failChmodWith(code, 0o644);
+          const s = new CredentialStore(dir);
+          await expect(s.write(cred)).resolves.toBeUndefined();
+          expect(s.permissionsRestricted).toBe(false);
+          expect(await readdir(dir)).toEqual(['credential.json']);
+        }
+      },
+    );
+
+    it('a tolerated chmod error with a 0600 file leaves permissions restricted', async () => {
+      failChmodWith('EPERM', 0o600);
+      const s = new CredentialStore(dir);
+      await s.write(cred);
+      expect(s.permissionsRestricted).toBe(true);
+    });
+
+    it('a later restricted write clears the flag, and clear() resets it', async () => {
+      failChmodWith('EPERM', 0o644);
+      const s = new CredentialStore(dir);
+      await s.write(cred);
+      expect(s.permissionsRestricted).toBe(false);
+      await s.write(cred);
+      expect(s.permissionsRestricted).toBe(true);
+      failChmodWith('EPERM', 0o644);
+      await s.write(cred);
+      await s.clear();
+      expect(s.permissionsRestricted).toBe(true);
+    });
+
+    it('a non-tolerated chmod error (EIO) still fails the write and leaves no file', async () => {
+      failChmodWith('EIO', null);
+      await expect(new CredentialStore(dir).write(cred)).rejects.toThrow('EIO');
+      expect(await readdir(dir)).toEqual([]);
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      'read() of an existing group/other-readable file reports not restricted',
+      async () => {
+        const s = new CredentialStore(dir);
+        await s.write(cred);
+        await chmod(path.join(dir, 'credential.json'), 0o644);
+        const fresh = new CredentialStore(dir);
+        expect(await fresh.read()).toEqual(cred);
+        expect(fresh.permissionsRestricted).toBe(false);
+        await chmod(path.join(dir, 'credential.json'), 0o600);
+        await fresh.read();
+        expect(fresh.permissionsRestricted).toBe(true);
+      },
+    );
+
+    it('win32 never warns', async () => {
+      const orig = Object.getOwnPropertyDescriptor(process, 'platform') ?? {
+        value: process.platform,
+      };
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        failChmodWith('EPERM', 0o644);
+        const s = new CredentialStore(dir);
+        await s.write(cred);
+        expect(s.permissionsRestricted).toBe(true);
+      } finally {
+        Object.defineProperty(process, 'platform', orig);
+      }
     });
 
     it('writing or syncing the temp file fails', async () => {

@@ -84,20 +84,20 @@ describe('parseOptions numbers and booleans', () => {
   it('defaults and overrides booleans', () => {
     const d = parseOptions({});
     expect(d.categories).toEqual({
-      engineHours: true,
-      batteries: true,
-      tanks: true,
+      engineHours: false,
+      batteries: false,
+      tanks: false,
       vesselInfo: false,
     });
     const o = parseOptions({
-      sendEngineHours: false,
+      sendEngineHours: true,
       sendBatteries: 'no',
       sendTanks: false,
       sendVesselInfo: true,
     });
     expect(o.categories).toEqual({
-      engineHours: false,
-      batteries: true,
+      engineHours: true,
+      batteries: false,
       tanks: false,
       vesselInfo: true,
     });
@@ -134,8 +134,8 @@ describe('upload settings defaults', () => {
     const u = parseOptions({}).upload;
     expect(u.uploadIntervalMinutes).toBe(1440);
     for (const c of [u.engineHours, u.batteries, u.tanks]) {
-      expect(c.enabled).toBe(true);
-      expect(c.active).toBe(true);
+      expect(c.enabled).toBe(false);
+      expect(c.active).toBe(false);
       expect(c.recordIntervalMinutes).toBe(1440);
       expect(c.instanceMode).toBe('all');
       expect(c.instanceIds).toEqual([]);
@@ -146,6 +146,15 @@ describe('upload settings defaults', () => {
     expect(parseOptions({}).samplePeriodSeconds).toBe(300);
     expect(parseOptions({}).queueMaxReadings).toBe(50_000);
     expect(parseOptions({}).warnings).toEqual([]);
+  });
+
+  it('defaults every upload category to off in the schema, and says upload is unavailable', () => {
+    for (const cat of UPLOAD_CATEGORIES) {
+      const node = child(schemaRoot, cat);
+      expect((child(node, 'enabled') as { default?: unknown }).default).toBe(false);
+      expect(node.description).toContain('Data upload is not available in this version');
+      expect(node.description).toContain('future release');
+    }
   });
 
   it('keeps sendVesselInfo parseable but out of the schema', () => {
@@ -225,7 +234,8 @@ describe('upload settings precedence', () => {
     expect(o.upload.batteries.enabled).toBe(false);
     expect(o.upload.tanks.enabled).toBe(true);
     expect(o.categories).toMatchObject({ engineHours: true, batteries: false, tanks: true });
-    expect(parseOptions({ sendTanks: 'x' }).upload.tanks.enabled).toBe(true);
+    expect(parseOptions({ sendTanks: 'x' }).upload.tanks.enabled).toBe(false);
+    expect(parseOptions({ tanks: { enabled: 'no' } }).upload.tanks.enabled).toBe(false);
   });
 });
 
@@ -332,7 +342,9 @@ describe('instance ids', () => {
   });
 
   const ids = (cat: 'engineHours' | 'tanks', list: unknown) =>
-    parseOptions({ [cat]: { instances: { mode: 'selected', ids: list } } }).upload[cat];
+    parseOptions({ [cat]: { enabled: true, instances: { mode: 'selected', ids: list } } }).upload[
+      cat
+    ];
 
   it('accepts and rejects engine/battery ids by pattern', () => {
     const good = ['main', 'Port_1', 'a-b', 'x'.repeat(40)];
@@ -370,13 +382,15 @@ describe('instance ids', () => {
     const c = ids('engineHours', ['a b']);
     expect(c.enabled).toBe(true);
     expect(c.active).toBe(false);
-    const o = parseOptions({ engineHours: { instances: { mode: 'selected', ids: [] } } });
+    const o = parseOptions({
+      engineHours: { enabled: true, instances: { mode: 'selected', ids: [] } },
+    });
     expect(o.upload.engineHours.active).toBe(false);
     expect(o.warnings.join(' ')).toMatch(/no valid instances/);
     // all mode ignores the list
     expect(
-      parseOptions({ engineHours: { instances: { mode: 'all', ids: [] } } }).upload.engineHours
-        .active,
+      parseOptions({ engineHours: { enabled: true, instances: { mode: 'all', ids: [] } } }).upload
+        .engineHours.active,
     ).toBe(true);
     // unknown mode falls back to all
     expect(

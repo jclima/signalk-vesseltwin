@@ -27,7 +27,14 @@ export function isTombstone(v: StoredCredential | Tombstone): v is Tombstone {
 }
 
 const FILE = 'credential.json';
+/** fchmod errors that mean "this filesystem has no POSIX modes" (vfat, exFAT, some CIFS/Docker mounts). */
+const CHMOD_UNSUPPORTED = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
 const TMP_RE = /^\.credential\.json\.[0-9a-f]+\.tmp$/;
+
+/** Group or other bits set means the file is not private. Windows has no such modes: never warn. */
+function isRestricted(mode: number): boolean {
+  return process.platform === 'win32' || (mode & 0o077) === 0;
+}
 
 /**
  * Holds the paired credential in a 0600 file inside the plugin data dir.
@@ -36,9 +43,18 @@ const TMP_RE = /^\.credential\.json\.[0-9a-f]+\.tmp$/;
  */
 export class CredentialStore {
   private readonly file: string;
+  private restricted = true;
 
   constructor(private readonly dir: string) {
     this.file = path.join(dir, FILE);
+  }
+
+  /**
+   * False when the credential file is readable by group or others and could not be restricted (no
+   * POSIX modes on this drive). Updated by read(), write() and clear(); always true on Windows.
+   */
+  get permissionsRestricted(): boolean {
+    return this.restricted;
   }
 
   async read(): Promise<StoredCredential | Tombstone | null> {
@@ -46,8 +62,16 @@ export class CredentialStore {
     try {
       raw = await fs.readFile(this.file, 'utf8');
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.restricted = true;
+        return null;
+      }
       throw new Error('credential file unreadable');
+    }
+    try {
+      this.restricted = isRestricted((await fs.stat(this.file)).mode);
+    } catch {
+      this.restricted = true; // cannot tell: do not warn
     }
     try {
       const v = JSON.parse(raw) as Partial<StoredCredential> & { reauthRequired?: unknown };
@@ -93,13 +117,20 @@ export class CredentialStore {
    */
   private async writeAtomic(c: StoredCredential | Tombstone): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
+    let restricted = true;
     const tmp = path.join(this.dir, `.${FILE}.${randomBytes(6).toString('hex')}.tmp`);
     try {
       const fh = await fs.open(tmp, 'wx', 0o600);
       try {
-        await fh.chmod(0o600); // correct mode before the secret can appear under its final name
+        // Best effort: the file was created 0600 above; some filesystems (vfat, exFAT, certain
+        // CIFS or Docker mounts) reject fchmod, which must not strand an approved credential.
+        await fh.chmod(0o600).catch((err: unknown) => {
+          const code = (err as NodeJS.ErrnoException | undefined)?.code;
+          if (code === undefined || !CHMOD_UNSUPPORTED.has(code)) throw err;
+        });
         await fh.writeFile(JSON.stringify(c));
         await fh.sync();
+        restricted = isRestricted((await fh.stat()).mode);
       } finally {
         await fh.close();
       }
@@ -108,6 +139,7 @@ export class CredentialStore {
       await fs.rm(tmp, { force: true }).catch(() => undefined);
       throw err;
     }
+    this.restricted = restricted;
     await this.syncDir();
   }
 
@@ -128,6 +160,7 @@ export class CredentialStore {
   /** Removes the credential file and any stray temp files a crash may have left behind. */
   async clear(): Promise<void> {
     await fs.rm(this.file, { force: true });
+    this.restricted = true;
     let names: string[] = [];
     try {
       names = await fs.readdir(this.dir);

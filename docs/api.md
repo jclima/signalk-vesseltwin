@@ -1,17 +1,17 @@
 # VesselTwin integrations API (as used by the plugin)
 
 This describes the VesselTwin integrations API as the plugin uses it today: the **pairing** and
-**credential management** surface. Uploading readings is not available yet and is covered at the end.
+**credential management** surface. Uploading readings is not available in this plugin yet and is covered at the end.
 All paths are relative to the API base URL (default `https://api.vesseltwin.io`).
 
 Stability labels used below:
 
 - **STABLE**: part of the platform envelope. Changes are additive only; a breaking change would be a
   new route version.
-- **PENDING**: not available yet. It will be published (as JSON Schema, with a new contract version)
-  before the plugin implements it. Do not guess these shapes.
+- **PENDING**: defined by the platform under a newer contract version than this plugin uses, but not
+  implemented by the plugin. Do not guess shapes beyond what is documented here.
 
-The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` when the integration is off for the account. On authenticated calls the two cases differ: a plan problem is `403` `integration_paused_plan`, and a feature-flag problem is `503` `integration_feature_unavailable`.
+The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start` answers `503` `integration_feature_unavailable` when the integration is unavailable. Otherwise a pairing the owner cannot approve ends as `expired_token` (the plugin shows neutral "expired" copy). On authenticated calls a plan problem is `403` `integration_paused_plan` and an unavailable integration is `503` `integration_feature_unavailable`.
 
 ## Conventions (STABLE)
 
@@ -41,7 +41,7 @@ plugin                         VesselTwin API                    owner (web app)
 
 ### `POST /v1/integrations/pairing/start`
 
-No authentication. Rate limited per client.
+No authentication. Rate limited per client (`429` with `Retry-After`).
 
 Request (all fields required unless noted; unknown fields are rejected):
 
@@ -113,7 +113,7 @@ Pending and terminal states are returned as **HTTP 400** with `{ "error": "<stri
 
 Unknown and already-used device codes deliberately look the same as expired ones. `expired_token` and
 `access_denied` can also result from account checks made at approval time (for example if the
-integration is not enabled for the account), so the plugin's copy for them stays neutral and does not
+integration is not enabled for the owner's account), so the plugin's copy for them stays neutral and does not
 say why. A `429` or `5xx` while polling widens the interval by 5 s (never past 60 s) and honors
 `Retry-After`. If `Retry-After` is longer than the code's remaining lifetime the plugin stops instead
 of sleeping: `429` becomes "busy", `5xx` becomes "unavailable", and the user starts pairing again.
@@ -281,8 +281,9 @@ are transient: back off with jitter.
 
 The plugin registers three routes on the SignalK server, at `/plugins/signalk-vesseltwin`. They sit
 behind the server's own admin authentication (a fresh server has security on; send an admin bearer
-token). Admin-only is the server default for plugin routes, verified on signalk-server 2.33; the
-plugin never calls `router.access` to relax it. A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
+token). Plugin routes are admin-only only when SignalK security is enabled; with security off, anyone who can
+reach the server can call them (the server default, verified on signalk-server 2.33; the plugin never
+calls `router.access` to relax it). A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
 the browser also sends `Sec-Fetch-Site: same-origin` or `none` (this covers a reverse proxy that
 rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A request without
 `Origin` (curl, scripts) is allowed.
@@ -307,24 +308,25 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   "clockSkewWarning": false,
   "lastCheckedAt": "2026-01-01T00:00:00.000Z",
   "message": "Paired with Boat name. Data upload is not available in this version.",
+  "warnings": [],
   "upload": {
     "available": false,
     "categories": {
       "engineHours": {
-        "enabled": true,
-        "active": true,
+        "enabled": false,
+        "active": false,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       },
       "batteries": {
-        "enabled": true,
-        "active": true,
+        "enabled": false,
+        "active": false,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       },
       "tanks": {
-        "enabled": true,
-        "active": true,
+        "enabled": false,
+        "active": false,
         "recordIntervalMinutes": 1440,
         "instanceMode": "all"
       }
@@ -345,6 +347,11 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
   The plugin status line never contains it: SignalK broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.
+- `warnings` is a list of neutral codes for the admin only (never in the broadcast status line).
+  `"credential_permissions"` means the credential file is readable by other users of the server and
+  the filesystem could not restrict it (for example a FAT or exFAT drive). The credential is still
+  saved and works; the pairing page suggests moving the SignalK data directory to a Linux-formatted
+  drive. The list is empty otherwise and clears after an unpair.
 - `upload.categories.<category>.enabled` is the configured on/off value. `active` is the effective
   value: `enabled`, and not "selected" with no valid instance ids. `upload.warnings` is neutral text for
   the admin only; it is never put in the broadcast status line.
@@ -357,8 +364,8 @@ administrator, to see the code.` `vesselLabel` comes from the server and is
 - Pairing is bound to the plugin's lifetime: stopping or unpairing cancels it and forgets the code.
 
 - `upload` describes the effective upload settings and is admin-only (the status line never carries
-  it). `available` is always `false` in this version. Each category's `enabled` is false when the
-  category is off or when `instanceMode` is `selected` with no valid ids. `warnings` is a list of
+  it). `available` is always `false` in this version. Each category's `active` is false when the
+  category is off (`enabled` false) or when `instanceMode` is `selected` with no valid ids. `warnings` is a list of
   neutral sentences (ignored instance ids, a selected list with no valid ids, a queue cap below a
   week of full-rate readings); it never repeats the ids.
 
@@ -369,7 +376,7 @@ fall back to the default and out-of-range numbers are clamped; unknown keys are 
 
 | Setting                                                    | Range / values    | Default |
 | ---------------------------------------------------------- | ----------------- | ------- |
-| `<category>.enabled` (`engineHours`, `batteries`, `tanks`) | boolean           | true    |
+| `<category>.enabled` (`engineHours`, `batteries`, `tanks`) | boolean           | false   |
 | `<category>.recordIntervalMinutes`                         | 60 to 1440        | 1440    |
 | `engineHours.minChangeHours`                               | 0.1 to 24         | 0.1     |
 | `batteries.minChangeVolts`                                 | 0 to 5            | 0       |
@@ -404,8 +411,9 @@ default.
 
 ## Rate limits
 
-Authenticated calls are rate limited per credential. A plugin that batches, makes one request at a
-time and honors `Retry-After` will not get close to the limits.
+Routes are rate limited. A throttled client gets `429` with a `Retry-After` header and must wait at
+least that long before retrying. A plugin that batches, makes one request at a time and honors
+`Retry-After` will not get close to the limits.
 
 ## What the plugin must never send (STABLE rule)
 
@@ -413,11 +421,21 @@ Position, tracks, MMSI, callsign, AIS data, crew or owner names, free text, or a
 the documented pairing fields. The server rejects such fields, but the plugin must not read them in the
 first place. See the privacy section of the README.
 
-## Ingest (not built yet)
+## Ingest (not used by this plugin yet)
 
-Uploading readings (batches of engine hours, battery and tank values), per-item result codes,
-vessel-info suggestions and the idempotency rules are defined by the platform under a newer contract
-version than this plugin's `CONTRACT_VERSION`. The plugin does not implement or call them yet: the ingest
-JSON Schema still has to be vendored into this repo with a contract test, and upload work has to be
-started explicitly by the owner. Until then the plugin reports that upload is not available. Do not infer
-shapes from the pairing types above.
+`POST /v1/integrations/signalk/readings` is defined by the platform under contract version 2. This
+plugin speaks contract 1 and **does not call it**; upload stays unavailable and the plugin reports so.
+What clients can rely on: a request carries 1 to 500 readings, and the request body is size-limited
+(`413` when exceeded). The readings route requires contract 2, so a request under contract 1 is
+refused with `426`.
+
+`minContract` in the status response is the lowest contract the platform accepts overall; individual
+routes can require a higher one. A `connected` status therefore does not imply that upload is
+supported by this plugin version.
+
+Suggesting vessel information is not part of the current contract. The plugin requests no such
+data.
+
+Do not infer request shapes from the pairing types above. Before the plugin implements upload, the
+ingest JSON Schema has to be vendored into this repo with a contract test, and upload work has to be
+started explicitly by the owner.
