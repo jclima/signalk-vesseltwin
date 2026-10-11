@@ -1,0 +1,38 @@
+{
+  "valid": [
+    {
+      "channels": 0,
+      "awaitingSetup": 0,
+      "held": 0
+    },
+    {
+      "channels": 6,
+      "awaitingSetup": 2,
+      "held": 41
+    }
+  ],
+  "invalid": [
+    {
+      "channels": -1,
+      "awaitingSetup": 0,
+      "held": 0
+    },
+    {
+      "channels": 1.5,
+      "awaitingSetup": 0,
+      "held": 0
+    },
+    {
+      "channels": 1,
+      "awaitingSetup": 0
+    },
+    {
+      "channels": 1,
+      "awaitingSetup": 0,
+      "held": 0,
+      "paths": [
+        "x"
+      ]
+    }
+  ]
+}

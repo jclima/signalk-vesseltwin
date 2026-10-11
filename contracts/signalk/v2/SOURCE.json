@@ -1,0 +1,14 @@
+{
+  "contract": 2,
+  "vendoredAt": "2026-10-11",
+  "files": {
+    "reading-item.schema.json": "5d8b019efe8895ecb2aa84337b1ff87d15e0940cf5ae3e00e56b71712bf6d790",
+    "readings-request.schema.json": "679f366159aa4e5efe3ab9283013b0e5172a6eb577667314d3b64a004b221d65",
+    "readings-response.schema.json": "447476cc5baf803f2a0dc75911397fc24c84cceca120bde4cb5e7b515f368c70",
+    "status-summary.schema.json": "1255e3a32b40856e459c974f940857cfa5553e877f0f9c4c3b2d38b5ac0c5b19",
+    "fixtures/reading-item.fixtures.json": "815fceb16d6d750cdbfb8de4ef620933b2dc6d14a89ff109c1e3c2d6999807b3",
+    "fixtures/readings-request.fixtures.json": "18c03e69e28a243e405cbcc3c967bf91fa6c2e7970ca7eb955499ba13758480f",
+    "fixtures/readings-response.fixtures.json": "f04c0b3c5fbdfc5b22f20012566af71a50b162e0765014f47c92f32fe1687e47",
+    "fixtures/status-summary.fixtures.json": "31c76624177ee7f31973ba9eb754653c9129972f1c45556c16e37de42f07a54c"
+  }
+}

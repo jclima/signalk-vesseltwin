@@ -1,0 +1,65 @@
+{
+  "valid": [
+    {
+      "serverTime": "2026-10-05T12:00:00.000Z",
+      "results": []
+    },
+    {
+      "serverTime": "2026-10-05T12:00:00.000Z",
+      "results": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "status": "accepted"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "status": "held_review",
+          "reason": "meter_backwards"
+        },
+        {
+          "clientReadingId": "bad",
+          "status": "rejected",
+          "reason": "invalid_id"
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "serverTime": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "serverTime": "now",
+      "results": []
+    },
+    {
+      "serverTime": "2026-10-05T12:00:00.000Z",
+      "results": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "status": "rejected:future"
+        }
+      ]
+    },
+    {
+      "serverTime": "2026-10-05T12:00:00.000Z",
+      "results": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "status": "accepted",
+          "reason": "because"
+        }
+      ]
+    },
+    {
+      "serverTime": "2026-10-05T12:00:00.000Z",
+      "results": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "status": "accepted",
+          "extra": 1
+        }
+      ]
+    }
+  ]
+}

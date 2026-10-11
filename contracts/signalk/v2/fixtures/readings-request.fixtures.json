@@ -1,0 +1,3110 @@
+{
+  "valid": [
+    {
+      "readings": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "electrical.batteries.house.capacity.stateOfCharge",
+          "value": 0.82,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "a1b2c3d4-0000-4000-8000-000000000001",
+          "path": "tanks.fuel.0.currentVolume",
+          "value": 0.4,
+          "recordedAt": "2026-10-05T14:00:00+02:00"
+        }
+      ]
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "not-a-uuid",
+          "path": "navigation.position",
+          "value": null,
+          "recordedAt": "yesterday"
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {},
+    {
+      "readings": []
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        }
+      ],
+      "extra": 1
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z",
+          "extra": 1
+        }
+      ]
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": {
+            "latitude": 1,
+            "longitude": 2
+          },
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "",
+          "path": "a",
+          "value": 1,
+          "recordedAt": "x"
+        }
+      ]
+    },
+    {
+      "readings": [
+        {
+          "path": "a",
+          "value": 1,
+          "recordedAt": "x"
+        }
+      ]
+    },
+    {
+      "readings": [
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        },
+        {
+          "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+          "path": "propulsion.port.runTime",
+          "value": 3600,
+          "recordedAt": "2026-10-05T12:00:00.000Z"
+        }
+      ]
+    }
+  ]
+}

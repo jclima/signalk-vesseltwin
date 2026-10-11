@@ -1,0 +1,85 @@
+{
+  "valid": [
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion.port.runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "electrical.generators.gen1.runTime",
+      "value": 7200,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "tanks.blackWater.main.currentLevel",
+      "value": 0.5,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "electrical.batteries.house.voltage",
+      "value": 12.6,
+      "recordedAt": "2026-10-05T12:00:00-04:00"
+    }
+  ],
+  "invalid": [
+    {
+      "clientReadingId": "abc",
+      "path": "propulsion.port.runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "navigation.position",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "tanks.diesel.0.currentLevel",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion..runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion.a.b.runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion.port.runTime",
+      "value": null,
+      "recordedAt": "2026-10-05T12:00:00.000Z"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion.port.runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion.port.runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00"
+    },
+    {
+      "clientReadingId": "3f2b8c1e-6a4d-4e0b-9c55-0a1b2c3d4e5f",
+      "path": "propulsion.port.runTime",
+      "value": 3600,
+      "recordedAt": "2026-10-05T12:00:00.000Z",
+      "extra": 1
+    }
+  ]
+}
