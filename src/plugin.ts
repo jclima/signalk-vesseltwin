@@ -53,7 +53,7 @@ export interface ResponseLike {
 }
 
 export const PLUGIN_ID = 'signalk-vesseltwin';
-export const PLUGIN_VERSION = '0.1.1';
+export const PLUGIN_VERSION = '0.2.0';
 
 export interface PluginDeps {
   fetch?: FetchLike;
