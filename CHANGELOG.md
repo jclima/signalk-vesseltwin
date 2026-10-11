@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Upload settings per category (engine hours, batteries, tanks): on/off, how often to record
+  (60 to 1440 minutes), minimum change, and which instances. Also a single send interval. They are
+  checked and shown in the admin status, but not active yet: upload is still not available.
+  Defaults send the least data (at most once a day).
+
+### Fixed
+
+- Upload settings form: tank ids such as `fuel.0` are no longer rejected by the form, the "not active"
+  note appears once per section, labels and hints are clearer, and the admin status reports both the
+  configured (`enabled`) and effective (`active`) state per category.
+
+### Changed
+
+- The sample period setting now accepts 10 to 3600 seconds (it was up to 86400); larger saved values
+  are clamped to 3600.
+- The offline queue now applies its age and count caps when it starts.
+- The old "suggest vessel dimensions" setting is hidden; it is ignored.
+
 ## [0.1.1] - 2026-10-07
 
 ### Fixed

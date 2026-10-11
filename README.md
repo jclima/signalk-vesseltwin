@@ -157,9 +157,32 @@ SignalK security before you pair.
 - Data is only sent to the API URL in the plugin settings (default `https://api.vesseltwin.io`). If
   that URL is invalid, the plugin reports a configuration error and makes no network calls.
 - Uploading is not available yet. When it ships, only these values will be sent: engine and generator
-  run time, battery voltage and state of charge, tank level and volume. The category toggles in the
-  plugin settings take effect once upload is available. This section will be updated in the same
-  release.
+  run time, battery voltage and state of charge, tank level and volume. The category and
+  schedule settings below take effect once upload is available. This section will be updated in the
+  same release.
+
+### Upload settings (not active yet)
+
+These settings are saved and checked now, but nothing is recorded or sent in this version. The
+defaults send the least data: each category records at most once a day, and the plugin would send
+at most once a day.
+
+- **Per category** (Engine and generator hours, Battery readings, Tank levels): turn it on or off,
+  set how often it may record (every 60 to 1440 minutes), and set a minimum change worth recording
+  (hours, volts, percent or litres). A reading is also recorded after 24 hours even without a change.
+- **Record from**: all instances, or only the ids you list (for example `main` or `house`; tanks
+  as `fuel.0`). Ids use letters, digits, underscore or hyphen, up to 40 characters. A "selected" list with no valid entries records nothing for that
+  category.
+- **Limits**: at most 24 readings per channel per day, and at most 64 channels in total. The first
+  64 channels seen are used; the rest are ignored.
+- **Send to VesselTwin at most every** (5 to 1440 minutes, default 1440), **Sample period**
+  (10 to 3600 seconds, default 300) and **Offline queue cap** (1000 to 50000 readings, default
+  50000).
+- The older on/off settings (`sendEngineHours`, `sendBatteries`, `sendTanks`) still work when the
+  matching category setting is left unset.
+
+The admin-only status response lists each category as configured (`enabled`) and effective (`active`), and any notes about them, for example
+ignored instance ids.
 
 ## Troubleshooting
 

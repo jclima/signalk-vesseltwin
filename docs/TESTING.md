@@ -78,6 +78,10 @@ node dev/setup-signalk.mjs
 node dev/pair.mjs
 ```
 
+After a later `pnpm build`, restart the signalk container so it loads the new plugin code
+(`docker compose -f dev/docker-compose.yml restart signalk`, then `node dev/setup-signalk.mjs`);
+`up -d --build` alone keeps serving the old code.
+
 `dev/pair.mjs` starts pairing, prints the pending status (with `pairing.userCode`), approves that code
 on the mock, then waits for the first status check. Expected end:
 
@@ -201,6 +205,9 @@ After a successful pairing (either track), and before `down -v`:
 
 - [ ] The plugin settings (Server > Plugin Config) hold only the API URL and options, never the
       credential.
+- [ ] Checking the settings form: sign in at `/admin/` with the rig login from `dev/README.md`, then
+      open Plugin Config > VesselTwin. The record intervals default to 1440, "Record from" appears once per
+      section, a bad id blocks Save, and tank ids need the form `type.id`.
 - [ ] The webapp: with the plugin enabled, Webapps lists VesselTwin (with the plugin disabled it does
       not). `GET /signalk-vesseltwin/` serves the page with no login (static files only);
       `GET /plugins/signalk-vesseltwin/status` without a token still answers 401. Open

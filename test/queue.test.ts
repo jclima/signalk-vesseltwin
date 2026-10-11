@@ -77,4 +77,13 @@ describe('uuidv7', () => {
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(a < b).toBe(true);
   });
+
+  it('applies the age and count caps when it starts, not only on rotation', async () => {
+    const old = new ReadingQueue({ dir, now: () => NOW, segmentRecords: 100 });
+    await old.append(mk(1, NOW - 8 * 24 * 3600_000));
+    for (let i = 2; i <= 6; i++) await old.append(mk(i));
+    const fresh = new ReadingQueue({ dir, now: () => NOW, maxReadings: 3, segmentRecords: 100 });
+    expect((await fresh.peek(10)).map((r) => r.value)).toEqual([4, 5, 6]);
+    expect(fresh.dropped).toBe(3);
+  });
 });
