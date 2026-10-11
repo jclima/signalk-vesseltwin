@@ -301,7 +301,10 @@ interface FakeSm {
   unsubscribed: () => number;
   deliver: (d: unknown) => void;
 }
-function fakeSm(): FakeSm {
+/**
+ * `replay` is delivered synchronously inside subscribe(), like signalk-server's cached values.
+ */
+function fakeSm(replay?: () => unknown): FakeSm {
   const subscriptions: unknown[] = [];
   let deliver: (d: unknown) => void = () => undefined;
   let unsubscribed = 0;
@@ -313,6 +316,7 @@ function fakeSm(): FakeSm {
           unsubscribed += 1;
         });
         deliver = onDelta;
+        if (replay) onDelta(replay());
       },
     },
     subscriptions,
@@ -2251,6 +2255,20 @@ describe('upload pipeline', () => {
     ...over,
   });
 
+  it('the value replayed synchronously inside subscribe() is queued and uploaded', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const sm = fakeSm(() => delta(BAT));
+    const h = harness({ dir, deps: on, sm });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await firstAttempt(h);
+    expect(h.readingCalls[0]?.body.readings).toHaveLength(1);
+    await h.until(async () => (await uploadBlock(h)).queued === 0);
+    h.plugin.stop();
+  });
+
   it('with the release flag off: no subscription, no readings request, no queue directory', async () => {
     const dir = tempDir();
     await seed(dir);
@@ -2484,6 +2502,28 @@ describe('upload pipeline', () => {
     });
   });
 
+  it('the status line stops claiming to send after repeated failures and recovers on success', async () => {
+    const SENDING = 'Paired with Sea Hag. Sending readings to VesselTwin.';
+    const CANT =
+      "Paired with Sea Hag. VesselTwin can't be reached right now. Readings are kept for up to 7 days.";
+    const { h, sm } = await running({ replies: [json(502), json(502), json(502)] });
+    await queueOne(h, sm);
+    await firstAttempt(h);
+    await h.until(() => h.app.statuses.at(-1) === SENDING && h.readingCalls.length === 1);
+    expect(h.app.statuses).not.toContain(CANT);
+    await h.tick(30_000);
+    await h.until(() => h.readingCalls.length === 2);
+    expect(h.app.statuses.at(-1)).toBe(SENDING); // two failures are not enough
+    await h.tick(60_000);
+    await h.until(() => h.readingCalls.length === 3);
+    await h.until(() => h.app.statuses.at(-1) === CANT);
+    expect(CANT).not.toMatch(/\d{2}|503|502/);
+    await h.tick(10 * 60_000); // the fourth attempt succeeds
+    await h.until(() => h.readingCalls.length === 4);
+    await h.until(() => h.app.statuses.at(-1) === SENDING);
+    h.plugin.stop();
+  });
+
   describe('lifecycle', () => {
     it('stop() aborts the in-flight POST; the next start replays the same reading', async () => {
       let aborted = false;
@@ -2606,6 +2646,87 @@ describe('upload pipeline', () => {
       await h.tick(MIN);
       expect(segs(dir)).toHaveLength(0);
       expect(sm.unsubscribed()).toBe(1);
+      h.plugin.stop();
+    });
+
+    it('a new pairing clears the old queue before it stores the new credential', async () => {
+      const dir = tempDir();
+      const q = new ReadingQueue({ dir: join(dir, 'queue') });
+      await q.append(existing());
+      await q.close();
+      const h = harness({ dir, deps: on, sm: fakeSm() });
+      h.plugin.start(UP);
+      await h.tick();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+      const realWrite = CredentialStore.prototype.write;
+      let queueAtWrite = -1;
+      const spy = vi.spyOn(CredentialStore.prototype, 'write').mockImplementation(function (
+        this: CredentialStore,
+        c,
+      ) {
+        queueAtWrite = segs(dir).length;
+        return realWrite.call(this, c);
+      });
+      try {
+        await h.call('POST /pair');
+        await h.tick(5_000);
+        await h.resolveHeld(h.ok());
+        await h.untilState('connected');
+        expect(queueAtWrite).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+      h.plugin.stop();
+    });
+
+    it('a start() racing the post-pairing clear waits for it: no second writer, no stored credential', async () => {
+      const dir = tempDir();
+      const q = new ReadingQueue({ dir: join(dir, 'queue') });
+      await q.append(existing());
+      await q.close();
+      const h = harness({ dir, deps: on, sm: fakeSm() });
+      h.plugin.start(UP);
+      await h.tick();
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound via .call(this)
+      const realClear = ReadingQueue.prototype.clear;
+      const clearSpy = vi.spyOn(ReadingQueue.prototype, 'clear').mockImplementation(async function (
+        this: ReadingQueue,
+      ) {
+        await gate;
+        return realClear.call(this);
+      });
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- counting only
+      const realRead = CredentialStore.prototype.read;
+      let reads = 0;
+      const readSpy = vi.spyOn(CredentialStore.prototype, 'read').mockImplementation(function (
+        this: CredentialStore,
+      ) {
+        reads += 1;
+        return realRead.call(this);
+      });
+      try {
+        await h.call('POST /pair');
+        await h.tick(5_000);
+        await h.resolveHeld(h.ok());
+        await h.until(() => clearSpy.mock.calls.length === 1); // the clear is held open
+        const before = reads;
+        h.plugin.start(UP); // a restart while the clear is in flight
+        await h.tick(200);
+        expect(reads).toBe(before); // the new lifecycle has not loaded anything yet
+        release();
+        await h.until(() => reads > before);
+        await h.until(() => segs(dir).length === 0);
+        expect(h.files()).not.toContain('credential.json'); // the cancelled pairing stored nothing
+        expect(clearSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        release();
+        clearSpy.mockRestore();
+        readSpy.mockRestore();
+      }
       h.plugin.stop();
     });
 

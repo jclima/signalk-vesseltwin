@@ -90,6 +90,9 @@ export type PluginState =
 const UPLOAD_AVAILABLE = true;
 
 const READINGS_KEPT = 'Readings are kept for up to 7 days.';
+/** Failed upload attempts in a row (or this long) before the status line stops saying "sending". */
+const STRUGGLE_FAILURES = 3;
+const STRUGGLE_MS = 60 * 60_000;
 const NEEDS_SETUP = 'Some channels need setup in VesselTwin.';
 
 /** Neutral copy per failed pairing outcome. Never shows raw server codes. */
@@ -293,6 +296,18 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     stopPipeline();
   }
 
+  /** The post-pairing queue clear in flight; start() and unpair wait for it (single writer). */
+  let queueClear: Promise<void> | null = null;
+
+  /** clearQueue() that start() and unpair can wait for. */
+  function clearQueueTracked(): Promise<void> {
+    const p = clearQueue().finally(() => {
+      if (queueClear === p) queueClear = null;
+    });
+    queueClear = p;
+    return p;
+  }
+
   /** Best effort. Never throws: a queue that cannot be cleared must not break unpair or pairing. */
   async function clearQueue(): Promise<void> {
     if (!uploadAvailable) return;
@@ -376,6 +391,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       },
     };
     const sampler = createSampler({ options: upload, sink, now });
+    // The pipeline must exist before subscribing: signalk-server replays cached values synchronously
+    // inside subscribe(), and the sink drops anything that arrives while `pipe` is not this one.
+    pipe = { token, queue, uploader, collector: null, origin: credentialOrigin_, pairedAt };
     const collector = startCollector({
       sm,
       rules: PATH_RULES.filter((r) => active.has(r.category)),
@@ -388,7 +406,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         app.debug(`subscription error: ${msg}`);
       },
     });
-    pipe = { token, queue, uploader, collector, origin: credentialOrigin_, pairedAt };
+    if (pipe.token === token) pipe.collector = collector;
+    else collector.stop();
     uploader.start();
   }
 
@@ -536,6 +555,16 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     return uploadAvailable && options.uploadEnabled && options.activeCategories.length > 0;
   }
 
+  /** The uploader keeps failing: 3 failed attempts in a row, or failing for an hour. */
+  function uploadStruggling(): boolean {
+    const sn = pipe?.uploader.snapshot();
+    if (!sn || sn.failures === 0) return false;
+    return (
+      sn.failures >= STRUGGLE_FAILURES ||
+      (sn.failingSince !== null && now() - sn.failingSince >= STRUGGLE_MS)
+    );
+  }
+
   function message(st: PluginState = state()): string {
     const lead = vesselLabel ? `Paired with ${vesselLabel}` : 'Paired with VesselTwin';
     const pausedReason: PauseReason | null = uploadPaused ?? snap?.pausedReason ?? null;
@@ -567,6 +596,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         let upline: string;
         if (subscriptionsMissing) {
           upline = 'This SignalK server cannot provide readings to the plugin.';
+        } else if (sending && uploadStruggling()) {
+          upline = `VesselTwin can't be reached right now. ${READINGS_KEPT}`;
         } else if (sending) {
           upline = 'Sending readings to VesselTwin.';
           if ((snap?.summary?.awaitingSetup ?? 0) > 0) upline += ` ${NEEDS_SETUP}`;
@@ -663,6 +694,14 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         const pairedAt = new Date().toISOString();
         await tombstoneWrite; // a late tombstone must not overwrite the new credential
         if (!current()) return;
+        if (uploadAvailable) {
+          // A new pairing starts with an empty queue, and the old queue goes first: no failure
+          // between the two steps can leave old readings next to the new credential.
+          stopSession();
+          sticky = null;
+          await clearQueueTracked();
+          if (!current()) return;
+        }
         const saved = (async (): Promise<'kept' | 'stale' | 'failed'> => {
           try {
             await s.write({
@@ -696,13 +735,6 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           return;
         }
         if (keep === 'stale') return;
-        if (uploadAvailable) {
-          // A new pairing starts with an empty queue, before the new credential is used.
-          stopSession();
-          sticky = null;
-          await clearQueue();
-          if (!current()) return;
-        }
         vesselLabel = cleanLabel(out.token.vesselLabel);
         hasCredential = true;
         failure = null;
@@ -839,7 +871,13 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         return;
       }
       const s = store;
-      const earlier = Promise.allSettled([persisting, tombstoneWrite, unpairWork, stopping]);
+      const earlier = Promise.allSettled([
+        persisting,
+        tombstoneWrite,
+        unpairWork,
+        stopping,
+        queueClear,
+      ]);
       earlier
         .then(async () => {
           // Owner decision: readings queued under an earlier setting are not kept once upload is off.
@@ -975,7 +1013,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           sticky = null;
           const previous = unpairWork; // an overlapping unpair finishes before this one clears
           const work = (async () => {
-            await Promise.allSettled([persisting, tombstoneWrite, previous, stopping]);
+            await Promise.allSettled([persisting, tombstoneWrite, previous, stopping, queueClear]);
             await s.clear();
             await clearQueue(); // nothing from this pairing may be uploaded under another
           })();
