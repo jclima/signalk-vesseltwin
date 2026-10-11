@@ -76,6 +76,8 @@ export function checkUploadHonesty(opts: {
   pluginTs: string;
   readme: string;
   srcFiles: { path: string; text: string }[];
+  webFiles?: { path: string; text: string }[];
+  pkgDescription?: string;
 }): Finding[];
 export function checkContractDoc(opts: { contractTs: string; apiMd: string }): Finding[];
 export function checkReadmeReleased(opts: {
