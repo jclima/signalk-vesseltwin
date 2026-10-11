@@ -41,6 +41,16 @@ describe('retryAfterMs', () => {
     expect(retryAfterMs(new Headers({ 'retry-after': 'soon' }))).toBeNull();
     expect(retryAfterMs(new Headers())).toBeNull();
   });
+  it('caps at 24 h for seconds and HTTP dates, and keeps values just under the cap', () => {
+    const day = 24 * 60 * 60_000;
+    expect(retryAfterMs(new Headers({ 'retry-after': '99999999999' }))).toBe(day);
+    expect(retryAfterMs(new Headers({ 'retry-after': '86400' }))).toBe(day);
+    expect(retryAfterMs(new Headers({ 'retry-after': '86399' }))).toBe(day - 1000);
+    expect(retryAfterMs(new Headers({ 'retry-after': 'Fri, 01 Jan 2100 00:00:00 GMT' }), 0)).toBe(
+      day,
+    );
+    expect(retryAfterMs(new Headers({ 'retry-after': '' }))).toBeNull();
+  });
 });
 
 describe('joinUrl', () => {
@@ -65,7 +75,7 @@ describe('HttpClient', () => {
     };
     const c = new HttpClient({ baseUrl: 'https://x.test', fetch: fetchFn, userAgent: 'ua/1' });
     await c.post('/v1/a', {});
-    expect(seen['x-vesseltwin-contract']).toBe('1');
+    expect(seen['x-vesseltwin-contract']).toBe('2');
     expect(seen['user-agent']).toBe('ua/1');
     expect(seen.authorization).toBeUndefined();
     await c.post(
@@ -151,7 +161,7 @@ describe('HttpClient.get', () => {
     const h = seen.init?.headers as Record<string, string>;
     expect(h['content-type']).toBeUndefined();
     expect(h['user-agent']).toBe('ua/1');
-    expect(h['x-vesseltwin-contract']).toBe('1');
+    expect(h['x-vesseltwin-contract']).toBe('2');
     expect(h.accept).toBe('application/json');
     expect(h.authorization).toBeUndefined();
   });

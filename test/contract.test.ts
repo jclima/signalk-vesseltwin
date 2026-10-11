@@ -3,7 +3,7 @@ import { CONTRACT_VERSION, ERROR_CODES, POLL_ERRORS, PROVIDER, SCOPES } from '..
 
 describe('contract constants', () => {
   it('pins the wire constants', () => {
-    expect(CONTRACT_VERSION).toBe(1);
+    expect(CONTRACT_VERSION).toBe(2);
     expect(PROVIDER).toBe('signalk');
     expect(SCOPES).toEqual(['meters:write', 'vessel-info:suggest']);
     expect(POLL_ERRORS).toEqual([

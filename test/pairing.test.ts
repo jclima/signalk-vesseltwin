@@ -65,7 +65,7 @@ describe('runPairing', () => {
     expect(onCode).toHaveBeenCalledWith(expect.objectContaining({ userCode: 'ABCD-EFGH' }));
     expect(calls[0]?.body).toMatchObject({
       provider: 'signalk',
-      contractVersion: 1,
+      contractVersion: 2,
       requestedScopes: ['meters:write'],
     });
     expect(calls.filter((c) => c.url.endsWith('/pairing/token')).length).toBe(3);
@@ -480,7 +480,7 @@ describe('server-controlled timing is clamped', () => {
 
   it('a huge delta-seconds Retry-After past the code lifetime returns busy without sleeping', async () => {
     const r = await drive({}, [json(429, {}, { 'retry-after': '99999999999' })]);
-    expect(r.out).toEqual({ kind: 'busy', retryAfterMs: 99_999_999_999_000 });
+    expect(r.out).toEqual({ kind: 'busy', retryAfterMs: 24 * 60 * 60_000 }); // capped
     expect(r.sleeps).toEqual([5_000]);
     expect(r.tokenCalls).toHaveLength(1);
   });

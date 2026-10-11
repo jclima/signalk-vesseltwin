@@ -17,7 +17,7 @@ The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start
 
 - JSON request and response bodies, `Content-Type: application/json`.
 - Every request sends `User-Agent: signalk-vesseltwin/<version>` and `X-VesselTwin-Contract: <integer>`.
-  The plugin's current contract is `1`.
+  The plugin's current contract is `2`.
 - Pairing and credential responses carry `Cache-Control: no-store`.
 - Error bodies for platform errors look like `{ "code": "integration_...", "message": "..." }`. Show
   users neutral copy of your own; never display `code` or `message` verbatim.
@@ -179,7 +179,11 @@ accepted, 2 is the latest). That only says the server supports a newer contract;
 newer plugin has been released.
 
 `pluginUpdateRecommended` is true when the plugin's contract is below `latestContract` (or missing).
-`serverTime` can be used to warn about clock skew. `summary` is provider-specific (a small object of counts for this provider) and may be `null`; the plugin ignores it.
+`serverTime` can be used to warn about clock skew. `summary` is provider-specific and may be `null`.
+For SignalK it is `{ "channels", "awaitingSetup", "held" }`, three non-negative integers
+(`contracts/signalk/v2/status-summary.schema.json`). The plugin parses it tolerantly (a malformed
+value counts as absent) and shows the counts only in the admin-only `/status` response, under
+`upload.summary` (`null` when absent). They never appear in the broadcast status line.
 Unknown fields are ignored.
 
 #### Status probe (how the plugin uses it)
@@ -190,7 +194,7 @@ credential and the contract header.
 Cadence: once when the plugin starts with a stored credential, once right after pairing succeeds, then
 about hourly (60 minutes with +-10% jitter). Probes never overlap. After a transient failure it backs
 off (5 s up to 30 min, full jitter) and never probes sooner than `Retry-After`. A paused integration is
-probed no more often than hourly.
+probed no more often than hourly. `Retry-After` is honoured up to 24 hours; larger values are capped.
 
 Outcome table (`src/status.ts`):
 

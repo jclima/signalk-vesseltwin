@@ -947,7 +947,7 @@ describe('state machine', () => {
     ],
     [
       'connected with a newer server contract (no update claim in the line)',
-      () => new Response(JSON.stringify({ ...okStatusBody(), latestContract: 2 }), { status: 200 }),
+      () => new Response(JSON.stringify({ ...okStatusBody(), latestContract: 3 }), { status: 200 }),
       `Paired with Sea Hag. ${NO_UPLOAD}`,
       { state: 'connected', updateRecommended: true, clockSkewWarning: false },
       false,
@@ -982,7 +982,7 @@ describe('state machine', () => {
     ],
     [
       'update_required (minContract)',
-      () => new Response(JSON.stringify({ ...okStatusBody(), minContract: 2 }), { status: 200 }),
+      () => new Response(JSON.stringify({ ...okStatusBody(), minContract: 3 }), { status: 200 }),
       `Paired with Sea Hag. This plugin version is not supported by VesselTwin. Update the plugin. ${NO_UPLOAD}`,
       { state: 'update_required', paired: true },
       true,
@@ -2032,10 +2032,45 @@ describe('page copy', () => {
   });
 });
 
+describe('admin status upload summary', () => {
+  it('is null before a summary and carries the server counts once connected; never in the line', async () => {
+    const h = harness();
+    h.plugin.start({});
+    await h.tick();
+    expect(((await h.call('GET /status')).body.upload as { summary: unknown }).summary).toBeNull();
+
+    const dir = tempDir();
+    await seed(dir);
+    const h2 = harness({ dir });
+    h2.statusReplies.push(
+      () =>
+        new Response(
+          JSON.stringify({
+            ...okStatusBody(),
+            summary: { channels: 4, awaitingSetup: 2, held: 1 },
+          }),
+          { status: 200 },
+        ),
+    );
+    h2.plugin.start({});
+    await h2.tick();
+    const body = (await h2.call('GET /status')).body;
+    expect((body.upload as { summary: unknown }).summary).toEqual({
+      channels: 4,
+      awaitingSetup: 2,
+      held: 1,
+    });
+    expect(h2.app.statuses.at(-1)).not.toMatch(/\d/);
+    h2.plugin.stop();
+    h.plugin.stop();
+  });
+});
+
 describe('admin status upload block', () => {
   it('reports upload unavailable with the effective settings and neutral warnings', async () => {
     const h = harness();
     h.plugin.start({
+      uploadEnabled: true,
       engineHours: {
         enabled: true,
         recordIntervalMinutes: 120,
@@ -2070,6 +2105,7 @@ describe('admin status upload block', () => {
         },
       },
       warnings: expect.arrayContaining([expect.stringMatching(/not valid/)]) as unknown,
+      summary: null,
     });
     const w = (body.upload as { warnings: string[] }).warnings.join(' ');
     expect(w).toMatch(/no valid instances/);

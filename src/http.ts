@@ -34,14 +34,19 @@ export function backoffDelay(attempt: number, rng: () => number = Math.random): 
   return Math.round(BACKOFF_MIN_MS + rng() * (ceiling - BACKOFF_MIN_MS));
 }
 
-/** Parses `Retry-After` (delta seconds or HTTP date). Returns ms or null. */
+/** Upper bound for a server-supplied `Retry-After`, so a hostile or broken value cannot park us for years. */
+export const RETRY_AFTER_MAX_MS = 24 * 60 * 60_000;
+
+/** Parses `Retry-After` (delta seconds or HTTP date), capped at 24 h. Returns ms or null. */
 export function retryAfterMs(headers: Headers, now: number = Date.now()): number | null {
   const raw = headers.get('retry-after');
   if (raw === null) return null;
   const secs = Number(raw);
-  if (Number.isFinite(secs) && secs >= 0) return Math.round(secs * 1000);
+  if (raw.trim() !== '' && Number.isFinite(secs) && secs >= 0) {
+    return Math.min(RETRY_AFTER_MAX_MS, Math.round(secs * 1000));
+  }
   const at = Date.parse(raw);
-  return Number.isNaN(at) ? null : Math.max(0, at - now);
+  return Number.isNaN(at) ? null : Math.min(RETRY_AFTER_MAX_MS, Math.max(0, at - now));
 }
 
 /** Joins keeping any path in the base (https://h/api + /v1/x -> https://h/api/v1/x). */

@@ -1,12 +1,12 @@
 /**
  * Wire contract constants and types for the VesselTwin integrations API (see docs/api.md).
- * Upload is not built yet: the ingest JSON Schema for a newer contract version must be vendored here,
- * with a contract test, before upload work starts (see AGENTS.md).
+ * Contract 2 adds the readings ingest route; its JSON Schemas are vendored under contracts/signalk/v2/.
+ * Credentials paired under contract 1 keep working: the contract is checked per request.
  */
 
 export const PROVIDER = 'signalk' as const;
 /** Sent as `X-VesselTwin-Contract`. Server supports a window [min, latest]. */
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
 export const SCOPES = ['meters:write', 'vessel-info:suggest'] as const;
 export type Scope = (typeof SCOPES)[number];
 

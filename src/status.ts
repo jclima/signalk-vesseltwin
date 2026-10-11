@@ -8,6 +8,7 @@ import {
   type HttpResult,
 } from './http';
 import { redactError } from './redact';
+import { parseStatusSummary, type StatusSummary } from './wire';
 
 /** Probe cadence while healthy, and the slow probe for a paused integration. */
 export const PROBE_INTERVAL_MS = 60 * 60_000;
@@ -72,7 +73,6 @@ export function classify(
   now: number,
   contract: number = CONTRACT_VERSION,
 ): StatusOutcome {
-  const code = errorCode(res.json);
   const ra = retryAfterMs(res.headers, now);
   const { status } = res;
 
@@ -90,20 +90,68 @@ export function classify(
       info,
     };
   }
-  if (status === 401)
-    return { kind: 'reauth_required', tombstone: code === 'integration_unauthorized' };
+  const f = classifyFailure(res, now);
+  switch (f.kind) {
+    case 'reauth':
+      return { kind: 'reauth_required', tombstone: f.tombstone };
+    case 'update_required':
+      return f.cause === 'scope'
+        ? { kind: 'stopped' }
+        : { kind: 'update_required', stop: true, info: null };
+    case 'paused':
+      return { kind: 'paused', reason: f.reason, retryAfterMs: f.retryAfterMs };
+    default:
+      // retry, bad_request, too_large: nothing a status probe can fix; transient.
+      return { kind: 'offline', retryAfterMs: ra };
+  }
+}
+
+/**
+ * How a failed authenticated call must be handled, shared by the status probe and the uploader.
+ * `retry` carries only the server's `Retry-After`; the caller applies `offlineDelay` with its own
+ * attempt counter (5 s to 30 min, full jitter, never sooner than Retry-After).
+ */
+export type FailureClass =
+  /** 401. `tombstone` only for the platform's `integration_unauthorized` body. Stop; re-pair. */
+  | { kind: 'reauth'; tombstone: boolean }
+  /** Keep the queue and probe slowly. `delayMs` is max(Retry-After, 1 h). */
+  | { kind: 'paused'; reason: PauseReason; retryAfterMs: number | null; delayMs: number }
+  /** Contract outside the window (426, 400 integration_contract_*) or 403 integration_scope. Stop. */
+  | { kind: 'update_required'; cause: 'contract' | 'scope' }
+  /** 400 without a contract code: a plugin bug; do not resend the same batch. */
+  | { kind: 'bad_request' }
+  /** 413: the body was too large; split the batch. */
+  | { kind: 'too_large' }
+  /** 429, 5xx, network error, timeout, anything unexpected. `res` null means no response. */
+  | { kind: 'retry'; retryAfterMs: number | null };
+
+/** Pure classification of a non-2xx response (or `null` for a transport failure). `now` is epoch ms. */
+export function classifyFailure(res: HttpResult | null, now: number): FailureClass {
+  if (res === null) return { kind: 'retry', retryAfterMs: null };
+  const code = errorCode(res.json);
+  const ra = retryAfterMs(res.headers, now);
+  const { status } = res;
+  if (status === 401) return { kind: 'reauth', tombstone: code === 'integration_unauthorized' };
   if (status === 426 || (status === 400 && code?.startsWith('integration_contract_'))) {
-    return { kind: 'update_required', stop: true, info: null };
+    return { kind: 'update_required', cause: 'contract' };
   }
-  if (status === 503 && code === 'integration_feature_unavailable') {
-    return { kind: 'paused', reason: 'feature', retryAfterMs: ra };
+  if (status === 403 && code === 'integration_scope') {
+    return { kind: 'update_required', cause: 'scope' };
   }
-  if (status === 403 && code === 'integration_paused_plan') {
-    return { kind: 'paused', reason: 'plan', retryAfterMs: ra };
+  if (
+    (status === 503 && code === 'integration_feature_unavailable') ||
+    (status === 403 && code === 'integration_paused_plan')
+  ) {
+    return {
+      kind: 'paused',
+      reason: status === 503 ? 'feature' : 'plan',
+      retryAfterMs: ra,
+      delayMs: Math.max(ra ?? 0, PAUSED_PROBE_MS),
+    };
   }
-  if (status === 403 && code === 'integration_scope') return { kind: 'stopped' };
-  // 429, 5xx and anything unexpected: transient, back off.
-  return { kind: 'offline', retryAfterMs: ra };
+  if (status === 400) return { kind: 'bad_request' };
+  if (status === 413) return { kind: 'too_large' };
+  return { kind: 'retry', retryAfterMs: ra };
 }
 
 /** One authenticated status probe. Network errors and timeouts are `offline`. */
@@ -144,6 +192,8 @@ export interface MonitorSnapshot {
   clockSkewWarning: boolean;
   /** Epoch ms of the last completed probe. */
   lastCheckedAt: number | null;
+  /** Counts from the last successful probe (contract 2); null when absent or malformed. */
+  summary: StatusSummary | null;
 }
 
 export interface Scheduler {
@@ -208,6 +258,7 @@ export class StatusMonitor {
     updateRecommended: false,
     clockSkewWarning: false,
     lastCheckedAt: null,
+    summary: null,
   };
   private readonly now: () => number;
   private readonly rng: () => number;
@@ -292,6 +343,7 @@ export class StatusMonitor {
           updateRecommended: out.updateRecommended,
           clockSkewWarning: out.clockSkewWarning,
           lastCheckedAt: at,
+          summary: parseStatusSummary(out.info.summary),
         });
         next = healthyDelay(this.rng);
         break;
@@ -308,7 +360,7 @@ export class StatusMonitor {
         break;
       case 'paused':
         this.set({ state: 'paused', pausedReason: out.reason, lastCheckedAt: at });
-        next = Math.max(out.retryAfterMs ?? 0, PAUSED_PROBE_MS);
+        next = Math.max(out.retryAfterMs ?? 0, PAUSED_PROBE_MS); // same as classifyFailure's delayMs
         break;
       case 'offline':
         this.set({ state: 'offline', lastCheckedAt: at });
@@ -339,6 +391,7 @@ export class StatusMonitor {
       ...(patch.state === 'connected' || patch.state === 'update_required'
         ? {}
         : { updateRecommended: false, clockSkewWarning: false }),
+      ...(patch.state === 'connected' ? {} : { summary: null }),
       ...patch,
     };
     this.o.onUpdate(this.snap);

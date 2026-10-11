@@ -8,6 +8,7 @@ import {
   StatusMonitor,
   checkStatus,
   classify,
+  classifyFailure,
   healthyDelay,
   offlineDelay,
   parseStatusBody,
@@ -77,9 +78,11 @@ describe('classify', () => {
     expect(classify(res(200, okBody({ pluginUpdateRecommended: true })), NOW)).toMatchObject({
       updateRecommended: true,
     });
-    expect(classify(res(200, okBody({ latestContract: 2 })), NOW)).toMatchObject({
-      updateRecommended: true,
-    });
+    expect(classify(res(200, okBody({ latestContract: CONTRACT_VERSION + 1 })), NOW)).toMatchObject(
+      {
+        updateRecommended: true,
+      },
+    );
   });
 
   it('flags clock skew beyond 5 minutes, either direction', () => {
@@ -207,6 +210,106 @@ describe('checkStatus', () => {
   });
 });
 
+describe('classifyFailure', () => {
+  const DAY = 24 * 60 * 60_000;
+  const cases: [string, number, unknown, Record<string, string>, unknown][] = [
+    ['401 bare', 401, {}, {}, { kind: 'reauth', tombstone: false }],
+    [
+      '401 unauthorized',
+      401,
+      { code: 'integration_unauthorized' },
+      {},
+      { kind: 'reauth', tombstone: true },
+    ],
+    ['401 other code', 401, { code: 'x' }, {}, { kind: 'reauth', tombstone: false }],
+    [
+      '403 paused plan',
+      403,
+      { code: 'integration_paused_plan' },
+      {},
+      { kind: 'paused', reason: 'plan', retryAfterMs: null, delayMs: PAUSED_PROBE_MS },
+    ],
+    [
+      '503 feature, short Retry-After lifts to 1 h',
+      503,
+      { code: 'integration_feature_unavailable' },
+      { 'retry-after': '30' },
+      { kind: 'paused', reason: 'feature', retryAfterMs: 30_000, delayMs: PAUSED_PROBE_MS },
+    ],
+    [
+      '503 feature, long Retry-After wins',
+      503,
+      { code: 'integration_feature_unavailable' },
+      { 'retry-after': '7200' },
+      { kind: 'paused', reason: 'feature', retryAfterMs: 7_200_000, delayMs: 7_200_000 },
+    ],
+    [
+      '503 feature, absurd Retry-After capped at 24 h',
+      503,
+      { code: 'integration_feature_unavailable' },
+      { 'retry-after': '99999999999' },
+      { kind: 'paused', reason: 'feature', retryAfterMs: DAY, delayMs: DAY },
+    ],
+    ['426', 426, null, {}, { kind: 'update_required', cause: 'contract' }],
+    [
+      '400 contract_required',
+      400,
+      { code: 'integration_contract_required' },
+      {},
+      { kind: 'update_required', cause: 'contract' },
+    ],
+    [
+      '400 contract_unsupported',
+      400,
+      { code: 'integration_contract_unsupported' },
+      {},
+      { kind: 'update_required', cause: 'contract' },
+    ],
+    [
+      '403 scope',
+      403,
+      { code: 'integration_scope' },
+      {},
+      { kind: 'update_required', cause: 'scope' },
+    ],
+    ['400 bare', 400, {}, {}, { kind: 'bad_request' }],
+    [
+      '400 validation body',
+      400,
+      { message: 'Validation failed', errors: [] },
+      {},
+      { kind: 'bad_request' },
+    ],
+    ['400 other code', 400, { code: 'integration_other' }, {}, { kind: 'bad_request' }],
+    ['413', 413, null, {}, { kind: 'too_large' }],
+    [
+      '429 with Retry-After',
+      429,
+      {},
+      { 'retry-after': '12' },
+      { kind: 'retry', retryAfterMs: 12_000 },
+    ],
+    ['500', 500, null, {}, { kind: 'retry', retryAfterMs: null }],
+    ['502', 502, '<html>', {}, { kind: 'retry', retryAfterMs: null }],
+    ['503 other code', 503, { code: 'other' }, {}, { kind: 'retry', retryAfterMs: null }],
+    ['403 other code', 403, { code: 'other' }, {}, { kind: 'retry', retryAfterMs: null }],
+    ['unexpected 418', 418, {}, {}, { kind: 'retry', retryAfterMs: null }],
+  ];
+  it.each(cases)('%s', (_n, status, json, headers, expected) => {
+    expect(classifyFailure(res(status, json, headers), NOW)).toEqual(expected);
+  });
+  it('a missing response (network error, timeout) is a retry', () => {
+    expect(classifyFailure(null, NOW)).toEqual({ kind: 'retry', retryAfterMs: null });
+  });
+  it('honours an HTTP-date Retry-After relative to now', () => {
+    const at = new Date(NOW + 90_000).toUTCString();
+    expect(classifyFailure(res(429, {}, { 'retry-after': at }), NOW)).toEqual({
+      kind: 'retry',
+      retryAfterMs: 90_000,
+    });
+  });
+});
+
 // ---- StatusMonitor with a fake scheduler -------------------------------------------------------
 
 type Reply = () => Response | Promise<Response> | Error;
@@ -284,6 +387,22 @@ describe('StatusMonitor', () => {
     expect(h.live()[0]?.ms).toBe(PROBE_INTERVAL_MS);
     await h.fire();
     expect(h.calls()).toBe(2);
+    h.m.stop();
+  });
+
+  it('exposes the parsed summary while connected and clears it otherwise', async () => {
+    const h = monitorHarness([
+      json(200, okBody({ summary: { channels: 3, awaitingSetup: 1, held: 2 } })),
+      json(503, {}),
+      json(200, okBody({ summary: { channels: -1, awaitingSetup: 0, held: 0 } })),
+    ]);
+    h.m.start();
+    await settle();
+    expect(h.m.snapshot().summary).toEqual({ channels: 3, awaitingSetup: 1, held: 2 });
+    await h.fire();
+    expect(h.m.snapshot()).toMatchObject({ state: 'offline', summary: null });
+    await h.fire();
+    expect(h.m.snapshot()).toMatchObject({ state: 'connected', summary: null }); // malformed -> null
     h.m.stop();
   });
 

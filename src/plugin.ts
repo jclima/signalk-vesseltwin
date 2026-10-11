@@ -489,6 +489,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         tanks: one(u.tanks),
       },
       warnings: options.warnings,
+      // Server-reported counts from the last good status probe. Admin-only; never in the status line.
+      summary: snap?.summary ?? null,
     };
   }
 
@@ -576,6 +578,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
                 updateRecommended: false,
                 clockSkewWarning: false,
                 lastCheckedAt: null,
+                summary: null,
               };
             } else {
               // Missing or different origin: the monitor goes to reauth_required with zero calls.
