@@ -1,6 +1,6 @@
 {
   "name": "signalk-vesseltwin",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "SignalK server plugin that pairs a boat with VesselTwin and, when you turn it on, sends engine hours, battery and tank readings to its maintenance record. Off by default; never sends position or MMSI.",
   "license": "Apache-2.0",
   "author": "VesselTwin contributors",
