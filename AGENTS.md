@@ -14,7 +14,7 @@ and the plugin must say so honestly (status line: "Data upload is not available 
 
 ## Commands
 
-Node >= 22 (`.nvmrc` = 22; CI runs 22 and 24), pnpm 10 (`packageManager` in `package.json`).
+Node >= 20.3 (`.nvmrc` = 22 as the dev default; CI runs 20, 22 and 24), pnpm 10 (`packageManager` in `package.json`).
 
 ```sh
 pnpm install
@@ -132,7 +132,7 @@ long-lived npm token). **Releasing is a human step.**
 
 ## Git workflow
 
-- Work on a branch, open a PR, wait for CI (`check` on Node 22 and 24). Never push directly to `main`
+- Work on a branch, open a PR, wait for CI (`check` on Node 20, 22 and 24). Never push directly to `main`
   once branch protection is on. Squash-merge.
 - Agent commits end with a trailer: `Co-Authored-By: <agent name> <noreply address>`.
 - Never publish to npm, create tags, create GitHub releases, change repo settings, or push, unless the

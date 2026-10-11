@@ -5,7 +5,7 @@ a stock signalk-server, against either a mock VesselTwin API (Track A) or a Vess
 locally (Track B). The rig lives in `dev/` (see [dev/README.md](../dev/README.md)); it is for testing
 only and is not published to npm. Never point tests at production.
 
-Needs Docker and Node >= 22. Run everything from the repository root.
+Needs Docker and Node >= 20.3. Run everything from the repository root.
 
 ## How you drive the plugin
 

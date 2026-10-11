@@ -7,7 +7,7 @@ covers pairing, the device status call and credential rotation. There is no uplo
 
 ## Track A: mock API
 
-Needs Docker and Node >= 22.
+Needs Docker and Node >= 20.3.
 
 ```sh
 pnpm build

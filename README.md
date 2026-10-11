@@ -8,6 +8,10 @@ account so engine hours, battery readings and tank levels can feed that record o
 > not available in this version**; the plugin says so in its status line. It is published on npm;
 > the SignalK Appstore listing can take a while to appear.
 
+## Requirements
+
+Node.js 20.3 or newer (this includes Victron Venus OS on a Cerbo GX) and signalk-server 2.x.
+
 ## Install
 
 SignalK admin UI > Appstore > search "VesselTwin" > Install > restart the server. Then enable it
