@@ -19,12 +19,10 @@ class MemSink {
   }
 }
 
-/** Upload categories default to off; the policy tests turn them on unless a test says otherwise. */
+/** Upload is off by default; the policy tests switch it and every category on unless a test says otherwise. */
 function enableAll(settings: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...settings };
-  const legacy = { engineHours: 'sendEngineHours', batteries: 'sendBatteries', tanks: 'sendTanks' };
-  for (const [k, toggle] of Object.entries(legacy)) {
-    if (toggle in settings) continue; // the legacy toggle decides
+  const out: Record<string, unknown> = { uploadEnabled: true, ...settings };
+  for (const k of ['engineHours', 'batteries', 'tanks']) {
     const c = settings[k];
     out[k] = { enabled: true, ...(typeof c === 'object' && c !== null ? c : {}) };
   }
@@ -254,9 +252,15 @@ describe('record policy', () => {
     expect(await tank.send('tanks.freshWater.0.currentLevel', 0.5, T0)).toBe(0);
   });
 
-  it('honours the legacy toggle', async () => {
-    const { send } = setup({ sendEngineHours: false });
+  it('records nothing while the master switch is off, and ignores legacy send* toggles', async () => {
+    const { send } = setup({ uploadEnabled: false });
     expect(await send('propulsion.a.runTime', 1, T0)).toBe(0);
+    const legacy = setup({
+      uploadEnabled: true,
+      engineHours: { enabled: false },
+      sendEngineHours: true,
+    });
+    expect(await legacy.send('propulsion.a.runTime', 1, T0)).toBe(0);
   });
 
   it('allows only the first 64 channels and reports the rest', async () => {
