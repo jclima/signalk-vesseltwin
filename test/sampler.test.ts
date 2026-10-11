@@ -47,6 +47,36 @@ function setup(settings: Record<string, unknown> = {}, now = T0 + 400 * 24 * 60 
 const hourly = { recordIntervalMinutes: 60 };
 const allHourly = { engineHours: hourly, batteries: hourly, tanks: hourly };
 
+describe('failed writes', () => {
+  it('a reading the sink could not write does not count as kept: the next sample is still taken', async () => {
+    let fail = true;
+    const kept: SampledReading[] = [];
+    const sampler = createSampler({
+      options: parseOptions(enableAll(allHourly)).upload,
+      sink: {
+        write: (r) => {
+          if (fail) return Promise.reject(new Error('disk full'));
+          kept.push(r);
+          return Promise.resolve();
+        },
+      },
+      now: () => T0 + 400 * 24 * 60 * MIN,
+    });
+    const send = (at: number) =>
+      sampler.handleDelta({
+        context: 'vessels.self',
+        updates: [{ timestamp: iso(at), values: [{ path: 'propulsion.a.runTime', value: 3600 }] }],
+      });
+    await expect(send(T0)).rejects.toThrow('disk full');
+    expect(sampler.stats().kept).toBe(0);
+    fail = false;
+    // Same timestamp again (a replay of the cached value) is accepted because nothing was kept.
+    expect(await send(T0)).toBe(1);
+    expect(kept).toHaveLength(1);
+    expect(sampler.stats().kept).toBe(1);
+  });
+});
+
 describe('delta adapter', () => {
   it('keeps only numeric values on permitted paths', async () => {
     const { sink, send, sampler } = setup(allHourly);

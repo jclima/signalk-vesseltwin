@@ -111,13 +111,16 @@ export function createSampler(cfg: SamplerOptions) {
   const overflow = new Set<string>();
   let kept = 0;
 
-  /** Returns the reading to write, or null. All state is updated synchronously. */
+  /**
+   * Returns the reading to write (with a way to take its state change back if the write fails), or
+   * null. All state is updated synchronously.
+   */
   function consider(
     path: string,
     m: PathMatch,
     value: number,
     recordedAtMs: number,
-  ): SampledReading | null {
+  ): { reading: SampledReading; undo: () => void } | null {
     if (!isCategoryKey(m.category)) return null;
     const cat = cfg.options[m.category];
     if (!cat.active) return null;
@@ -135,6 +138,8 @@ export function createSampler(cfg: SamplerOptions) {
       channels.set(path, ch);
     }
 
+    const before = { ...ch };
+    const channel = ch;
     // The SignalK timestamp must have advanced since the last sample of this channel.
     if (recordedAtMs <= ch.lastSeenMs) return null;
     ch.lastSeenMs = recordedAtMs;
@@ -164,7 +169,13 @@ export function createSampler(cfg: SamplerOptions) {
     ch.lastKeptValue = converted;
     kept += 1;
     // Emit the raw SI value; `converted` is only kept for change detection.
-    return { path, value, recordedAt };
+    return {
+      reading: { path, value, recordedAt },
+      undo: () => {
+        Object.assign(channel, before);
+        kept -= 1;
+      },
+    };
   }
 
   async function handleDelta(delta: unknown): Promise<number> {
@@ -174,7 +185,7 @@ export function createSampler(cfg: SamplerOptions) {
     // deltas under the full self URN, not the literal `vessels.self`. The collector that subscribes
     // is the trust boundary; the path allowlist below is the privacy boundary.
     if (!Array.isArray(d.updates)) return 0;
-    const out: SampledReading[] = [];
+    const out: { reading: SampledReading; undo: () => void }[] = [];
     for (const u of d.updates as unknown[]) {
       if (typeof u !== 'object' || u === null) continue;
       const upd = u as DeltaUpdate;
@@ -193,7 +204,18 @@ export function createSampler(cfg: SamplerOptions) {
         if (r) out.push(r);
       }
     }
-    for (const r of out) await cfg.sink.write(r);
+    // Channel state is committed by consider(); a reading that could not be written must not
+    // count as kept (it would suppress the next sample of the channel), so take it back.
+    let written = 0;
+    try {
+      for (const o of out) {
+        await cfg.sink.write(o.reading);
+        written += 1;
+      }
+    } catch (err) {
+      for (const o of out.slice(written).reverse()) o.undo();
+      throw err;
+    }
     return out.length;
   }
 
