@@ -256,6 +256,10 @@ and any notes about them, for example ignored instance ids.
   settings_: turn on the master switch and a category. _Some channels need setup in VesselTwin_:
   map and confirm them in the VesselTwin app. Readings only start after the first one is recorded
   (up to a few minutes after the plugin starts, then once a day by default).
+- **No reading after the SignalK server restarted.** SignalK keeps current values in memory only,
+  so a reading appears once the device sends a value again (for example, engine hours show up the
+  next time the engine runs). Restarting or re-saving the plugin is fine: it picks up current
+  values and doesn't send unchanged ones twice.
 - **"Readings are kept for up to 7 days".** The connection is paused or offline and readings are
   waiting on this server. They are sent when it works again.
 - **"Update the plugin".** VesselTwin no longer supports this plugin version. Update it from the
