@@ -21,7 +21,7 @@ export const READINGS_MAX_BODY_BYTES = 512 * 1024;
 const READINGS_MIN_CONTRACT = 2;
 const MAX_BATCH = 500;
 const FUTURE_SKEW_MS = 5 * 60_000;
-const TOO_OLD_MS = 14 * 24 * 3600_000; // the mock's choice; the plugin never sends older than 7 days
+const TOO_OLD_MS = 8 * 24 * 3600_000; // the platform's window; the plugin never sends older than 7 days
 // Permitted paths, mirroring src/mapping.ts (kept as a small copy: this file is plain ESM).
 const ID = '([A-Za-z0-9_-]{1,40})';
 const TANK = '(fuel|freshWater|wasteWater|blackWater|lubrication|liveWell|baitWell|gas|ballast)';

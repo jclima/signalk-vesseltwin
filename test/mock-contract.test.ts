@@ -374,6 +374,25 @@ describe('mock readings route (contract 2)', () => {
     ]);
   });
 
+  it('rejects readings older than 8 days as too_old and accepts ones just inside the window', async () => {
+    const { send } = await paired();
+    const day = 24 * 3_600_000;
+    const res = await send([
+      reading('00000000-0000-4000-8000-0000000000b1', {
+        recordedAt: new Date(Date.now() - 9 * day).toISOString(),
+      }),
+      reading('00000000-0000-4000-8000-0000000000b2', {
+        recordedAt: new Date(Date.now() - 7.5 * day).toISOString(),
+      }),
+    ]);
+    expect(
+      (res.json.results as { status: string; reason?: string }[]).map((x) => [x.status, x.reason]),
+    ).toEqual([
+      ['rejected', 'too_old'],
+      ['accepted', undefined],
+    ]);
+  });
+
   it('is idempotent: same id and body is a duplicate, same id with another body is invalid_id', async () => {
     const { send } = await paired();
     const id = '00000000-0000-4000-8000-0000000000aa';
