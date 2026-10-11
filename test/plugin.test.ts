@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseOptions } from '../src/config';
-import { categoryFor, PATH_RULES } from '../src/mapping';
+import { categoryFor } from '../src/mapping';
 import { CredentialStore } from '../src/credential-store';
 import {
   COPY,
@@ -100,8 +100,7 @@ describe('plugin shell', () => {
     p.stop();
   });
 
-  it('collects nothing yet: mapping registry is empty', () => {
-    expect(PATH_RULES).toHaveLength(0);
+  it('never categorizes location-like paths', () => {
     expect(categoryFor('navigation.position')).toBeNull();
   });
 });

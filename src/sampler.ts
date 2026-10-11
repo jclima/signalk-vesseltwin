@@ -1,7 +1,7 @@
 import type { Reading } from './contract';
 import { uuidv7 } from './ids';
 import { MAX_CHANNELS, MAX_READINGS_PER_CHANNEL_PER_DAY, type UploadOptions } from './config';
-import { matchPath, PATH_RULES, type PathMatch, type PathRule, type Unit } from './mapping';
+import { isPermittedPath, matchPath, type PathMatch, type Unit } from './mapping';
 import type { ReadingQueue } from './queue';
 
 /**
@@ -62,10 +62,6 @@ export interface SamplerOptions {
   options: UploadOptions;
   sink: ReadingSink;
   now: () => number;
-  /** Defaults to the (empty) permitted-path list. */
-  rules?: readonly PathRule[];
-  /** Context name of this vessel besides `vessels.self`. */
-  selfContext?: string;
 }
 
 export interface SamplerStats {
@@ -111,7 +107,6 @@ function isCategoryKey(c: string): c is CategoryKey {
 }
 
 export function createSampler(cfg: SamplerOptions) {
-  const rules = cfg.rules ?? PATH_RULES;
   const channels = new Map<string, ChannelState>();
   const overflow = new Set<string>();
   let kept = 0;
@@ -153,6 +148,9 @@ export function createSampler(cfg: SamplerOptions) {
       if (!(min === 0 || changed || elapsed >= DAY_MS)) return null;
     }
 
+    // Defense in depth: nothing outside the closed allowlist is ever emitted.
+    if (!isPermittedPath(path)) return null;
+    // toISOString() is always UTC with a `Z`, whatever offset the delta timestamp used.
     const recordedAt = new Date(recordedAtMs).toISOString();
     const day = recordedAt.slice(0, 10);
     if (ch.day !== day) {
@@ -172,9 +170,9 @@ export function createSampler(cfg: SamplerOptions) {
   async function handleDelta(delta: unknown): Promise<number> {
     if (typeof delta !== 'object' || delta === null) return 0;
     const d = delta as Delta;
-    if (d.context !== 'vessels.self' && !(cfg.selfContext && d.context === cfg.selfContext)) {
-      return 0;
-    }
+    // No `context` check: the subscription is self-scoped (`vessels.self`), and SignalK delivers
+    // deltas under the full self URN, not the literal `vessels.self`. The collector that subscribes
+    // is the trust boundary; the path allowlist below is the privacy boundary.
     if (!Array.isArray(d.updates)) return 0;
     const out: SampledReading[] = [];
     for (const u of d.updates as unknown[]) {
@@ -189,7 +187,7 @@ export function createSampler(cfg: SamplerOptions) {
         if (typeof path !== 'string' || typeof value !== 'number' || !Number.isFinite(value)) {
           continue;
         }
-        const m = matchPath(path, rules);
+        const m = matchPath(path);
         if (!m) continue;
         const r = consider(path, m, value, ts);
         if (r) out.push(r);

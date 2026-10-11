@@ -1,64 +1,95 @@
 /**
- * SignalK path registry. INTENTIONALLY EMPTY in this release: no readings are
- * collected or uploaded until the ingest JSON Schema is vendored into this repo, the
- * owner approves upload work, and the exact path conventions are verified against a live server.
+ * SignalK path allowlist: a closed list of the six path shapes the VesselTwin contract v2
+ * accepts (mirrors `path.pattern` in contracts/signalk/v2/reading-item.schema.json; a test
+ * compares the two). Values are raw SI as SignalK delivers them; conversion happens server-side.
  *
- * Planned allowlist (SI units are sent raw; conversion happens server-side):
- *   TODO propulsion.<id>.runTime                         (s)   engine hours
- *   TODO electrical.generators.<id>.runTime              (s)   generator hours
- *   TODO electrical.batteries.<id>.voltage               (V)
- *   TODO electrical.batteries.<id>.capacity.stateOfCharge (0-1)
- *   TODO tanks.<type>.<id>.currentLevel                  (0-1)
- *   TODO tanks.<type>.<id>.currentVolume                 (m3)
- *   TODO design.length.overall, design.beam, design.draft.maximum,
- *        design.airHeight                                 (vessel-info suggestions)
- *
- * NEVER added: navigation.position*, mmsi, communication.callsign*, anything
- * location-like. The server rejects them too.
+ * NEVER added: navigation.position*, mmsi, communication.callsign*, design.*, anything
+ * location-like or identifying. The server rejects them too.
  */
 
-export type Category = 'engineHours' | 'batteries' | 'tanks' | 'vesselInfo';
+export type Category = 'engineHours' | 'batteries' | 'tanks';
 
 /** Unit of the raw SignalK value (SI). */
 export type Unit = 's' | 'V' | 'ratio' | 'm3';
 
 export interface PathRule {
-  /** Glob-ish SignalK path, e.g. `propulsion.*.runTime`. */
-  pattern: string;
+  kind: string;
   category: Category;
   unit: Unit;
+  /** Anchored; capture groups are the instance parts (tank type, then id; or just id). */
+  re: RegExp;
+  /** SignalK subscription path for this rule. */
+  subscribe: string;
 }
 
 export interface PathMatch {
   category: Category;
   unit: Unit;
-  /** Wildcard captures joined by `.`; empty when the pattern has no wildcard. */
+  /** Instance parts joined by `.` (`house`, or `fuel.0` for tanks). */
   instance: string;
 }
 
-export const PATH_RULES: readonly PathRule[] = [];
+const ID = '([A-Za-z0-9_-]{1,40})';
+const TANK = '(fuel|freshWater|wasteWater|blackWater|lubrication|liveWell|baitWell|gas|ballast)';
 
-function matches(pattern: string, path: string): string[] | null {
-  const re = new RegExp(
-    '^' +
-      pattern
-        .split('*')
-        .map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-        .join('([^.]+)') +
-      '$',
-  );
-  const m = re.exec(path);
-  return m ? m.slice(1) : null;
+export const PATH_RULES: readonly PathRule[] = [
+  {
+    kind: 'engineRunTime',
+    category: 'engineHours',
+    unit: 's',
+    re: new RegExp(`^propulsion\\.${ID}\\.runTime$`),
+    subscribe: 'propulsion.*.runTime',
+  },
+  {
+    kind: 'generatorRunTime',
+    category: 'engineHours',
+    unit: 's',
+    re: new RegExp(`^electrical\\.generators\\.${ID}\\.runTime$`),
+    subscribe: 'electrical.generators.*.runTime',
+  },
+  {
+    kind: 'batteryVoltage',
+    category: 'batteries',
+    unit: 'V',
+    re: new RegExp(`^electrical\\.batteries\\.${ID}\\.voltage$`),
+    subscribe: 'electrical.batteries.*.voltage',
+  },
+  {
+    kind: 'batteryStateOfCharge',
+    category: 'batteries',
+    unit: 'ratio',
+    re: new RegExp(`^electrical\\.batteries\\.${ID}\\.capacity\\.stateOfCharge$`),
+    subscribe: 'electrical.batteries.*.capacity.stateOfCharge',
+  },
+  {
+    kind: 'tankLevel',
+    category: 'tanks',
+    unit: 'ratio',
+    re: new RegExp(`^tanks\\.${TANK}\\.${ID}\\.currentLevel$`),
+    subscribe: 'tanks.*.*.currentLevel',
+  },
+  {
+    kind: 'tankVolume',
+    category: 'tanks',
+    unit: 'm3',
+    re: new RegExp(`^tanks\\.${TANK}\\.${ID}\\.currentVolume$`),
+    subscribe: 'tanks.*.*.currentVolume',
+  },
+];
+
+export function matchPath(path: string): PathMatch | null {
+  if (path.length > 200) return null;
+  for (const r of PATH_RULES) {
+    const m = r.re.exec(path);
+    if (m) return { category: r.category, unit: r.unit, instance: m.slice(1).join('.') };
+  }
+  return null;
+}
+
+export function isPermittedPath(path: unknown): path is string {
+  return typeof path === 'string' && matchPath(path) !== null;
 }
 
 export function categoryFor(path: string): Category | null {
   return matchPath(path)?.category ?? null;
-}
-
-export function matchPath(path: string, rules: readonly PathRule[] = PATH_RULES): PathMatch | null {
-  for (const r of rules) {
-    const caps = matches(r.pattern, path);
-    if (caps) return { category: r.category, unit: r.unit, instance: caps.join('.') };
-  }
-  return null;
 }

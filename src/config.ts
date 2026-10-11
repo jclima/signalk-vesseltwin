@@ -1,11 +1,9 @@
-import type { Category } from './mapping';
-
 export interface PluginOptions {
   /** Validated API base URL; null when the configured value is invalid (see `configError`). */
   apiBaseUrl: string | null;
   /** Neutral, user-facing copy when a SET setting is invalid. No network calls while this is set. */
   configError: string | null;
-  categories: Record<Category, boolean>;
+  categories: Record<UploadCategory | 'vesselInfo', boolean>;
   samplePeriodSeconds: number;
   queueMaxReadings: number;
   upload: UploadOptions;
