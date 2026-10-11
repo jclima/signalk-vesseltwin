@@ -97,7 +97,9 @@ export class CredentialStore {
     try {
       const fh = await fs.open(tmp, 'wx', 0o600);
       try {
-        await fh.chmod(0o600); // correct mode before the secret can appear under its final name
+        // Best effort: the file was created 0600 above; some filesystems (vfat, exFAT, certain
+        // CIFS or Docker mounts) reject fchmod, which must not strand an approved credential.
+        await fh.chmod(0o600).catch(() => undefined);
         await fh.writeFile(JSON.stringify(c));
         await fh.sync();
       } finally {

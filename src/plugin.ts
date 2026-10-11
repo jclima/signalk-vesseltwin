@@ -184,6 +184,8 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
    * lifecycle just loaded, or leave a file behind that the next lifecycle did not see.
    */
   let persisting: Promise<'kept' | 'stale' | 'failed'> | null = null;
+  /** The in-flight unpair (waiting for writers, then clearing the store); start() waits for it too. */
+  let unpairWork: Promise<void> | null = null;
 
   const client = (baseUrl: string) =>
     new HttpClient({
@@ -538,7 +540,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         return;
       }
       const s = store;
-      const earlier = Promise.allSettled([persisting, tombstoneWrite]);
+      const earlier = Promise.allSettled([persisting, tombstoneWrite, unpairWork]);
       earlier
         .then(() => s.read())
         .then((c) => {
@@ -658,12 +660,22 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           // Before any await: a late approval, a racing credential load and a late 401 must all
           // lose against this unpair.
           epoch += 1;
+          const mine = epoch;
           unpairing = true;
           cancelPairing();
           stopMonitor();
-          try {
+          const work = (async () => {
             await Promise.allSettled([persisting, tombstoneWrite]);
             await s.clear();
+          })();
+          unpairWork = work;
+          try {
+            await work;
+            if (mine !== epoch) {
+              // start() or stop() ran meanwhile: the new lifecycle owns state and its monitor.
+              res.json({ paired: false, message: COPY.unpaired });
+              return;
+            }
             stopMonitor(); // a load that raced past the epoch check cannot leave a monitor behind
             loaded = true;
             hasCredential = false;
@@ -676,6 +688,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             app.debug(`unpair failed: ${redactError(err)}`);
             res.status(500).json({ error: COPY.unpairFailed });
           } finally {
+            if (unpairWork === work) unpairWork = null;
             unpairing = false;
           }
         }),

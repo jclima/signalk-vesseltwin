@@ -132,17 +132,31 @@ describe('CredentialStore', () => {
       expect(await readdir(dir)).toEqual([]);
     });
 
-    it('the temp file is 0600 before the rename and a chmod failure cannot fail the write', async () => {
+    it('the temp file is 0600 before the rename, and a rejected fchmod cannot fail the write', async () => {
       const realRename = fsp.rename.bind(fsp);
+      const realOpen = fsp.open.bind(fsp);
       let modeAtRename = 0;
+      let chmodCalled = false;
       vi.spyOn(fsp, 'rename').mockImplementationOnce(async (from, to) => {
         modeAtRename = (await stat(String(from))).mode & 0o777;
         return realRename(from, to);
       });
-      vi.spyOn(fsp, 'chmod').mockRejectedValue(new Error('EPERM'));
+      // Filesystems such as vfat/exFAT reject fchmod with EPERM or ENOTSUP.
+      vi.spyOn(fsp, 'open').mockImplementationOnce(async (...a: Parameters<typeof fsp.open>) => {
+        const fh = await realOpen(...a);
+        vi.spyOn(fh, 'chmod').mockImplementation(() => {
+          chmodCalled = true;
+          return Promise.reject(
+            Object.assign(new Error('EPERM: operation not permitted, fchmod'), { code: 'EPERM' }),
+          );
+        });
+        return fh;
+      });
       await expect(new CredentialStore(dir).write(cred)).resolves.toBeUndefined();
+      expect(chmodCalled).toBe(true);
       if (process.platform !== 'win32') expect(modeAtRename).toBe(0o600);
       expect(await new CredentialStore(dir).read()).toMatchObject({ credential: cred.credential });
+      expect(await readdir(dir)).toEqual(['credential.json']);
     });
 
     it('writing or syncing the temp file fails', async () => {

@@ -1616,6 +1616,63 @@ describe('lifecycle races and the status line', () => {
     }
   });
 
+  it('a restart during an unpair waits for the clear and does not start a monitor on a doomed credential', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    const clearGate = gate();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
+    const clear = CredentialStore.prototype.clear;
+    vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      await clearGate.p;
+      return clear.call(this);
+    });
+    h.plugin.start({});
+    await h.tick();
+    const before = h.statusCalls(); // the first lifecycle's own probe
+    const un = h.call('POST /unpair');
+    await h.tick();
+    h.plugin.start({}); // restart while the clear is still pending
+    await h.tick(2 * MIN);
+    expect(h.statusCalls()).toBe(before); // the new lifecycle has not read the soon-deleted credential
+    clearGate.open();
+    expect((await un).status).toBe(200);
+    await h.tick(2 * MIN);
+    expect(h.statusCalls()).toBe(before);
+    await h.untilFiles([]);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
+    // The stale unpair must not stamp the new lifecycle with the revoke reminder.
+    expect(h.app.statuses.at(-1)).not.toBe(COPY.unpaired);
+    h.plugin.stop();
+  });
+
+  it('a stop during an unpair leaves the stopped state untouched when the clear finishes', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    const clearGate = gate();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- re-bound with .call below
+    const clear = CredentialStore.prototype.clear;
+    vi.spyOn(CredentialStore.prototype, 'clear').mockImplementation(async function (
+      this: CredentialStore,
+    ) {
+      await clearGate.p;
+      return clear.call(this);
+    });
+    h.plugin.start({});
+    await h.tick();
+    const un = h.call('POST /unpair');
+    await h.tick();
+    h.plugin.stop();
+    const before = h.app.statuses.length;
+    clearGate.open();
+    expect((await un).status).toBe(200);
+    expect(h.app.statuses.length).toBe(before);
+    await h.untilFiles([]);
+  });
+
   it('keeps the revoke reminder after unpair until the next start or pairing', async () => {
     const dir = tempDir();
     await seed(dir);
