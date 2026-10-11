@@ -1,4 +1,12 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -302,7 +310,9 @@ interface FakeSm {
   deliver: (d: unknown) => void;
 }
 /**
- * `replay` is delivered synchronously inside subscribe(), like signalk-server's cached values.
+ * By default nothing is replayed, like a signalk-server with token security on (the cached-value
+ * replay is filtered per principal and a plugin has none). `replay` models a security-off server:
+ * it is delivered synchronously inside subscribe().
  */
 function fakeSm(replay?: () => unknown): FakeSm {
   const subscriptions: unknown[] = [];
@@ -2255,7 +2265,7 @@ describe('upload pipeline', () => {
     ...over,
   });
 
-  it('the value replayed synchronously inside subscribe() is queued and uploaded', async () => {
+  it('security-off server: the value replayed synchronously inside subscribe() is queued and uploaded', async () => {
     const dir = tempDir();
     await seed(dir);
     const sm = fakeSm(() => delta(BAT));
@@ -2267,6 +2277,165 @@ describe('upload pipeline', () => {
     expect(h.readingCalls[0]?.body.readings).toHaveLength(1);
     await h.until(async () => (await uploadBlock(h)).queued === 0);
     h.plugin.stop();
+  });
+
+  // ---- current values read at start (a security-on server does not replay them) ----
+  const leaf = (value: unknown, timestamp: unknown = new Date().toISOString()) => ({
+    value,
+    timestamp,
+    $source: 'x.y',
+  });
+  const treeApp = (h: ReturnType<typeof harness>, tree: Record<string, unknown>) => {
+    const asked: string[] = [];
+    h.app.getSelfPath = (p: string) => {
+      asked.push(p);
+      return tree[p];
+    };
+    return asked;
+  };
+  const batTree = (v: unknown = 12.6, ts?: unknown) => ({
+    electrical: undefined,
+    'electrical.batteries': { house: { voltage: leaf(v, ts) } },
+  });
+  const total = async (h: ReturnType<typeof harness>) =>
+    ((await uploadBlock(h)).queued as number) +
+    h.readingCalls.reduce((n, c) => n + c.body.readings.length, 0);
+
+  it('a steady value present only in the self tree is queued once and uploaded', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h, batTree());
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await h.tick(10 * MIN);
+    expect(await total(h)).toBe(1);
+    await firstAttempt(h);
+    expect(h.readingCalls[0]?.body.readings).toHaveLength(1);
+    expect(h.readingCalls[0]?.body.readings[0]).toMatchObject({ path: BAT, value: 12.6 });
+    h.plugin.stop();
+  });
+
+  it('a replay and the self tree carrying the same value give exactly one reading', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const ts = new Date().toISOString();
+    const sm = fakeSm(() => ({
+      context: 'vessels.self',
+      updates: [{ timestamp: ts, values: [{ path: BAT, value: 12.6 }] }],
+    }));
+    const h = harness({ dir, deps: on, sm });
+    treeApp(h, batTree(12.6, ts));
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await total(h)) >= 1);
+    await h.tick(10 * MIN);
+    expect(await total(h)).toBe(1);
+    h.plugin.stop();
+  });
+
+  it('reads only the rule prefixes and queues nothing that is not permitted', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    const asked = treeApp(h, {
+      name: 'SECRET BOAT',
+      mmsi: '123456789',
+      'navigation.position': {
+        value: { latitude: 1, longitude: 2 },
+        timestamp: new Date().toISOString(),
+      },
+      design: { length: { value: 10 } },
+      propulsion: { main: { temperature: leaf(300) } },
+      'electrical.batteries': {
+        house: {
+          voltage: {
+            ...leaf(12.6),
+            values: { 'a.b': { value: 99, timestamp: new Date().toISOString() } },
+          },
+          name: leaf(5),
+        },
+      },
+    });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    await h.tick(10 * MIN);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(new Set(asked)).toEqual(new Set(['electrical.batteries']));
+    expect(await total(h)).toBe(1);
+    h.plugin.stop();
+  });
+
+  it('garbage leaves queue nothing and do not crash', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h, {
+      'electrical.batteries': {
+        a: { voltage: leaf('12.6') },
+        b: { voltage: { value: 12.6 } },
+        c: { voltage: leaf(12.6, 'not a date') },
+        d: { voltage: leaf(12.6, new Date(Date.now() + 3600_000).toISOString()) },
+        e: 'text',
+      },
+    });
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.tick(10 * MIN);
+    expect(await total(h)).toBe(0);
+    h.plugin.stop();
+    const h2 = harness({ dir, deps: on, sm: fakeSm() });
+    h2.app.getSelfPath = () => 'not an object';
+    h2.plugin.start(UP);
+    await h2.untilState('connected');
+    expect(await total(h2)).toBe(0);
+    h2.plugin.stop();
+    const h3 = harness({ dir, deps: on, sm: fakeSm() });
+    h3.app.getSelfPath = () => {
+      throw new Error('boom');
+    };
+    h3.plugin.start(UP);
+    await h3.untilState('connected');
+    expect(await total(h3)).toBe(0);
+    h3.plugin.stop();
+  });
+
+  it('a restart with the same steady value queues nothing new; a newer one after the interval does', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const ts = new Date().toISOString();
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h, batTree(12.6, ts));
+    h.plugin.start(UP);
+    await h.untilState('connected');
+    await h.until(async () => (await uploadBlock(h)).queued === 1);
+    h.plugin.stop();
+    await h.until(() => existsSync(join(dir, 'queue', 'channels.json')));
+    vi.useRealTimers();
+
+    const h2 = harness({ dir, deps: on, sm: fakeSm() });
+    expect(readFileSync(join(dir, 'queue', 'channels.json'), 'utf8')).toContain(BAT);
+    treeApp(h2, batTree(12.6, ts));
+    h2.plugin.start(UP);
+    await h2.untilState('connected');
+    await h2.tick(10 * MIN);
+    expect(await total(h2)).toBe(1); // the one from before the restart; no new one
+    h2.plugin.stop();
+    vi.useRealTimers();
+
+    // Pretend the last kept reading is older than the 24 h default interval: the same tree value is now newer and recorded.
+    const file = join(dir, 'queue', 'channels.json');
+    const st = JSON.parse(readFileSync(file, 'utf8')) as Record<string, { lastKeptMs: number }>;
+    (st[BAT] as { lastKeptMs: number }).lastKeptMs -= 25 * 60 * MIN;
+    writeFileSync(file, JSON.stringify(st));
+    const h3 = harness({ dir, deps: on, sm: fakeSm() });
+    treeApp(h3, batTree(13.9));
+    h3.plugin.start(UP);
+    await h3.untilState('connected');
+    await h3.until(async () => (await total(h3)) === 1); // the old one went out already
+    h3.plugin.stop();
   });
 
   it('with the release flag off: no subscription, no readings request, no queue directory', async () => {

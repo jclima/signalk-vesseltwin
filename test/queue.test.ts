@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -278,5 +278,24 @@ describe('ReadingQueue stats and clear', () => {
     expect((await q.peek(10)).map((r) => r.value)).toEqual([10]);
     const b = new ReadingQueue({ dir, now: () => NOW });
     expect(await b.stats()).toEqual({ queued: 1, dropped: 0, invalid: 0 });
+  });
+});
+
+describe('ReadingQueue channel state', () => {
+  it('saves atomically with mode 0600, loads it back, and clear() removes it', async () => {
+    const q = new ReadingQueue({ dir, now: () => NOW });
+    expect(await q.loadChannels()).toBeNull();
+    await q.saveChannels({ 'propulsion.main.runTime': { lastKeptMs: 1 } });
+    expect(await q.loadChannels()).toEqual({ 'propulsion.main.runTime': { lastKeptMs: 1 } });
+    expect(((await stat(path.join(dir, 'channels.json'))).mode & 0o777).toString(8)).toBe('600');
+    expect((await readdir(dir)).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+    await q.clear();
+    expect(await readdir(dir)).not.toContain('channels.json');
+    expect(await q.loadChannels()).toBeNull();
+  });
+
+  it('reads a corrupt file as no state', async () => {
+    await writeFile(path.join(dir, 'channels.json'), '{not json');
+    expect(await new ReadingQueue({ dir }).loadChannels()).toBeNull();
   });
 });

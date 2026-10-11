@@ -414,3 +414,51 @@ describe('sinks', () => {
     expect(r?.clientReadingId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-/);
   });
 });
+
+describe('sampler restart state', () => {
+  const BAT = 'electrical.batteries.house.voltage';
+  const opts = () => parseOptions(enableAll({ batteries: { recordIntervalMinutes: 60 } })).upload;
+  const d = (ms: number, value: number) => ({
+    updates: [{ timestamp: iso(ms), values: [{ path: BAT, value }] }],
+  });
+
+  it('snapshot lists kept channels; a new sampler seeded with it skips the same and older values', async () => {
+    const a = new MemSink();
+    const s1 = createSampler({ options: opts(), sink: a, now: () => T0 + 5 * MIN });
+    await s1.handleDelta(d(T0, 12.6));
+    const snap = s1.snapshot();
+    expect(Object.keys(snap)).toEqual([BAT]);
+    const b = new MemSink();
+    const s2 = createSampler({
+      options: opts(),
+      sink: b,
+      now: () => T0 + 5 * MIN,
+      initial: JSON.parse(JSON.stringify(snap)),
+    });
+    await s2.handleDelta(d(T0, 12.6));
+    await s2.handleDelta(d(T0 - MIN, 12.6));
+    expect(b.readings).toHaveLength(0);
+    // Interval carries over: too soon is skipped, after the interval it records.
+    const s3 = createSampler({ options: opts(), sink: b, now: () => T0 + 90 * MIN, initial: snap });
+    await s3.handleDelta(d(T0 + 30 * MIN, 13));
+    expect(b.readings).toHaveLength(0);
+    await s3.handleDelta(d(T0 + 61 * MIN, 13));
+    expect(b.readings).toHaveLength(1);
+  });
+
+  it('ignores a malformed or non-permitted initial state', () => {
+    const bad = {
+      'navigation.position': { lastKeptMs: 1, lastKeptValue: 1, day: 'x', dayCount: 0 },
+      [BAT]: { lastKeptMs: 'x', lastKeptValue: 1, day: 'x', dayCount: 0 },
+    };
+    expect(
+      createSampler({ options: opts(), sink: new MemSink(), now: Date.now, initial: bad }).stats()
+        .channels,
+    ).toBe(0);
+    for (const initial of [null, 5, 'x', []]) {
+      expect(() =>
+        createSampler({ options: opts(), sink: new MemSink(), now: Date.now, initial }),
+      ).not.toThrow();
+    }
+  });
+});

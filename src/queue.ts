@@ -7,6 +7,7 @@ export const MAX_AGE_MS = 7 * 24 * 3600_000;
 export const MAX_READINGS = 50_000;
 const SEGMENT_RECORDS = 1_000;
 const STATS_FILE = 'stats.json';
+const CHANNELS_FILE = 'channels.json';
 const STATS_DEBOUNCE_MS = 1_000;
 /** How often (by the injected clock) appends re-run the age sweep over existing segments. */
 const AGE_SWEEP_MS = 5 * 60_000;
@@ -264,6 +265,30 @@ export class ReadingQueue {
     });
   }
 
+  /**
+   * Per-channel sampler state (what was last kept), so a restart does not queue an unchanged value
+   * again. Lives in the queue directory so clear() wipes it with the readings. Returns the parsed
+   * JSON or null; the sampler validates the shape.
+   */
+  loadChannels(): Promise<unknown> {
+    return this.locked(async () => {
+      try {
+        return JSON.parse(
+          await fs.readFile(path.join(this.opts.dir, CHANNELS_FILE), 'utf8'),
+        ) as unknown;
+      } catch {
+        return null;
+      }
+    });
+  }
+
+  /** Atomically replaces the sampler state file (0600). */
+  saveChannels(state: unknown): Promise<void> {
+    return this.locked(() =>
+      this.writeAtomic(path.join(this.opts.dir, CHANNELS_FILE), JSON.stringify(state)),
+    );
+  }
+
   /** Flushes counters; call on plugin stop. The queue stays usable afterwards. */
   close(): Promise<void> {
     return this.flush();
@@ -361,7 +386,12 @@ export class ReadingQueue {
       this.statsDirty = false;
       await fs.mkdir(this.opts.dir, { recursive: true, mode: 0o700 });
       for (const name of await fs.readdir(this.opts.dir)) {
-        if (SEG.test(name) || name.endsWith('.tmp') || name === STATS_FILE) {
+        if (
+          SEG.test(name) ||
+          name.endsWith('.tmp') ||
+          name === STATS_FILE ||
+          name === CHANNELS_FILE
+        ) {
           await fs.rm(path.join(this.opts.dir, name), { force: true });
         }
       }

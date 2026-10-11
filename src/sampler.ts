@@ -58,7 +58,15 @@ export interface Delta {
   updates?: unknown;
 }
 
+/** Persisted per-channel state of kept readings; see ReadingQueue.saveChannels. */
+export type ChannelSnapshot = Record<
+  string,
+  { lastKeptMs: number; lastKeptValue: number; day: string; dayCount: number }
+>;
+
 export interface SamplerOptions {
+  /** State from a previous run: a value not newer than the last kept one is skipped. */
+  initial?: unknown;
   options: UploadOptions;
   sink: ReadingSink;
   now: () => number;
@@ -110,6 +118,28 @@ export function createSampler(cfg: SamplerOptions) {
   const channels = new Map<string, ChannelState>();
   const overflow = new Set<string>();
   let kept = 0;
+
+  // Seed from a previous run. Untrusted file content: validate every field.
+  if (typeof cfg.initial === 'object' && cfg.initial !== null) {
+    for (const [p, v] of Object.entries(cfg.initial as Record<string, unknown>)) {
+      if (channels.size >= MAX_CHANNELS) break;
+      if (!isPermittedPath(p) || typeof v !== 'object' || v === null) continue;
+      const o = v as Record<string, unknown>;
+      const { lastKeptMs, lastKeptValue, day, dayCount } = o;
+      if (
+        typeof lastKeptMs !== 'number' ||
+        !Number.isFinite(lastKeptMs) ||
+        typeof lastKeptValue !== 'number' ||
+        !Number.isFinite(lastKeptValue) ||
+        typeof day !== 'string' ||
+        typeof dayCount !== 'number' ||
+        !Number.isFinite(dayCount)
+      ) {
+        continue;
+      }
+      channels.set(p, { lastSeenMs: lastKeptMs, lastKeptMs, lastKeptValue, day, dayCount });
+    }
+  }
 
   /**
    * Returns the reading to write (with a way to take its state change back if the write fails), or
@@ -221,6 +251,20 @@ export function createSampler(cfg: SamplerOptions) {
 
   return {
     handleDelta,
+    /** Only channels that have kept a reading. */
+    snapshot: (): ChannelSnapshot => {
+      const out: ChannelSnapshot = {};
+      for (const [p, c] of channels) {
+        if (c.lastKeptMs === null) continue;
+        out[p] = {
+          lastKeptMs: c.lastKeptMs,
+          lastKeptValue: c.lastKeptValue,
+          day: c.day,
+          dayCount: c.dayCount,
+        };
+      }
+      return out;
+    },
     stats: (): SamplerStats => ({
       kept,
       channels: channels.size,

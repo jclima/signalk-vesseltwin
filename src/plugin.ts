@@ -15,6 +15,7 @@ import { matchPath, PATH_RULES } from './mapping';
 import { runPairing } from './pairing';
 import { ReadingQueue } from './queue';
 import { redact, redactError } from './redact';
+import { snapshotSelf } from './bootstrap';
 import { createSampler, QueueSink, type ReadingSink } from './sampler';
 import {
   StatusMonitor,
@@ -169,6 +170,8 @@ interface Pipeline {
   collector: { stop(): void } | null;
   origin: string;
   pairedAt: string | undefined;
+  /** Writes pending sampler state now and cancels the debounce; resolves when it is on disk. */
+  settleState: () => Promise<void>;
 }
 
 function isErrorState(st: PluginState): boolean {
@@ -285,6 +288,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     stopping = (async () => {
       await before;
       await settled;
+      await p.settleState();
       await p.queue.close();
     })().catch((err: unknown) => {
       app.debug(`closing the queue failed: ${redactError(err)}`);
@@ -383,31 +387,94 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       ...(deps.scheduler ? { scheduler: deps.scheduler } : {}),
     });
     const inner = new QueueSink(queue, now);
+    let sampler: ReturnType<typeof createSampler> | null = null;
+    // Sampler state is saved after a reading was written (debounced). A crash between the append and
+    // the state write can re-queue that one value after a restart: at most one duplicate, and the
+    // platform dedupes by clientReadingId only per reading, so this is accepted.
+    let dirty = false;
+    let timer: NodeJS.Timeout | undefined;
+    let inflight: Promise<void> = Promise.resolve();
+    const save = (): Promise<void> => {
+      dirty = false;
+      inflight = inflight
+        .then(() => (sampler ? queue.saveChannels(sampler.snapshot()) : undefined))
+        .catch((err: unknown) => {
+          app.debug(`saving sampler state failed: ${redactError(err)}`);
+        });
+      return inflight;
+    };
+    const markDirty = (): void => {
+      dirty = true;
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (dirty) void save();
+      }, 2_000);
+      timer.unref();
+    };
+    const settleState = async (): Promise<void> => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (dirty) await save();
+      else await inflight;
+    };
     const sink: ReadingSink = {
       write: async (r) => {
         if (pipe?.token !== token) return; // stopped or replaced: nothing may reach the queue
         await inner.write(r);
+        markDirty();
         void uploader.refreshStats();
       },
     };
-    const sampler = createSampler({ options: upload, sink, now });
-    // The pipeline must exist before subscribing: signalk-server replays cached values synchronously
-    // inside subscribe(), and the sink drops anything that arrives while `pipe` is not this one.
-    pipe = { token, queue, uploader, collector: null, origin: credentialOrigin_, pairedAt };
-    const collector = startCollector({
-      sm,
-      rules: PATH_RULES.filter((r) => active.has(r.category)),
-      onDelta: (d) => {
-        sampler.handleDelta(d).catch((err: unknown) => {
+    // The pipeline must exist before subscribing: the sink drops anything that arrives while `pipe`
+    // is not this one.
+    pipe = {
+      token,
+      queue,
+      uploader,
+      collector: null,
+      origin: credentialOrigin_,
+      pairedAt,
+      settleState,
+    };
+    const rules = PATH_RULES.filter((r) => active.has(r.category));
+    const livePipe = (): Pipeline | null => pipe;
+    const current = (): boolean => livePipe()?.token === token;
+    void (async () => {
+      let initial: unknown = null;
+      try {
+        initial = await queue.loadChannels();
+      } catch (err) {
+        app.debug(`reading sampler state failed: ${redactError(err)}`);
+      }
+      if (!current()) return;
+      const s = createSampler({ options: upload, sink, now, initial });
+      sampler = s;
+      const feed = (d: unknown): void => {
+        s.handleDelta(d).catch((err: unknown) => {
           app.debug(`reading not recorded: ${redactError(err)}`);
         });
-      },
-      onError: (msg) => {
-        app.debug(`subscription error: ${msg}`);
-      },
-    });
-    if (pipe.token === token) pipe.collector = collector;
-    else collector.stop();
+      };
+      const collector = startCollector({
+        sm,
+        rules,
+        onDelta: feed,
+        onError: (msg) => {
+          app.debug(`subscription error: ${msg}`);
+        },
+      });
+      const lp = livePipe();
+      if (lp?.token === token) lp.collector = collector;
+      else collector.stop();
+      // signalk-server replays cached values inside subscribe() only when security is off: with
+      // token security the replay is filtered per principal and a plugin has none, so a steady value
+      // would never arrive. Read the current values from the self tree as well. The sampler skips
+      // anything already seen or kept (same timestamp), so a replay plus this is one reading.
+      const selfGet = (app as { getSelfPath?: SignalKApp['getSelfPath'] }).getSelfPath;
+      if (typeof selfGet === 'function') {
+        for (const d of snapshotSelf((p) => selfGet.call(app, p), rules)) feed(d);
+      }
+    })();
     uploader.start();
   }
 
