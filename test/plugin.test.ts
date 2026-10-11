@@ -1864,9 +1864,13 @@ describe('admin status upload block', () => {
   it('reports upload unavailable with the effective settings and neutral warnings', async () => {
     const h = harness();
     h.plugin.start({
-      engineHours: { recordIntervalMinutes: 120, instances: { mode: 'selected', ids: ['bad id'] } },
+      engineHours: {
+        enabled: true,
+        recordIntervalMinutes: 120,
+        instances: { mode: 'selected', ids: ['bad id'] },
+      },
       batteries: { enabled: false },
-      tanks: { instances: { mode: 'selected', ids: ['fuel.0', 'nope'] } },
+      tanks: { enabled: true, instances: { mode: 'selected', ids: ['fuel.0', 'nope'] } },
       queueMaxReadings: 2_000,
     });
     await h.tick();
