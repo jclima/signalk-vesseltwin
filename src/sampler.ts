@@ -7,6 +7,10 @@ import type { ReadingQueue } from './queue';
 /**
  * Pure record policy for the planned upload: decides which SignalK samples would be kept.
  * Not wired into the plugin; nothing here subscribes, schedules or uploads.
+ *
+ * Readings are queued in SI, exactly as SignalK delivered them (seconds, volts, ratio, cubic
+ * metres); the platform converts server-side. Owner units (hours, percent, litres) are used only
+ * to compare against the owner-unit thresholds in the settings.
  */
 
 /** A kept sample; the sink assigns the idempotency id. */
@@ -84,7 +88,7 @@ interface ChannelState {
 
 type CategoryKey = 'engineHours' | 'batteries' | 'tanks';
 
-/** Converts a raw SI value to the owner unit. */
+/** Converts a raw SI value to the owner unit, for threshold comparison only. */
 function convert(category: CategoryKey, unit: Unit, v: number): number | null {
   if (category === 'engineHours' && unit === 's') return v / 3600;
   if (category === 'batteries' && unit === 'V') return v;
@@ -161,7 +165,8 @@ export function createSampler(cfg: SamplerOptions) {
     ch.lastKeptMs = recordedAtMs;
     ch.lastKeptValue = converted;
     kept += 1;
-    return { path, value: converted, recordedAt };
+    // Emit the raw SI value; `converted` is only kept for change detection.
+    return { path, value, recordedAt };
   }
 
   async function handleDelta(delta: unknown): Promise<number> {
