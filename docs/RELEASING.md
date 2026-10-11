@@ -16,15 +16,17 @@ unavailable). Exit 3 is never a pass. `pnpm lint` runs its `--ci` mode on every 
   reviewers there if you want an approval before each publish.
 - `release.yml` only runs its publish job when the repository variable `NPM_TRUSTED_PUBLISHING` is
   `true`. Leave it unset until the trusted publisher is configured.
-- A repository ruleset protects `v*.*.*` tags, so only maintainers can create or move them.
+- Owner setup: a repository ruleset should protect `v*.*.*` tags so only maintainers can create or
+  move them. Confirm it is in place before relying on it.
 - Branch protection on `main` requires the `check (22)` and `check (24)` CI checks.
-- The package version is already `0.1.0` on `main` (not yet published). The first release is `0.1.0`
-  and needs no further version bump.
+- Versions `0.1.0` and `0.1.1` are on npm; `0.1.1` was published through trusted publishing with
+  provenance. Later releases follow the routine flow below.
 
-The npm trusted-publishing documentation (<https://docs.npmjs.com/trusted-publishers>) does not state
-whether a trusted publisher can be configured for a package that does not exist yet, and a new
-configuration must complete its first successful publish within 2 days. Publish the first version
-manually:
+Bootstrap record (already done for this package; keep for forks or a renamed package). The npm
+trusted-publishing documentation (<https://docs.npmjs.com/trusted-publishers>) does not state whether
+a trusted publisher can be configured for a package that does not exist yet, and a new configuration
+must complete its first successful publish within 2 days, so the first version of a new package is
+published manually:
 
 1. Prepare and merge the release PR (stages 1 to 3 below), then from a clean checkout of the merged
    `origin/main`:
@@ -40,7 +42,7 @@ manually:
    not use OIDC). `pnpm check:pack` asserts the tarball holds only `plugin/`, the five pairing page files in
    `public/` (`index.html`, `style.css`, `app.js`, `view.js`, `controller.js`), `README.md`,
    `LICENSE`, `SECURITY.md` and `package.json`. `npm publish` runs `prepack`, which rebuilds. This
-   first version has no provenance attestation; that is expected.
+   manually published first version has no provenance attestation; that is expected.
 
 2. On npmjs.com, open the package settings > Trusted Publisher and add GitHub Actions with owner
    `jclima`, repository `signalk-vesseltwin`, workflow filename `release.yml` and environment
@@ -67,9 +69,7 @@ rejected by the checks for now.
 On a branch `release/vX.Y.Z`:
 
 - Bump `version` in `package.json` and `PLUGIN_VERSION` in `src/plugin.ts`. They must be equal
-  (`test/` and `release-check` both enforce it). For the first release no bump is needed: `main` is
-  already at `0.1.0` (unpublished), so the release PR mainly dates the CHANGELOG section and fixes
-  the README Status and Install copy, if that is not already done.
+  (`test/` and `release-check` both enforce it).
 - Update the README Status line and Install text to match what this release does and where it is
   published. Keep the privacy section and the code in agreement (see `AGENTS.md`).
 - In `CHANGELOG.md`, move the `Unreleased` entries under `## [X.Y.Z] - YYYY-MM-DD` and leave an empty
@@ -99,7 +99,7 @@ git push origin vX.Y.Z
 ## 5. Publish
 
 Pushing the tag starts the `Release` workflow (only when `NPM_TRUSTED_PUBLISHING` is `true`; tags
-matching `v*.*.*` are protected by a ruleset). On Node 24 it requires npm >= 11.5.1, fetches
+matching `v*.*.*` should be protected by a ruleset, see one-time setup). On Node 24 it requires npm >= 11.5.1, fetches
 `origin/main`, runs `release-check --tag --online` (tag equals `v` plus the `package.json` version, and
 the tagged commit must be on `main`), then `pnpm preflight` (lint, typecheck including `tsc -p web`,
 tests, build, tarball check), then `npm publish --provenance --access public --ignore-scripts`.

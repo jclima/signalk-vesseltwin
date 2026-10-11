@@ -15,12 +15,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Saving the pairing credential no longer fails on filesystems that do not support changing file
+  permissions (for example FAT-formatted USB drives).
+- Restarting the plugin while an unpair is in progress no longer leaves the status monitor in an
+  inconsistent state.
+- The sampler keeps readings in raw SignalK (SI) units for upload; conversion happens server-side.
 - Upload settings form: tank ids such as `fuel.0` are no longer rejected by the form, the "not active"
   note appears once per section, labels and hints are clearer, and the admin status reports both the
   configured (`enabled`) and effective (`active`) state per category.
 
 ### Changed
 
+- Upload settings default to off and are labelled as not available in this version.
 - The sample period setting now accepts 10 to 3600 seconds (it was up to 86400); larger saved values
   are clamped to 3600.
 - The offline queue now applies its age and count caps when it starts.
