@@ -23,7 +23,8 @@
     "engine-hours"
   ],
   "signalk": {
-    "displayName": "VesselTwin"
+    "displayName": "VesselTwin",
+    "appIcon": "./icon.png"
   },
   "main": "plugin/index.js",
   "types": "plugin/index.d.ts",
