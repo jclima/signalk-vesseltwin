@@ -170,6 +170,7 @@ export const PACK_ALLOWED_FILES = new Set(['README.md', 'LICENSE', 'SECURITY.md'
  */
 export const PACK_ALLOWED_UI_FILES = new Set([
   'public/index.html',
+  'public/icon.png',
   'public/style.css',
   'public/app.js',
   'public/view.js',
@@ -178,7 +179,7 @@ export const PACK_ALLOWED_UI_FILES = new Set([
 
 /**
  * Assert an npm pack file list contains only plugin/**, README.md, LICENSE, SECURITY.md,
- * package.json and the five pairing page files in PACK_ALLOWED_UI_FILES.
+ * package.json and the pairing page files in PACK_ALLOWED_UI_FILES.
  */
 export function checkPackFiles(paths) {
   const findings = [];

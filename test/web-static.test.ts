@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
 const root = join(__dirname, '..');
 const html = readFileSync(join(root, 'public', 'index.html'), 'utf8');
 const css = readFileSync(join(root, 'public', 'style.css'), 'utf8');
+const icon = readFileSync(join(root, 'public', 'icon.png'));
+const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+  signalk?: { appIcon?: string };
+};
 const webSources = readdirSync(join(root, 'web'))
   .filter((f) => f.endsWith('.ts'))
   .map((f) => ({ f, text: readFileSync(join(root, 'web', f), 'utf8') }));
@@ -40,8 +44,17 @@ describe('public/index.html', () => {
   });
   it('loads only relative assets', () => {
     const refs = [...html.matchAll(/\b(?:src|href)="([^"]*)"/g)].map((m) => m[1] ?? '');
-    expect(refs.sort()).toEqual(['app.js', 'style.css']);
+    expect(refs.sort()).toEqual(['app.js', 'icon.png', 'icon.png', 'style.css']);
     for (const r of refs) expect(r).not.toMatch(/^([a-z]+:)?\/|\.\./i);
+  });
+  it('uses the packaged PNG icon for the favicon and brand header', () => {
+    expect(packageJson.signalk?.appIcon).toBe('./icon.png');
+    expect(html).toMatch(/<link rel="icon" type="image\/png" href="icon\.png" \/>/);
+    expect(html).toMatch(/<img src="icon\.png" width="56" height="56" alt="" \/>/);
+    expect(existsSync(join(root, 'public', 'icon.png'))).toBe(true);
+    expect(icon.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    expect(icon.readUInt32BE(16)).toBe(256);
+    expect(icon.readUInt32BE(20)).toBe(256);
   });
   it('keeps a noscript fallback and the loading hint in static text, and no stale upload notice', () => {
     expect(html).not.toMatch(/not available in this version/i);

@@ -1,5 +1,7 @@
 # signalk-vesseltwin
 
+![VesselTwin](public/icon.png)
+
 [VesselTwin](https://vesseltwin.io) keeps your boat's maintenance record in one place. This
 [SignalK](https://signalk.org) server plugin connects your boat's SignalK server to your VesselTwin
 account and, when you turn it on, sends engine hours, battery readings and tank levels to that record.

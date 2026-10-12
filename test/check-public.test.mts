@@ -137,6 +137,7 @@ describe('checkPackFiles', () => {
         'plugin/index.js',
         'plugin/a/b.d.ts',
         'public/index.html',
+        'public/icon.png',
         'README.md',
         'LICENSE',
         'SECURITY.md',
@@ -144,11 +145,12 @@ describe('checkPackFiles', () => {
       ]),
     ).toEqual([]);
   });
-  it('accepts exactly the five pairing page files', () => {
+  it('accepts the pairing page files and icon', () => {
     expect(
       checkPackFiles([
         'plugin/index.js',
         'public/index.html',
+        'public/icon.png',
         'public/style.css',
         'public/app.js',
         'public/view.js',
