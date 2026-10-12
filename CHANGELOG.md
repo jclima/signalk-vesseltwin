@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-11
+
+### Added
+
+- VesselTwin icon for the SignalK Appstore listing and the plugin's pairing page.
+
+### Changed
+
+- README states that connecting requires a VesselTwin Pro plan.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

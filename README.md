@@ -6,7 +6,7 @@
 [SignalK](https://signalk.org) server plugin connects your boat's SignalK server to your VesselTwin
 account and, when you turn it on, sends engine hours, battery readings and tank levels to that record.
 
-> **Status: version 0.2.0, published on npm.** Connecting your boat works, and the plugin can send
+> **Status: version 0.2.1, published on npm.** Connecting your boat works, and the plugin can send
 > engine and generator run time, battery voltage and charge, and tank levels once the owner turns
 > sending on (it is off by default). **Sending readings is off until you turn it on** in the plugin settings, and nothing is
 > sent before then. After the first readings arrive, you map and confirm each channel in the
@@ -18,6 +18,9 @@ account and, when you turn it on, sends engine hours, battery readings and tank 
 Node.js 20.3 or newer (this includes Victron Venus OS on a Cerbo GX) and signalk-server 2.x. Sending
 readings also needs a signalk-server that offers plugins a subscription manager (every 2.x release
 does); if yours does not, the status line says so.
+
+Using this plugin requires a [VesselTwin](https://vesseltwin.io) account on the **Pro plan**. Accounts on
+other plans cannot pair, and sending readings is unavailable until the plan allows it.
 
 ## Install
 
