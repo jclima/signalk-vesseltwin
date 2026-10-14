@@ -54,14 +54,14 @@
     "prepack": "pnpm run build"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
-    "@types/node": "^20.19.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "eslint": "^9.0.0",
+    "eslint": "^10.12.0",
     "prettier": "^3.0.0",
-    "typescript": "^5.6.0",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^5.0.3"
   }
 }
