@@ -92,7 +92,7 @@ export function applyResults(
   const byReason: AppliedResults['byReason'] = {};
   for (const r of parsed.results) {
     byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
-    if (r.reason) byReason[r.reason] = (byReason[r.reason] ?? 0) + 1;
+    if (r.status === 'rejected' && r.reason) byReason[r.reason] = (byReason[r.reason] ?? 0) + 1;
   }
   return { ack: ids, byStatus, byReason };
 }
@@ -326,6 +326,13 @@ export class Uploader {
         if (this.ctl === ctl) this.ctl = null;
         // A hold that arrived mid-flight takes effect now.
         if (this.held && this.state === 'sending') this.setState('held');
+        // A resume() that arrived mid-flight found `inflight` set and scheduled nothing: if no
+        // timer is armed now, the uploader would stall until the next external kick.
+        if (this.running && !this.held && this.sticky === null && this.timer === null) {
+          this.schedule(
+            this.state === 'backoff' || this.state === 'paused' ? this.untilAllowed() : PACE_MS,
+          );
+        }
       });
     this.inflight = p;
     return p;
@@ -338,7 +345,7 @@ export class Uploader {
   /** Next batch: the current bisection half, else the queue head (invalid readings are dropped). */
   private async pick(
     ctl: AbortController,
-  ): Promise<{ items: ReadingItem[]; slot: 0 | 1 | null } | null> {
+  ): Promise<{ items: ReadingItem[]; slot: 0 | 1 | null } | 'more' | null> {
     if (this.work) {
       const slot = this.work.res[0] === null ? 0 : 1;
       return { items: this.work.halves[slot], slot };
@@ -362,12 +369,19 @@ export class Uploader {
       }
       if (good.length > 0) return { items: buildBatch(good, this.limit), slot: null };
     }
-    return null;
+    // Rounds used up on invalid readings that were drained: more may follow, so come back soon
+    // (not after the full interval, which is not an empty queue).
+    return 'more';
   }
 
   private async cycle(ctl: AbortController): Promise<void> {
     const picked = await this.pick(ctl);
     if (!this.live(ctl)) return;
+    if (picked === 'more') {
+      this.setState('idle');
+      this.schedule(PACE_MS);
+      return;
+    }
     if (!picked) {
       this.attempt = 0;
       this.notBefore = 0;
@@ -418,7 +432,9 @@ export class Uploader {
       case 'paused':
         this.pausedReason = cls.reason;
         this.setState('paused');
-        this.notBefore = this.now() + cls.delayMs;
+        // Binding wait: Retry-After only. The ~1 h floor is just the timer, so a resume() or kick()
+        // after the monitor reports connected sends without waiting it out.
+        this.notBefore = this.now() + (cls.retryAfterMs ?? 0);
         this.o.onEvent?.({ kind: 'paused', reason: cls.reason });
         this.schedule(cls.delayMs);
         return;

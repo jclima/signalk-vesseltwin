@@ -346,8 +346,13 @@ export class ReadingQueue {
     const set = new Set(ids);
     return this.locked(async () => {
       if (set.size === 0) return;
+      // Acks arrive oldest-first, so the ids are almost always in the first segment: stop reading
+      // once every id of the batch has been found.
+      const pending = new Set(set);
       for (const seq of await this.segments()) {
+        if (pending.size === 0) break;
         const items = await this.readSegment(seq);
+        for (const r of items) pending.delete(r.clientReadingId);
         const kept = items.filter((r) => !set.has(r.clientReadingId));
         if (kept.length === items.length) continue;
         await this.rewrite(seq, kept);

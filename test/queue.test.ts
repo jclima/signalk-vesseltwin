@@ -41,6 +41,22 @@ describe('ReadingQueue', () => {
     expect(await q.size()).toBe(3);
   });
 
+  it('ack of a head batch stops reading once every id was found', async () => {
+    const q = new ReadingQueue({ dir, segmentRecords: 2, now: () => NOW });
+    for (let i = 0; i < 6; i++) await q.append(mk(i)); // three segments
+    const read = vi.spyOn(
+      q as unknown as { readSegment: (seq: number) => Promise<Reading[]> },
+      'readSegment',
+    );
+    await q.ack(['id-0', 'id-1']);
+    expect(read).toHaveBeenCalledTimes(1); // later segments were neither read nor rewritten
+    expect((await q.peek(10)).map((r) => r.value)).toEqual([2, 3, 4, 5]);
+    read.mockClear();
+    await q.ack(['id-3', 'id-nope']); // an id that is not queued still scans everything
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(await q.size()).toBe(3);
+  });
+
   it('rotates segments and removes emptied ones', async () => {
     const q = new ReadingQueue({ dir, segmentRecords: 2, now: () => NOW });
     for (let i = 0; i < 5; i++) await q.append(mk(i));

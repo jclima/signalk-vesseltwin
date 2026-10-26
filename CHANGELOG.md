@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A failed unpair no longer leaves the status stuck on "checking": the stored connection is restored
+  so unpairing can be retried.
+- `/status` reports "checking" instead of "not paired" while the stored connection is still loading.
+- A reading that arrives as the plugin stops is no longer treated as recorded, so it is kept after a
+  restart.
+- An upload pause no longer delays sending by up to another hour after the connection is back; only
+  the server's `Retry-After` is waited out.
+- The uploader no longer stalls when it is held and resumed while a send is finishing, and it retries
+  within seconds, not a full interval, after a long run of invalid queued readings.
+- Readings held for review are no longer counted as rejected.
+- A source clock that steps back by more than six hours no longer silences a channel until real time
+  catches up.
+- A failure while starting the collector is logged and no longer an unhandled rejection.
+- Acknowledging sent readings reads fewer queue files, and the list of refused channels is bounded.
+
 ## [0.2.1] - 2026-10-11
 
 ### Added

@@ -81,6 +81,10 @@ export interface SamplerStats {
 
 const DAY_MS = 24 * 3600_000;
 const FUTURE_SLACK_MS = 5 * 60_000;
+/** A timestamp this far behind the newest one seen means the source clock stepped back. */
+const BACKWARDS_SLACK_MS = 6 * 3600_000;
+/** Remembered refused channels beyond the limit; the count stops growing here. */
+const MAX_OVERFLOW_TRACKED = 1000;
 
 interface ChannelState {
   lastSeenMs: number;
@@ -163,7 +167,7 @@ export function createSampler(cfg: SamplerOptions) {
     let ch = channels.get(path);
     if (!ch) {
       if (channels.size >= MAX_CHANNELS) {
-        overflow.add(path);
+        if (overflow.size < MAX_OVERFLOW_TRACKED) overflow.add(path);
         return null;
       }
       ch = { lastSeenMs: -Infinity, lastKeptMs: null, lastKeptValue: 0, day: '', dayCount: 0 };
@@ -172,6 +176,12 @@ export function createSampler(cfg: SamplerOptions) {
 
     const before = { ...ch };
     const channel = ch;
+    // A source clock that stepped back (well beyond jitter) starts the channel over, so it is not
+    // silenced until real time catches up with the old high-water mark.
+    if (recordedAtMs < ch.lastSeenMs - BACKWARDS_SLACK_MS) {
+      ch.lastSeenMs = -Infinity;
+      ch.lastKeptMs = null;
+    }
     // The SignalK timestamp must have advanced since the last sample of this channel.
     if (recordedAtMs <= ch.lastSeenMs) return null;
     ch.lastSeenMs = recordedAtMs;

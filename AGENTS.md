@@ -9,7 +9,7 @@ Volatile detail lives in the code (`ls src test`), `README.md`, and `docs/api.md
 `signalk-vesseltwin` is a public, Apache-2.0 [SignalK](https://signalk.org) server plugin that pairs a
 boat's SignalK server with VesselTwin (the owner approves a device code in the VesselTwin web app) and,
 when the owner turns it on, uploads engine hours, battery readings and tank levels to the boat's
-maintenance record. Status: version 0.1.1 is published to npm; upload is built and off by default.
+maintenance record. Status: version 0.2.1 is published to npm; upload is built and off by default.
 Pairing, credential handling and upload work. **Sending readings is off by default** and
 needs the owner's explicit `uploadEnabled` setting plus a category.
 
@@ -26,7 +26,7 @@ pnpm build         # rm -rf plugin && tsc -> plugin/ (gitignored)
 pnpm check:public  # public-repo guard alone (also part of lint)
 pnpm check:release --ci  # release-train consistency checks (also part of lint); see docs/RELEASING.md
 pnpm preflight     # lint, typecheck, test, build and pack check in one go
-node scripts/check-public.mjs --pack  # after build: asserts the npm tarball holds only plugin/, the 5 public/ page files, README, LICENSE, SECURITY, package.json
+node scripts/check-public.mjs --pack  # after build: asserts the npm tarball holds only plugin/, the 6 public/ page files (incl. icon.png), README, LICENSE, SECURITY, package.json
 pnpm hooks:install # optional pre-commit hook (runs the guard on staged files)
 pnpm format        # prettier --write .
 ```
@@ -54,7 +54,7 @@ Before every commit run lint, typecheck, test, build, and `node scripts/check-pu
 - `scripts/release-check.mjs` release-train checks (version sync, changelog, upload honesty, tag, registry); `docs/RELEASING.md`
 - `web/` pairing page sources (`view.ts` and `controller.ts` are DOM-free logic, `app.ts` is DOM glue;
   never import from `src/`); compiled by `tsc -p web` to `public/*.js` (gitignored)
-- `public/` static SignalK webapp: tracked `index.html` and `style.css`, built `app.js`, `view.js`, `controller.js`
+- `public/` static SignalK webapp: tracked `index.html`, `icon.png` and `style.css`, built `app.js`, `view.js`, `controller.js`
 - `test/*.test.ts` one file per module (vitest); `docs/api.md` wire contract
 - `dev/` mock API, docker rig and scripts for local testing (see `docs/TESTING.md`)
 

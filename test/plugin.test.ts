@@ -2197,6 +2197,46 @@ describe('admin status upload block', () => {
     h.plugin.stop();
   });
 
+  it('a failed unpair restores the real state: not stuck in checking, and a retry succeeds', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('connected');
+    const clear = vi
+      .spyOn(CredentialStore.prototype, 'clear')
+      .mockRejectedValueOnce(new Error('EIO: cannot remove'));
+    try {
+      const failed = await h.call('POST /unpair');
+      expect(failed.status).toBe(500);
+      expect(failed.body.error).toBe(COPY.unpairFailed);
+      await h.untilState('connected'); // the credential is still there: the monitor is back
+      expect((await h.call('GET /status')).body).toMatchObject({ paired: true });
+      const retry = await h.call('POST /unpair'); // clear() works again
+      expect(retry.status).toBe(200);
+      expect((await h.call('GET /status')).body).toMatchObject({
+        state: 'not_paired',
+        paired: false,
+      });
+      await h.untilFiles([]);
+    } finally {
+      clear.mockRestore();
+      h.plugin.stop();
+    }
+  });
+
+  it('reports checking, not not_paired, while the stored credential is still loading', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const h = harness({ dir });
+    h.plugin.start({}); // the credential read is in flight
+    const early = (await h.call('GET /status')).body;
+    expect(early).toMatchObject({ state: 'checking', paired: false });
+    expect(early.message).toBe(COPY.starting);
+    await h.untilState('connected');
+    h.plugin.stop();
+  });
+
   it('keeps the broadcast status line free of upload settings', async () => {
     const h = harness();
     h.plugin.start({ engineHours: { recordIntervalMinutes: 120 }, queueMaxReadings: 2_000 });
@@ -2777,6 +2817,68 @@ describe('upload pipeline', () => {
       await h.until(async () => (await uploadBlock(h)).queued === 0);
       expect(sm.subscriptions).toHaveLength(2);
       h.plugin.stop();
+    });
+
+    it('a reading whose write is refused because the pipeline stopped is recorded after a restart', async () => {
+      const { h, sm } = await running();
+      const stamp = new Date().toISOString();
+      const BAT2 = 'electrical.batteries.starter.voltage';
+      const two = {
+        context: 'vessels.urn:mrn:signalk:uuid:00000000-0000-4000-8000-000000000000',
+        updates: [
+          {
+            timestamp: stamp,
+            values: [
+              { path: BAT, value: 12.6 },
+              { path: BAT2, value: 12.7 },
+            ],
+          },
+        ],
+      };
+      sm.deliver(two); // the first write is in flight ...
+      h.plugin.stop(); // ... when the pipeline stops: the second is refused and must be taken back
+      await h.tick(MIN);
+      const sm2 = fakeSm();
+      h.app.subscriptionmanager = sm2.manager;
+      h.plugin.start(UP);
+      await h.untilState('connected');
+      await h.until(() => sm2.subscriptions.length > 0);
+      sm2.deliver(two); // the same values again: only the one that never reached the queue counts
+      await h.until(async () => (await uploadBlock(h)).queued === 2);
+      const logged = (h.app.debug as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      expect(logged.some((l) => l.includes('reading not recorded'))).toBe(false); // a stop is no error
+      h.plugin.stop();
+    });
+
+    it('a failure while starting the sampler or collector is logged and leaves the plugin running', async () => {
+      const dir = tempDir();
+      await seed(dir);
+      const sm = fakeSm();
+      const h = harness({ dir, deps: on, sm });
+      // Object.entries() on this throws inside createSampler, after the pipeline exists.
+      const boom = new Proxy(
+        {},
+        {
+          ownKeys: () => {
+            throw new Error('boom');
+          },
+        },
+      );
+      const load = vi.spyOn(ReadingQueue.prototype, 'loadChannels').mockResolvedValue(boom);
+      try {
+        h.plugin.start(UP);
+        await h.untilState('connected');
+        await h.until(() =>
+          (h.app.debug as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+            String(c[0]).includes('starting the collector failed'),
+          ),
+        );
+        expect(sm.subscriptions).toHaveLength(0);
+        expect((await h.call('GET /status')).body).toMatchObject({ state: 'connected' });
+      } finally {
+        load.mockRestore();
+        h.plugin.stop();
+      }
     });
 
     it('a late delta after stop() is not queued', async () => {

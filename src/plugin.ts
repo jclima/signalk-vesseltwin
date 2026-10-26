@@ -195,6 +195,14 @@ interface PendingPairing {
   expiresAt: number;
 }
 
+/** Thrown by a pipeline's sink once the pipeline was stopped; carries no data and is not logged. */
+class PipelineStopped extends Error {
+  constructor() {
+    super('pipeline stopped');
+    this.name = 'PipelineStopped';
+  }
+}
+
 export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
   let options: PluginOptions = parseOptions({});
   let store: CredentialStore | null = null;
@@ -434,7 +442,9 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     };
     const sink: ReadingSink = {
       write: async (r) => {
-        if (pipe?.token !== token) return; // stopped or replaced: nothing may reach the queue
+        // Stopped or replaced: nothing may reach the queue. Throwing (not returning) makes the
+        // sampler take the reading's state change back, so it is recorded after a restart.
+        if (pipe?.token !== token) throw new PipelineStopped();
         await inner.write(r);
         const wp = pipe as Pipeline | null;
         if (wp?.token === token && !wp.recorded) {
@@ -473,6 +483,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       sampler = s;
       const feed = (d: unknown): void => {
         s.handleDelta(d).catch((err: unknown) => {
+          if (err instanceof PipelineStopped) return; // expected while stopping: not an error
           app.debug(`reading not recorded: ${redactError(err)}`);
         });
       };
@@ -496,7 +507,16 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       if (typeof selfGet === 'function') {
         for (const d of snapshotSelf((p) => selfGet.call(app, p), rules)) feed(d);
       }
-    })();
+    })().catch((err: unknown) => {
+      // Sampler or collector setup failed: keep the plugin alive. The uploader still sends what is
+      // already queued; nothing new is recorded until the next start.
+      app.debug(`starting the collector failed: ${redactError(err)}`);
+      const lp = livePipe();
+      if (lp?.token === token) {
+        lp.collector?.stop();
+        lp.collector = null;
+      }
+    });
     uploader.start();
   }
 
@@ -585,6 +605,27 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     startPipeline(credential, credentialOrigin_, pairedAt);
   }
 
+  /** Applies a freshly read credential file: tombstone, monitor or nothing. */
+  function adoptStored(c: Awaited<ReturnType<CredentialStore['read']>>): void {
+    if (!c) return;
+    hasCredential = true;
+    vesselLabel = cleanLabel(c.vesselLabel);
+    if (isTombstone(c)) {
+      // The server already rejected this pairing: no monitor, no network calls.
+      snap = {
+        state: 'reauth_required',
+        pausedReason: null,
+        updateRecommended: false,
+        clockSkewWarning: false,
+        lastCheckedAt: null,
+        summary: null,
+      };
+    } else {
+      // Missing or different origin: the monitor goes to reauth_required with zero calls.
+      startMonitor(c.credential, c.apiOrigin, c.pairedAt || undefined);
+    }
+  }
+
   /**
    * After a 401 the credential is dead: replace the file with a secret-free tombstone so a restart
    * does not send the dead credential again. Best effort; a failure is only logged.
@@ -621,6 +662,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     if (pairing) return 'pairing';
     if (finalizing) return 'checking';
     if (failure) return 'pairing_failed';
+    if (!loaded) return 'checking'; // the stored credential has not been read yet
     if (!hasCredential) return 'not_paired';
     switch (effective()) {
       case 'connected':
@@ -673,6 +715,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         return FAILURE_COPY[failure ?? 'unavailable'];
       case 'checking':
         if (finalizing) return 'Pairing approved. Saving the connection.';
+        if (!loaded) return COPY.starting;
         return `${lead}. Checking the connection.`;
       case 'connected': {
         // `updateRecommended` is only an informational hint in the admin /status response. A newer
@@ -982,24 +1025,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           if (mine !== epoch) return;
           loaded = true;
           syncPermissions(s);
-          if (c) {
-            hasCredential = true;
-            vesselLabel = cleanLabel(c.vesselLabel);
-            if (isTombstone(c)) {
-              // The server already rejected this pairing: no monitor, no network calls.
-              snap = {
-                state: 'reauth_required',
-                pausedReason: null,
-                updateRecommended: false,
-                clockSkewWarning: false,
-                lastCheckedAt: null,
-                summary: null,
-              };
-            } else {
-              // Missing or different origin: the monitor goes to reauth_required with zero calls.
-              startMonitor(c.credential, c.apiOrigin, c.pairedAt || undefined);
-            }
-          }
+          adoptStored(c);
           report();
         })
         .catch((err: unknown) => {
@@ -1130,6 +1156,27 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             res.json({ paired: false, message: COPY.unpaired });
           } catch (err) {
             app.debug(`unpair failed: ${redactError(err)}`);
+            if (mine === epoch) {
+              // The session was stopped before the clear: put the real state back so the owner can
+              // retry (otherwise /status would say `checking` forever and /pair would answer 409).
+              try {
+                const c = await s.read();
+                if (mine === epoch) {
+                  loaded = true;
+                  hasCredential = false;
+                  vesselLabel = null;
+                  adoptStored(c);
+                  report();
+                }
+              } catch (readErr) {
+                app.debug(`credential read after failed unpair: ${redactError(readErr)}`);
+                if (mine === epoch) {
+                  loaded = true;
+                  credentialUnreadable = true;
+                  report();
+                }
+              }
+            }
             res.status(500).json({ error: COPY.unpairFailed });
           } finally {
             // Only the latest unpair ends the transition; an earlier overlapping one must not
