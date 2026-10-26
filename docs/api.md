@@ -43,7 +43,7 @@ plugin                         VesselTwin API                    owner (web app)
 
 ### `POST /v1/integrations/pairing/start`
 
-No authentication. Rate limited per client (`429` with `Retry-After`).
+No authentication. Rate limited per client (`429`, which may carry `Retry-After`).
 
 Request (all fields required unless noted; unknown fields are rejected):
 
@@ -90,7 +90,7 @@ code):
 | Response                                                                                             | Outcome in the plugin         |
 | ---------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `503` (`integration_feature_unavailable`, or no `code` at all)                                       | unavailable, try again later  |
-| `429`, with `Retry-After`                                                                            | busy, try again later         |
+| `429` (may carry `Retry-After`)                                                                      | busy, try again later         |
 | `400` `integration_contract_unsupported`                                                             | update the plugin             |
 | any other `400`, including `integration_scope_invalid` and a validation error without a `code`       | rejected, check for an update |
 | a `200` whose body fails the checks above (unsafe `verificationUrl`, bad `userCode`, no `expiresIn`) | rejected, check for an update |
@@ -253,7 +253,8 @@ Empty body. Same headers. Response `200` (plaintext shown once):
   working for 10 minutes (`previousExpiresAt`), then stops.
 - Single shot: a credential can be rotated once. Calling rotate with an already-replaced credential
   returns `409` `integration_credential_superseded`. The replacement's plaintext cannot be fetched
-  again, so the plugin must pair again.
+  again: the old credential works only for the 10-minute grace window, and if the new one is lost the
+  plugin must pair again.
 - Persist the new credential durably (atomic write) **before** discarding the old one, and swap only
   after the write succeeds. If the process dies between the response and the write, the old key still
   works for the grace window.
@@ -267,7 +268,7 @@ Authenticated routes can answer with the following. The order shown is not a gua
 | ------ | ---------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 401    | `integration_unauthorized`         | Neutral: bad, revoked, expired, idle, or the boat/account is gone               | Stop all authenticated calls, replace the credential file with a secret-free tombstone, state `reauth_required`; re-pairing overwrites it. (A 401 without this `code` stops calls but keeps the file.) Response has `WWW-Authenticate: Bearer`. |
 | 403    | `integration_paused_plan`          | Integration paused for the account                                              | Keep the queue, probe hourly, resume when it clears                                                                                                                                                                                             |
-| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (hours), probe                                                                                                                                                                                              |
+| 503    | `integration_feature_unavailable`  | Not enabled for the account right now                                           | Keep the queue, honor `Retry-After` (about 1 hour), probe                                                                                                                                                                                       |
 | 426    | `integration_contract_unsupported` | Contract outside the supported window; body has `minContract`, `latestContract` | Stop uploading, keep the queue, ask the user to update the plugin                                                                                                                                                                               |
 | 400    | `integration_contract_required`    | Contract header missing or malformed (same extra fields)                        | Treat as a plugin bug; stop and surface it                                                                                                                                                                                                      |
 | 403    | `integration_scope`                | Credential lacks the scope the route needs                                      | Stop that call; do not retry                                                                                                                                                                                                                    |
@@ -442,8 +443,8 @@ default.
 
 ## Rate limits
 
-Routes are rate limited. A throttled client gets `429` with a `Retry-After` header and must wait at
-least that long before retrying. A plugin that batches, makes one request at a time and honors
+Routes are rate limited. A throttled client gets `429`, which may carry a `Retry-After` header; when it does, the client must
+wait at least that long before retrying. A plugin that batches, makes one request at a time and honors
 `Retry-After` will not get close to the limits.
 
 ## What the plugin must never send (STABLE rule)
@@ -492,29 +493,32 @@ Request, with the usual `Authorization`, `User-Agent` and `X-VesselTwin-Contract
 ids it sent, in order. Every status is final for that reading, so a valid reply acknowledges the
 whole batch (the readings leave the queue):
 
-| `status`                                                                                            | Meaning for the plugin                        |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `accepted`, `duplicate`                                                                             | Stored (or already stored)                    |
-| `skipped_downsampled`                                                                               | Not needed by the server                      |
-| `held_unmapped`, `held_unconfirmed`, `held_review`                                                  | Kept by VesselTwin until the owner sets it up |
-| `rejected` with `meter_backwards`, `implausible`, `invalid_*`, `future`, `too_old`, `channel_limit` | Final; counted, never retried                 |
+| `status`                                                          | Meaning for the plugin                                                                |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `accepted`, `duplicate`                                           | Stored (or already stored)                                                            |
+| `skipped_downsampled`                                             | Not needed by the server                                                              |
+| `held_unmapped`, `held_unconfirmed`                               | Kept by VesselTwin until the owner sets it up                                         |
+| `held_review`, with `meter_backwards` or `implausible`            | Held for the owner's review (kept up to a limit per channel; the oldest are replaced) |
+| `rejected` with `invalid_*`, `future`, `too_old`, `channel_limit` | Final; counted, never retried                                                         |
 
 An unusable `200` body (wrong ids, wrong count, bad status) acknowledges nothing and is retried with
-backoff.
+backoff. After five unusable replies in a row the plugin stops, keeps the queue and shows "update the
+plugin"; any usable reply resets the count. Only `rejected` reasons are counted in `rejectedReasons`.
 
 ### Errors the plugin handles
 
 | Response                                                             | Plugin behavior                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `401`                                                                | Stop. Tell the owner to pair again; with `integration_unauthorized` the credential file becomes a tombstone. Keep the queue.                                                                                                                                             |
+| `401`                                                                | Stop. Tell the owner to pair again; with `integration_unauthorized` the credential file becomes a tombstone. Keep the queue until the owner pairs again; a new pairing starts with an empty queue.                                                                       |
 | `426`, or `400` with an `integration_contract_*` code                | Stop uploading, keep the queue, show "update the plugin". Never guess another contract number.                                                                                                                                                                           |
 | `403 integration_scope`                                              | Same as `426`.                                                                                                                                                                                                                                                           |
-| `403 integration_paused_plan`, `503 integration_feature_unavailable` | Keep the queue. Hold uploads while the status probe says paused; retry at least hourly or after `Retry-After`.                                                                                                                                                           |
+| `403 integration_paused_plan`, `503 integration_feature_unavailable` | Keep the queue. Hold uploads while the status probe says paused; retry about hourly, never sooner than `Retry-After`.                                                                                                                                                    |
 | `413`                                                                | Halve the batch and send again; a single reading that is still too large stays queued and backs off.                                                                                                                                                                     |
 | `400` without a contract code                                        | Split the batch to find the reading the server refuses. A reading is dropped (and counted `invalid`) only if its sibling half passed. If both halves are refused, or a lone reading is refused, treat it as a plugin/server mismatch: stop and show "update the plugin". |
 | `429`, `5xx`, network error, timeout, unusable reply                 | Exponential backoff with full jitter (5 s to 30 min), never sooner than `Retry-After`.                                                                                                                                                                                   |
 
 `Retry-After` is honoured up to 24 hours. While uploads are stopped or paused, readings stay queued
-under the queue caps (7 days, 50,000 readings, oldest dropped first).
+under the queue caps (7 days, 50,000 readings, oldest dropped first). The server accepts readings up to
+8 days old.
 
 Suggesting vessel information is not part of the current contract. The plugin requests no such data.
