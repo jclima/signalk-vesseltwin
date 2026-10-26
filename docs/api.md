@@ -502,8 +502,7 @@ whole batch (the readings leave the queue):
 | `rejected` with `invalid_*`, `future`, `too_old`, `channel_limit` | Final; counted, never retried                                                         |
 
 An unusable `200` body (wrong ids, wrong count, bad status) acknowledges nothing and is retried with
-backoff. After five unusable replies in a row the plugin stops, keeps the queue and shows "update the
-plugin"; any usable reply resets the count. Only `rejected` reasons are counted in `rejectedReasons`.
+backoff. Only `rejected` reasons are counted in `rejectedReasons`.
 
 ### Errors the plugin handles
 

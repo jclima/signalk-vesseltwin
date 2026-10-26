@@ -346,41 +346,19 @@ describe('Uploader', () => {
     await t.up.stop();
   });
 
-  it('switches to update_required after five unusable 200 replies in a row, keeping the queue', async () => {
-    const t = setup({ fallback: () => json(200, { hello: 'captive portal' }) });
+  it('keeps backing off on repeated unusable replies and acks once a usable one arrives', async () => {
+    const bad = () => json(200, { hello: 'captive portal' });
+    const t = setup({ responders: [bad, bad, bad, bad, bad, bad, (c) => acceptAll(c)] });
     await t.fill(2);
     t.up.start();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       await t.fire();
       expect(t.up.snapshot().state).toBe('backoff');
+      expect(await t.queue.size()).toBe(2);
     }
+    expect(t.events).not.toContainEqual({ kind: 'update_required' });
     await t.fire();
-    expect(t.up.snapshot().state).toBe('update_required');
-    expect(t.events).toContainEqual({ kind: 'update_required' });
-    expect(t.sched.timers.size).toBe(0);
-    expect(t.calls).toHaveLength(5);
-    expect(await t.queue.size()).toBe(2);
-    await t.up.stop();
-  });
-
-  it('a usable reply resets the unusable-reply count', async () => {
-    const bad = () => json(200, { hello: 'captive portal' });
-    const t = setup({
-      responders: [bad, bad, bad, bad, (c) => acceptAll(c), bad, bad, bad, bad],
-      fallback: bad,
-    });
-    await t.fill(1);
-    t.up.start();
-    for (let i = 0; i < 4; i++) await t.fire();
-    expect(t.up.snapshot().state).toBe('backoff');
-    await t.fire(); // accepted: the queue is empty now
     expect(await t.queue.size()).toBe(0);
-    await t.queue.append(reading());
-    await t.up.refreshStats();
-    t.up.kick(); // idle: no effect, so wait for the interval timer
-    await t.fire();
-    for (let i = 0; i < 3; i++) await t.fire();
-    expect(t.up.snapshot().state).toBe('backoff'); // 4 in a row since the reset: still going
     await t.up.stop();
   });
 

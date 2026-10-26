@@ -30,8 +30,6 @@ const FIRST_ATTEMPT_MIN_MS = 60_000;
 const FIRST_ATTEMPT_SPAN_MS = 4 * 60_000;
 /** Gap between batches while a backlog or a bisection remains (30 requests a minute at most). */
 export const PACE_MS = 2_000;
-/** Consecutive unusable 200 replies before the uploader asks for a plugin update. */
-const MAX_UNUSABLE_REPLIES = 5;
 /** `{"readings":[]}` */
 const ENVELOPE_BYTES = 15;
 
@@ -195,8 +193,6 @@ export class Uploader {
   private lastSentAt: number | null = null;
   private results = zeroResults();
   private reasons: Partial<Record<ReadingReason, number>> = {};
-  /** Consecutive 200 replies that could not be used; too many means plugin and server disagree. */
-  private unusable = 0;
 
   constructor(private readonly o: UploaderOptions) {
     this.http = new HttpClient({
@@ -415,21 +411,13 @@ export class Uploader {
     if (res && res.status === 200) {
       const applied = applyResults(items, res.json);
       if (applied) {
-        this.unusable = 0;
         await this.onAccepted(ctl, items, slot, applied);
         return;
       }
       this.o.log?.('readings reply unusable');
-      if (++this.unusable >= MAX_UNUSABLE_REPLIES) {
-        // The same kind of reply keeps coming: plugin and server disagree. Stop, keep the queue.
-        this.stopFor('update_required');
-        this.o.onEvent?.({ kind: 'update_required' });
-        return;
-      }
       this.backoff(null);
       return;
     }
-    if (res) this.unusable = 0;
 
     const cls = classifyFailure(res, this.now());
     switch (cls.kind) {

@@ -17,8 +17,7 @@ All notable changes to this project are documented here. The format follows
   the server's `Retry-After` is waited out.
 - The uploader no longer stalls when it is held and resumed while a send is finishing, and it retries
   within seconds, not a full interval, after a long run of invalid queued readings.
-- After five unusable replies in a row the plugin stops and asks for an update instead of retrying
-  forever. Readings held for review are no longer counted as rejected.
+- Readings held for review are no longer counted as rejected.
 - A source clock that steps back by more than six hours no longer silences a channel until real time
   catches up.
 - A failure while starting the collector is logged and no longer an unhandled rejection.
