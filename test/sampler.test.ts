@@ -241,6 +241,25 @@ describe('record policy', () => {
     expect(await send('propulsion.a.runTime', 99999, T0 + 180 * MIN)).toBe(1);
   });
 
+  it('a source clock that steps far back starts the channel over instead of silencing it', async () => {
+    const { send, sink } = setup(allHourly);
+    const H = 60 * MIN;
+    expect(await send('propulsion.a.runTime', 36000, T0 + 10 * H)).toBe(1);
+    expect(await send('propulsion.a.runTime', 18000, T0 + 5 * H)).toBe(0); // 5 h back: just out of order
+    expect(await send('propulsion.a.runTime', 10800, T0 + 3 * H)).toBe(1); // 7 h back: the clock was reset
+    expect(await send('propulsion.a.runTime', 12600, T0 + 3 * H + 30 * MIN)).toBe(0); // interval holds
+    expect(await send('propulsion.a.runTime', 14400, T0 + 4 * H)).toBe(1);
+    expect(sink.readings.map((r) => r.value)).toEqual([36000, 10800, 14400]);
+  });
+
+  it('remembers a bounded number of refused channels', async () => {
+    const { send, sampler } = setup(allHourly);
+    for (let i = 0; i < 1_500; i++) await send(`propulsion.n${String(i)}.runTime`, 1, T0);
+    expect(sampler.stats().channels).toBeGreaterThan(0);
+    expect(sampler.stats().overflowChannels).toBeLessThanOrEqual(1_000);
+    expect(sampler.stats().overflowChannels).toBeGreaterThan(0);
+  });
+
   it('keeps at most 24 per channel per UTC day and resets across midnight', async () => {
     const { send, sink } = setup(allHourly);
     const midnight = Date.parse('2030-03-02T00:00:00Z');
