@@ -9,7 +9,7 @@ Volatile detail lives in the code (`ls src test`), `README.md`, and `docs/api.md
 `signalk-vesseltwin` is a public, Apache-2.0 [SignalK](https://signalk.org) server plugin that pairs a
 boat's SignalK server with VesselTwin (the owner approves a device code in the VesselTwin web app) and,
 when the owner turns it on, uploads engine hours, battery readings and tank levels to the boat's
-maintenance record. Status: version 0.2.1 is published to npm; upload is built and off by default.
+maintenance record. Status: version 0.2.2 is published to npm; upload is built and off by default.
 Pairing, credential handling and upload work. **Sending readings is off by default** and
 needs the owner's explicit `uploadEnabled` setting plus a category.
 
