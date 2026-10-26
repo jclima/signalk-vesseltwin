@@ -204,6 +204,19 @@ describe('applyResults', () => {
     });
   });
 
+  it('counts reasons only for rejected readings, not for held_review', () => {
+    const out = applyResults(
+      batch,
+      res([
+        { clientReadingId: 'a', status: 'held_review', reason: 'meter_backwards' },
+        { clientReadingId: 'b', status: 'held_review', reason: 'implausible' },
+        { clientReadingId: 'c', status: 'rejected', reason: 'implausible' },
+      ]),
+    );
+    expect(out?.byStatus).toEqual({ held_review: 2, rejected: 1 });
+    expect(out?.byReason).toEqual({ implausible: 1 });
+  });
+
   it('returns null unless the reply is well formed and aligned with the batch', () => {
     const ok = (id: string) => ({ clientReadingId: id, status: 'accepted' });
     expect(applyResults(batch, null)).toBeNull();
@@ -333,6 +346,83 @@ describe('Uploader', () => {
     await t.up.stop();
   });
 
+  it('switches to update_required after five unusable 200 replies in a row, keeping the queue', async () => {
+    const t = setup({ fallback: () => json(200, { hello: 'captive portal' }) });
+    await t.fill(2);
+    t.up.start();
+    for (let i = 0; i < 4; i++) {
+      await t.fire();
+      expect(t.up.snapshot().state).toBe('backoff');
+    }
+    await t.fire();
+    expect(t.up.snapshot().state).toBe('update_required');
+    expect(t.events).toContainEqual({ kind: 'update_required' });
+    expect(t.sched.timers.size).toBe(0);
+    expect(t.calls).toHaveLength(5);
+    expect(await t.queue.size()).toBe(2);
+    await t.up.stop();
+  });
+
+  it('a usable reply resets the unusable-reply count', async () => {
+    const bad = () => json(200, { hello: 'captive portal' });
+    const t = setup({
+      responders: [bad, bad, bad, bad, (c) => acceptAll(c), bad, bad, bad, bad],
+      fallback: bad,
+    });
+    await t.fill(1);
+    t.up.start();
+    for (let i = 0; i < 4; i++) await t.fire();
+    expect(t.up.snapshot().state).toBe('backoff');
+    await t.fire(); // accepted: the queue is empty now
+    expect(await t.queue.size()).toBe(0);
+    await t.queue.append(reading());
+    await t.up.refreshStats();
+    t.up.kick(); // idle: no effect, so wait for the interval timer
+    await t.fire();
+    for (let i = 0; i < 3; i++) await t.fire();
+    expect(t.up.snapshot().state).toBe('backoff'); // 4 in a row since the reset: still going
+    await t.up.stop();
+  });
+
+  it('reschedules when a hold and a resume both land while a cycle is finishing', async () => {
+    const t = setup();
+    await t.fill(1);
+    t.up.start();
+    let armed = true;
+    t.events.push = (e: UploaderEvent): number => {
+      if (armed && e.kind === 'changed' && t.up.snapshot().state === 'idle') {
+        armed = false;
+        t.up.hold(); // the cycle's own schedule() is now skipped ...
+        queueMicrotask(() => {
+          t.up.resume(); // ... and this runs before the in-flight promise clears: schedules nothing
+        });
+      }
+      return 0;
+    };
+    await t.fire();
+    await vi.waitFor(() => {
+      expect(t.sched.timers.size).toBe(1);
+    });
+    expect(t.up.snapshot().state).not.toBe('held');
+    await t.up.stop();
+  });
+
+  it('retries soon, not after the full interval, when invalid readings used up the pick rounds', async () => {
+    const t = setup({ isActive: (p) => p.startsWith('electrical.') });
+    const junk = (): Reading => reading({ path: 'tanks.fuel.0.currentLevel', value: 0.5 });
+    for (let i = 0; i < 10 * MAX_BATCH + 5; i++) await t.queue.append(junk());
+    const good = reading();
+    await t.queue.append(good);
+    t.up.start();
+    await t.fire();
+    expect(t.calls).toHaveLength(0); // ten rounds went to dropping invalid readings
+    expect(t.sched.pendingMs).toBe(PACE_MS);
+    await t.fire(); // the next attempt drops the rest and sends the valid one
+    expect(ids(t.calls[0]?.body.readings ?? [])).toEqual([good.clientReadingId]);
+    expect(t.up.snapshot().invalid).toBe(10 * MAX_BATCH + 5);
+    await t.up.stop();
+  });
+
   describe('error matrix', () => {
     it('401: stops for good, keeps the queue, tombstone only for integration_unauthorized', async () => {
       for (const [body, tombstone] of [
@@ -357,7 +447,7 @@ describe('Uploader', () => {
       }
     });
 
-    it('paused (503 feature, 403 plan): keeps the queue, waits at least an hour or Retry-After, kick retries', async () => {
+    it('paused (503 feature, 403 plan): keeps the queue, the timer waits an hour or Retry-After, and only Retry-After blocks a kick', async () => {
       for (const [status, code, reason] of [
         [503, 'integration_feature_unavailable', 'feature'],
         [403, 'integration_paused_plan', 'plan'],
@@ -375,15 +465,37 @@ describe('Uploader', () => {
         expect(t.up.snapshot()).toMatchObject({ state: 'paused', pausedReason: reason });
         expect(t.sched.pendingMs).toBe(HOUR);
         expect(await t.queue.size()).toBe(2);
-        t.up.kick(); // the monitor saw the server come back: still no sooner than the hour asked for
-        expect(t.sched.pendingMs).toBeGreaterThan(HOUR - 5_000);
-        expect(t.sched.pendingMs).toBeLessThanOrEqual(HOUR);
+        // The monitor saw the server come back and no Retry-After was given: retry right away.
+        t.up.kick();
+        expect(t.sched.pendingMs).toBe(0);
         expect(t.calls).toHaveLength(1);
         await t.fire();
         expect(t.sched.pendingMs).toBe(2 * HOUR); // Retry-After wins over the hour
+        t.up.kick(); // ... and is never undercut
+        expect(t.sched.pendingMs).toBeGreaterThan(2 * HOUR - 5_000);
+        t.up.hold();
+        t.up.resume();
+        expect(t.sched.pendingMs).toBeGreaterThan(2 * HOUR - 5_000);
         expect(await t.queue.size()).toBe(2);
         await t.up.stop();
       }
+    });
+
+    it('after a pause without Retry-After, resume() sends without waiting out the hour', async () => {
+      const t = setup({
+        responders: [() => json(503, { code: 'integration_feature_unavailable' })],
+      });
+      await t.fill(1);
+      t.up.start();
+      await t.fire();
+      expect(t.up.snapshot().state).toBe('paused');
+      t.up.hold(); // the monitor probes the same pause
+      t.up.resume(); // and later reports connected
+      expect(t.sched.pendingMs).toBe(0);
+      await t.fire();
+      expect(t.calls).toHaveLength(2);
+      expect(await t.queue.size()).toBe(0);
+      await t.up.stop();
     });
 
     it('Retry-After is never undercut by kick() or resume() (monitor connected)', async () => {
