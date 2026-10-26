@@ -903,6 +903,7 @@ describe('state machine', () => {
       const h = harness({ dir });
       h.plugin.start({});
       await h.tick();
+      await h.untilState('reauth_required');
       expect((await h.call('GET /status')).body).toMatchObject({
         state: 'reauth_required',
         paired: false,
@@ -929,6 +930,7 @@ describe('state machine', () => {
     const h = harness({ dir });
     h.plugin.start({ apiBaseUrl: 'https://other.example' });
     await h.tick();
+    await h.until(() => h.app.statuses.at(-1) === `ERR ${COPY.reauthOrigin}`);
     expect(h.app.statuses.at(-1)).toBe(`ERR ${COPY.reauthOrigin}`);
     expect(h.app.statuses.at(-1)).not.toMatch(/other\.example|vesseltwin\.io/);
     h.plugin.stop();
@@ -1085,8 +1087,11 @@ describe('state machine', () => {
     const h = harness({ dir });
     h.statusReplies.push(r);
     h.plugin.start({});
+    const expected = `${isError ? 'ERR ' : ''}${line}`;
     await h.tick();
-    expect(h.app.statuses.at(-1)).toBe(`${isError ? 'ERR ' : ''}${line}`);
+    // The credential read is real fs I/O; wait for the settled line, not a fixed pause.
+    await h.until(() => h.app.statuses.at(-1) === expected);
+    expect(h.app.statuses.at(-1)).toBe(expected);
     const out = (await h.call('GET /status')).body;
     expect(out).toMatchObject(body);
     expect(out.message).toBe(line);
