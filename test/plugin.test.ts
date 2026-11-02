@@ -3355,3 +3355,74 @@ describe('review fixes', () => {
     h.plugin.stop();
   });
 });
+
+describe('lifecycle consistency fixes', () => {
+  const UP = { uploadEnabled: true, batteries: { enabled: true } };
+  const on = { uploadAvailable: true, rng: () => 0 };
+
+  it('re-pair from reauth_required with a failed credential write stays consistent and can be retried', async () => {
+    const dir = tempDir();
+    await seed(dir, { reauthRequired: true, credential: undefined, credentialId: undefined });
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('reauth_required');
+    const write = vi
+      .spyOn(CredentialStore.prototype, 'write')
+      .mockRejectedValueOnce(new Error('ENOSPC: no space'));
+    expect((await h.call('POST /pair')).status).toBe(202);
+    await h.tick(5_000);
+    await h.resolveHeld(h.ok());
+    await h.untilState('pairing_failed');
+    const st = (await h.call('GET /status')).body;
+    expect(st).toMatchObject({ state: 'pairing_failed', paired: false });
+    // Pairing is accepted again (not 409 "Already paired").
+    expect((await h.call('POST /pair')).status).toBe(202);
+    write.mockRestore();
+    h.plugin.stop();
+  });
+
+  it('unpair clears the unreadable-credential flag', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    vi.spyOn(CredentialStore.prototype, 'read').mockRejectedValueOnce(new Error('EIO'));
+    const h = harness({ dir });
+    h.plugin.start({});
+    await h.untilState('config_error');
+    expect((await h.call('POST /unpair')).status).toBe(200);
+    expect((await h.call('GET /status')).body).toMatchObject({ state: 'not_paired' });
+    expect((await h.call('POST /pair')).status).toBe(202);
+    h.plugin.stop();
+  });
+
+  it('a queue clear from start() is awaited by the next start before its pipeline opens the queue', async () => {
+    const dir = tempDir();
+    await seed(dir);
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(dir, 'queue'), { recursive: true });
+    const events: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(ReadingQueue.prototype, 'clear').mockImplementation(async () => {
+      events.push('clear-start');
+      await gate;
+      events.push('clear-end');
+    });
+    const realLoad = ReadingQueue.prototype.loadChannels;
+    vi.spyOn(ReadingQueue.prototype, 'loadChannels').mockImplementation(function (
+      this: ReadingQueue,
+    ) {
+      events.push('open');
+      return realLoad.call(this);
+    });
+    const h = harness({ dir, deps: on, sm: fakeSm() });
+    h.plugin.start({}); // upload off: clears the queue
+    await h.until(() => events.includes('clear-start'));
+    h.plugin.start(UP); // upload on: must wait for the clear
+    await h.tick(100);
+    expect(events).toEqual(['clear-start']);
+    release();
+    await h.until(() => events.includes('open'));
+    expect(events.indexOf('clear-end')).toBeLessThan(events.indexOf('open'));
+    h.plugin.stop();
+  });
+});

@@ -868,6 +868,24 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           if (persisting === saved) persisting = null;
         });
         if (keep === 'failed') {
+          if (current()) {
+            // The old file (credential or tombstone) is still the truth: re-read it so
+            // `hasCredential` matches and the owner can pair again without a restart.
+            try {
+              const c = await s.read();
+              if (current()) {
+                hasCredential = false;
+                vesselLabel = null;
+                adoptStored(c);
+              }
+            } catch (readErr) {
+              app.debug(`credential read after failed save: ${redactError(readErr)}`);
+              if (current()) {
+                hasCredential = false;
+                credentialUnreadable = true;
+              }
+            }
+          }
           if (current()) fail('local_failure');
           return;
         }
@@ -1018,7 +1036,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       earlier
         .then(async () => {
           // Owner decision: readings queued under an earlier setting are not kept once upload is off.
-          if (!sendingOn() && mine === epoch) await clearQueue();
+          if (!sendingOn() && mine === epoch) await clearQueueTracked();
         })
         .then(() => s.read())
         .then((c) => {
@@ -1148,6 +1166,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             permissionWarning = false;
             stopSession(); // a load that raced past the epoch check cannot leave a monitor behind
             loaded = true;
+            credentialUnreadable = false;
             hasCredential = false;
             vesselLabel = null;
             failure = null;
