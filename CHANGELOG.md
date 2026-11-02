@@ -21,6 +21,8 @@ All notable changes to this project are documented here. The format follows
   up.
 - A "bad request" answer that is not VesselTwin's validation response (for example from a proxy) is
   retried with backoff instead of being treated as a bad reading.
+- The pairing page no longer stalls if the plugin stops answering: a status request that gets no
+  reply is given up after 15 seconds and retried.
 
 ### Changed
 

@@ -13,7 +13,7 @@ from your boat's Signal K server to that record, so hour-based service comes due
 
 > **Status: version 0.2.2, published on npm.** Connecting your boat works, and the plugin can send
 > engine and generator run time, battery voltage and charge, and tank levels once the owner turns
-> sending on (it is off by default). **Sending readings is off until you turn it on** in the plugin
+> sending on. **Sending readings is off until you turn it on** in the plugin
 > settings, and nothing is sent before then. After the first readings arrive, you map and confirm
 > each sensor in the VesselTwin app before anything is recorded to your boat's record.
 
@@ -101,7 +101,7 @@ In VesselTwin, open the boat's page and find **Sensor channels**. Sensors that l
 equipment on your boat appear under **Unmapped sensors**. Choose **Confirm sensor** once you've
 checked it against your own gauge. Nothing is used until you confirm.
 
-## What gets sent
+## What gets sent (privacy)
 
 - **Never sent: position, tracks, MMSI, callsign, vessel or crew names, free text, or any AIS
   data.** The plugin doesn't subscribe to or read those paths.

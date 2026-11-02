@@ -20,6 +20,7 @@ export interface FetchInitLike {
   credentials: 'same-origin';
   cache: 'no-store';
   redirect: 'error';
+  signal?: AbortSignal;
 }
 export type FetchFn = (url: string, init: FetchInitLike) => Promise<FetchResponseLike>;
 
@@ -82,6 +83,9 @@ export function errorBackoffMs(failures: number): number {
   const n = Number.isFinite(failures) ? Math.max(1, Math.floor(failures)) : 1;
   return Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** Math.min(n - 1, 10));
 }
+
+/** Abort a `/status` request that gets no answer after this long. */
+export const POLL_TIMEOUT_MS = 15_000;
 
 const REQUEST_INIT = { credentials: 'same-origin', cache: 'no-store', redirect: 'error' } as const;
 
@@ -294,13 +298,24 @@ export class PairingController {
     let next = SLOW_POLL_MS;
     let status: number | null = null;
     let body: unknown = null;
+    // A request that never answers would hold the poll chain forever; abort it and treat the
+    // timeout like any other failed fetch.
+    const ctl = new AbortController();
+    const guard = this.d.timers.setTimeout(() => {
+      ctl.abort();
+    }, POLL_TIMEOUT_MS);
     try {
-      const res = await this.d.fetch(`${PLUGIN_BASE}/status`, REQUEST_INIT);
+      const res = await this.d.fetch(`${PLUGIN_BASE}/status`, {
+        ...REQUEST_INIT,
+        signal: ctl.signal,
+      });
       body = await readJson(res);
       status = res.status;
       if (res.status === 200 && body === null) status = null; // 200 but not JSON
     } catch {
       status = null;
+    } finally {
+      this.d.timers.clearTimeout(guard);
     }
     if (gen !== this.generation || seq !== this.actionSeq) return { next, stale: true };
     if (status === 200) {
