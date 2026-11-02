@@ -11,7 +11,7 @@ from your boat's Signal K server to that record, so hour-based service comes due
 - **Never sends**: position, tracks, MMSI, callsign, vessel or crew names, free text, or any AIS data.
 - **Off by default**: pairing alone sends no readings.
 
-> **Status: version 0.2.2, published on npm.** Connecting your boat works, and the plugin can send
+> **Status: version 0.2.3, published on npm.** Connecting your boat works, and the plugin can send
 > engine and generator run time, battery voltage and charge, and tank levels once the owner turns
 > sending on. **Sending readings is off until you turn it on** in the plugin
 > settings, and nothing is sent before then. After the first readings arrive, you map and confirm
