@@ -44,7 +44,7 @@ export interface UploadModel {
   sending: boolean;
   /** Old send* settings were found and ignored: sending must be turned on again. */
   legacyWarning: boolean;
-  /** The SignalK server cannot provide readings to the plugin. */
+  /** The Signal K server cannot provide readings to the plugin. */
   subscriptionsUnavailable: boolean;
   /** Channels VesselTwin is waiting to have set up; null when unknown. */
   awaitingSetup: number | null;
@@ -261,7 +261,7 @@ const TITLES: Record<PageState, string> = {
   checking: 'Checking the connection',
   connected: 'Connected',
   paused: 'Connection paused',
-  offline: 'Cannot reach VesselTwin',
+  offline: "Can't reach VesselTwin",
   update_required: 'Plugin update needed',
   reauth_required: 'Pair again',
   config_error: 'Settings problem',
@@ -270,10 +270,11 @@ const TITLES: Record<PageState, string> = {
 
 export const EXPIRED_COPY = 'The code expired. Waiting for the plugin.';
 export const CREDENTIAL_PERMISSION_COPY =
-  "The credential file could not be restricted to the server's user on this drive. Move the SignalK data directory to a Linux-formatted drive to protect it.";
-export const GENERIC_STATUS_COPY = 'The plugin sent a status this page does not understand.';
+  "This drive can't keep the VesselTwin connection file private. Move the Signal K data folder to a Linux-formatted drive.";
+export const GENERIC_STATUS_COPY =
+  "Couldn't read the plugin's status. Reload this page, or update the plugin if this continues.";
 
-export const SUBSCRIPTIONS_COPY = 'This SignalK server cannot provide readings to the plugin.';
+export const SUBSCRIPTIONS_COPY = "This Signal K server can't provide readings to the plugin.";
 export const LEGACY_COPY =
   'Sending readings now needs to be turned on again in the plugin settings.';
 export const SENDING_ON_COPY = 'Sending readings is on.';
@@ -350,7 +351,10 @@ export function describeStatus(
   return {
     title: TITLES[m.state],
     message,
-    hint: m.state === 'update_required' ? 'Update it from the SignalK Appstore.' : null,
+    hint:
+      m.state === 'update_required'
+        ? 'Update it in the Signal K Appstore, then restart the server.'
+        : null,
     warning: m.credentialPermissionWarning ? CREDENTIAL_PERMISSION_COPY : null,
     uploadLines: uploadLines(m, nowMs),
     code: showPairing ? m.userCode : null,
@@ -373,7 +377,8 @@ export interface Problem {
   link: LinkInfo | null;
 }
 
-export const UNREACHABLE_COPY = 'Cannot reach the plugin.';
+export const UNREACHABLE_COPY =
+  "Can't reach the plugin. Check that it's enabled under Server > Plugin Config, then reload this page.";
 export const UNAVAILABLE_COPY = 'The plugin is not available right now.';
 
 /**
@@ -384,11 +389,17 @@ export function describeProblem(status: number | null, body: unknown): Problem {
   if (status === 401) {
     return {
       kind: 'signin',
-      message: 'Sign in to SignalK as an administrator to use this page.',
-      link: { href: ADMIN_LOGIN_PATH, label: 'Open the SignalK sign-in', external: false },
+      message: 'Sign in to Signal K as an administrator to use this page.',
+      link: { href: ADMIN_LOGIN_PATH, label: 'Open the Signal K sign-in', external: false },
     };
   }
-  if (status === 403) return { kind: 'forbidden', message: 'Request not allowed.', link: null };
+  if (status === 403)
+    return {
+      kind: 'forbidden',
+      message:
+        'Open this page from the Signal K admin UI in this browser tab. Requests from other sites are refused.',
+      link: null,
+    };
   if (status === 503) {
     const text = isRecord(body) ? shortPrintable(body.error) : null;
     return { kind: 'unavailable', message: text ?? UNAVAILABLE_COPY, link: null };
