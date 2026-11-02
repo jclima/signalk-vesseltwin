@@ -60,6 +60,13 @@ export function startCollector(o: CollectorOptions): { stop(): void } {
     );
   } catch (err) {
     stopped = true;
+    for (const u of unsubscribes.splice(0)) {
+      try {
+        u();
+      } catch {
+        // best effort
+      }
+    }
     o.onError(redactError(err));
     return { stop: () => undefined };
   }

@@ -66,6 +66,10 @@ interface Call {
   headers: Record<string, string>;
   body: { readings: Reading[] };
 }
+const VALIDATION = {
+  message: 'Validation failed',
+  errors: [{ path: 'readings.0.value', code: 'invalid_type' }],
+};
 type Responder = (call: Call, signal: AbortSignal | undefined) => Response | Promise<Response>;
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -385,6 +389,35 @@ describe('Uploader', () => {
     await t.up.stop();
   });
 
+  it('a hold that arrives mid-send leaves the uploader held, not idle, backoff or paused', async () => {
+    for (const status of [200, 503]) {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const t = setup({
+        responders: [
+          async (c) => {
+            await gate;
+            return status === 200 ? acceptAll(c) : json(503, {});
+          },
+        ],
+      });
+      await t.fill(1);
+      t.up.start();
+      t.sched.fireOnly();
+      await vi.waitFor(() => {
+        expect(t.calls).toHaveLength(1);
+      });
+      expect(t.up.snapshot().state).toBe('sending');
+      t.up.hold();
+      release();
+      await vi.waitFor(() => {
+        expect(t.up.snapshot().state).toBe('held');
+      });
+      expect(t.sched.timers.size).toBe(0);
+      await t.up.stop();
+    }
+  });
+
   it('retries soon, not after the full interval, when invalid readings used up the pick rounds', async () => {
     const t = setup({ isActive: (p) => p.startsWith('electrical.') });
     const junk = (): Reading => reading({ path: 'tanks.fuel.0.currentLevel', value: 0.5 });
@@ -607,11 +640,13 @@ describe('Uploader', () => {
       await t.up.stop();
     });
 
-    describe('400 without a code', () => {
+    describe('400 with the platform validation body', () => {
       const poisonOn =
         (bad: Set<string>): Responder =>
         (c) =>
-          c.body.readings.some((r) => bad.has(r.clientReadingId)) ? json(400, {}) : acceptAll(c);
+          c.body.readings.some((r) => bad.has(r.clientReadingId))
+            ? json(400, VALIDATION)
+            : acceptAll(c);
 
       it('bisects at normal pacing and drops only the reading whose sibling half succeeded', async () => {
         const bad = new Set<string>();
@@ -639,7 +674,7 @@ describe('Uploader', () => {
 
       it('both halves refused is systemic: stops, keeps every reading, counts none as invalid', async () => {
         const t = setup({
-          fallback: (c) => (c.body.readings.length > 0 ? json(400, {}) : acceptAll(c)),
+          fallback: (c) => (c.body.readings.length > 0 ? json(400, VALIDATION) : acceptAll(c)),
         });
         await t.fill(4);
         t.up.start();
@@ -652,8 +687,21 @@ describe('Uploader', () => {
         await t.up.stop();
       });
 
-      it('a lone refused reading has no sibling to compare with: stops and keeps it', async () => {
+      it('a 400 without the validation body is retried with backoff, never bisected or dropped', async () => {
         const t = setup({ fallback: () => json(400, {}) });
+        await t.fill(3);
+        t.up.start();
+        await t.fire();
+        expect(t.up.snapshot().state).toBe('backoff');
+        expect(await t.queue.size()).toBe(3);
+        expect((await t.queue.stats()).invalid).toBe(0);
+        await t.fire();
+        expect(t.calls.map((c) => c.body.readings.length)).toEqual([3, 3]);
+        await t.up.stop();
+      });
+
+      it('a lone refused reading has no sibling to compare with: stops and keeps it', async () => {
+        const t = setup({ fallback: () => json(400, VALIDATION) });
         await t.fill(1);
         t.up.start();
         await t.fire();

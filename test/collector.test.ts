@@ -53,6 +53,27 @@ describe('startCollector', () => {
     c.stop();
   });
 
+  it('runs the unsubscribers already registered when subscribe throws', () => {
+    const u1 = vi.fn();
+    const errors: string[] = [];
+    const sm: SubscriptionManagerLike = {
+      subscribe: (_cmd, unsubs) => {
+        unsubs.push(u1);
+        throw new Error('boom');
+      },
+    };
+    const c = startCollector({
+      sm,
+      rules: PATH_RULES,
+      onDelta: () => undefined,
+      onError: (m) => errors.push(m),
+    });
+    expect(u1).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+    c.stop();
+    expect(u1).toHaveBeenCalledTimes(1);
+  });
+
   it('passes deltas through until stopped, and stop() runs every unsubscribe once', () => {
     const { sm, calls } = fakeSm();
     const onDelta = vi.fn();

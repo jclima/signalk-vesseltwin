@@ -118,12 +118,16 @@ export type FailureClass =
   | { kind: 'paused'; reason: PauseReason; retryAfterMs: number | null; delayMs: number }
   /** Contract outside the window (426, 400 integration_contract_*) or 403 integration_scope. Stop. */
   | { kind: 'update_required'; cause: 'contract' | 'scope' }
-  /** 400 without a contract code: a plugin bug; do not resend the same batch. */
+  /** 400 with the platform's validation body: a plugin bug; do not resend the same batch. */
   | { kind: 'bad_request' }
   /** 413: the body was too large; split the batch. */
   | { kind: 'too_large' }
   /** 429, 5xx, network error, timeout, anything unexpected. `res` null means no response. */
   | { kind: 'retry'; retryAfterMs: number | null };
+
+function isValidationBody(json: unknown): boolean {
+  return isObject(json) && json.message === 'Validation failed' && Array.isArray(json.errors);
+}
 
 /** Pure classification of a non-2xx response (or `null` for a transport failure). `now` is epoch ms. */
 export function classifyFailure(res: HttpResult | null, now: number): FailureClass {
@@ -149,7 +153,10 @@ export function classifyFailure(res: HttpResult | null, now: number): FailureCla
       delayMs: Math.max(ra ?? 0, PAUSED_PROBE_MS),
     };
   }
-  if (status === 400) return { kind: 'bad_request' };
+  // Only the platform's envelope validation body (`{ message: 'Validation failed', errors: [...] }`)
+  // means "this batch is malformed". Any other 400 (a proxy, an unknown server error) is not
+  // evidence against the readings: retry with backoff instead of bisecting and dropping data.
+  if (status === 400 && isValidationBody(res.json)) return { kind: 'bad_request' };
   if (status === 413) return { kind: 'too_large' };
   return { kind: 'retry', retryAfterMs: ra };
 }

@@ -8,6 +8,7 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
+import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -357,6 +358,40 @@ describe('ReadingQueue channel state', () => {
       expect(await q2.size()).toBe(1);
       expect((await stat(path.join(dir, seg))).mode & 0o777).toBe(0o600);
       expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    });
+  });
+
+  describe('a failed append', () => {
+    it('does not glue the next reading onto a partial line', async () => {
+      const q = new ReadingQueue({ dir, now: () => NOW });
+      await q.append(mk(1));
+      const real = fsp.appendFile.bind(fsp);
+      vi.spyOn(fsp, 'appendFile').mockImplementationOnce(async (f, data, opts) => {
+        await real(f, String(data).slice(0, 10), opts); // partial write, then the disk fails
+        throw Object.assign(new Error('no space left'), { code: 'ENOSPC' });
+      });
+      await expect(q.append(mk(2))).rejects.toThrow('no space left');
+      await q.append(mk(3));
+      expect((await q.peek(10)).map((r) => r.clientReadingId)).toEqual(['id-1', 'id-3']);
+      expect(await q.size()).toBe(2);
+      const file = (await readdir(dir)).find((n) => n.startsWith('seg-')) as string;
+      const text = await readFile(path.join(dir, file), 'utf8');
+      expect(text.endsWith('\n')).toBe(true);
+      expect(text.trim().split('\n')).toHaveLength(2);
+    });
+
+    it('repairs before the next append when the repair itself failed first', async () => {
+      const q = new ReadingQueue({ dir, now: () => NOW });
+      await q.append(mk(1));
+      const real = fsp.appendFile.bind(fsp);
+      vi.spyOn(fsp, 'appendFile').mockImplementationOnce(async (f, data, opts) => {
+        await real(f, String(data).slice(0, 10), opts);
+        throw new Error('EIO');
+      });
+      vi.spyOn(fsp, 'truncate').mockRejectedValueOnce(new Error('EIO'));
+      await expect(q.append(mk(2))).rejects.toThrow('EIO');
+      await q.append(mk(3));
+      expect((await q.peek(10)).map((r) => r.clientReadingId)).toEqual(['id-1', 'id-3']);
     });
   });
 });

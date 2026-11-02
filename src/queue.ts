@@ -74,6 +74,8 @@ export class ReadingQueue {
   private statsTimer: NodeJS.Timeout | undefined;
   private lastAgeSweep = Number.NEGATIVE_INFINITY;
   private ready = false;
+  /** A failed append may have left a partial last line in the active segment. */
+  private tailDirty = false;
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly opts: QueueOptions) {
@@ -188,6 +190,25 @@ export class ReadingQueue {
       this.segPath(seq),
       items.map((r) => JSON.stringify(r)).join('\n') + '\n',
     );
+  }
+
+  /** Cuts the active segment back to its last newline. Throws if that is not possible. */
+  private async repairTail(): Promise<void> {
+    const file = this.segPath(this.activeSeq);
+    let raw: Buffer;
+    try {
+      raw = await fs.readFile(file);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.tailDirty = false; // nothing was written
+        return;
+      }
+      throw err;
+    }
+    if (raw.length > 0 && raw[raw.length - 1] !== 0x0a) {
+      await fs.truncate(file, raw.lastIndexOf(0x0a) + 1);
+    }
+    this.tailDirty = false;
   }
 
   private async init(): Promise<void> {
@@ -320,9 +341,18 @@ export class ReadingQueue {
       } else if (t - this.lastAgeSweep >= AGE_SWEEP_MS) {
         await this.ageSweep(t);
       }
-      await fs.appendFile(this.segPath(this.activeSeq), JSON.stringify(reading) + '\n', {
-        mode: 0o600,
-      });
+      // A failed earlier append may have left a partial line: cut it off before writing more.
+      if (this.tailDirty) await this.repairTail();
+      try {
+        await fs.appendFile(this.segPath(this.activeSeq), JSON.stringify(reading) + '\n', {
+          mode: 0o600,
+        });
+      } catch (err) {
+        // ENOSPC/EACCES can leave a partial line; the next append would be glued to it and lost.
+        this.tailDirty = true;
+        await this.repairTail().catch(() => undefined); // retried before the next append
+        throw err;
+      }
       this.activeCount += 1;
       this.total += 1;
       if (this.total > this.maxReadings) await this.dropOldest(this.total - this.maxReadings);

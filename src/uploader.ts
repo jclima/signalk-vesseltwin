@@ -325,7 +325,7 @@ export class Uploader {
         if (this.inflight === p) this.inflight = null;
         if (this.ctl === ctl) this.ctl = null;
         // A hold that arrived mid-flight takes effect now.
-        if (this.held && this.state === 'sending') this.setState('held');
+        if (this.held && this.running && this.sticky === null) this.setState('held');
         // A resume() that arrived mid-flight found `inflight` set and scheduled nothing: if no
         // timer is armed now, the uploader would stall until the next external kick.
         if (this.running && !this.held && this.sticky === null && this.timer === null) {

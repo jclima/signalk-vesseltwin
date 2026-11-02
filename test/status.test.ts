@@ -272,15 +272,24 @@ describe('classifyFailure', () => {
       {},
       { kind: 'update_required', cause: 'scope' },
     ],
-    ['400 bare', 400, {}, {}, { kind: 'bad_request' }],
+    ['400 bare', 400, {}, {}, { kind: 'retry', retryAfterMs: null }],
     [
       '400 validation body',
       400,
-      { message: 'Validation failed', errors: [] },
+      {
+        message: 'Validation failed',
+        errors: [{ path: 'readings.0.value', code: 'invalid_type' }],
+      },
       {},
       { kind: 'bad_request' },
     ],
-    ['400 other code', 400, { code: 'integration_other' }, {}, { kind: 'bad_request' }],
+    [
+      '400 other code',
+      400,
+      { code: 'integration_other' },
+      {},
+      { kind: 'retry', retryAfterMs: null },
+    ],
     ['413', 413, null, {}, { kind: 'too_large' }],
     [
       '429 with Retry-After',
