@@ -29,7 +29,7 @@ import {
 } from '../src/plugin';
 
 const OFF = 'Sending readings is off in the plugin settings.';
-const WAITING = 'Sending is on; waiting for readings from SignalK.';
+const WAITING = 'Sending is on; waiting for readings from Signal K.';
 
 const tempDirs: string[] = [];
 const tempDir = (): string => {
@@ -484,7 +484,7 @@ describe('pairing lifecycle', () => {
     expect(h.held).toHaveLength(1);
     const un = await h.call('POST /unpair');
     expect(un.status).toBe(200);
-    expect(String(un.body.message)).toMatch(/revoke the connection in VesselTwin/);
+    expect(String(un.body.message)).toMatch(/revoke this device in VesselTwin/);
     await h.resolveHeld(h.ok());
     await h.tick();
     await h.untilFiles([]);
@@ -682,7 +682,7 @@ describe('config error', () => {
     const h = harness();
     h.plugin.start({ apiBaseUrl: 'http://evil.example' });
     await h.tick();
-    expect(h.app.statuses.at(-1)).toMatch(/^ERR The VesselTwin API URL .* not valid/);
+    expect(h.app.statuses.at(-1)).toMatch(/^ERR The VesselTwin API URL .* isn't valid/);
     const r = await h.call('POST /pair');
     expect(r.status).toBe(503);
     await h.tick(10_000);
@@ -732,7 +732,7 @@ describe('pairing failure copy', () => {
   });
   it('other 400s say pairing could not start, without raw codes', async () => {
     const m = await run(j(400, { code: 'integration_scope_invalid' }));
-    expect(m).toMatch(/could not start pairing/);
+    expect(m).toMatch(/couldn't start pairing/);
     expect(m).not.toMatch(/integration_/);
   });
   it('503 says try again later', async () => {
@@ -1048,7 +1048,7 @@ describe('state machine', () => {
     [
       'offline',
       reply(503, {}),
-      `Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying.`,
+      `Paired with Sea Hag. Can't reach VesselTwin right now. The plugin will keep trying.`,
       { state: 'offline', paired: true },
       false,
     ],
@@ -1255,7 +1255,7 @@ describe('state machine', () => {
     await h.tick();
     const out = (await h.call('GET /status')).body;
     expect(out.state).toBe('config_error');
-    expect(String(out.message)).toMatch(/Cannot read the stored VesselTwin connection/);
+    expect(String(out.message)).toMatch(/Can't read the stored VesselTwin connection/);
     expect(JSON.stringify(out)).not.toMatch(/EISDIR|credential\.json|\/var|\/tmp/);
     expect(h.calls).toEqual([]);
     h.plugin.stop();
@@ -2103,7 +2103,7 @@ describe('pairing countdown and cancel before the code exists', () => {
 describe('page copy', () => {
   it('points to the Webapps page and never carries the code or a route', () => {
     expect(COPY.notPaired).toBe(
-      'Not paired. Open VesselTwin under Webapps in the SignalK admin UI to pair.',
+      'Not paired. Open VesselTwin under Webapps in the Signal K admin UI to pair.',
     );
     expect(COPY.pairingInProgress).toBe(
       'Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code.',
@@ -2776,7 +2776,7 @@ describe('upload pipeline', () => {
   it('the status line stops claiming to send after repeated failures and recovers on success', async () => {
     const SENDING = 'Paired with Sea Hag. Sending readings to VesselTwin.';
     const CANT =
-      "Paired with Sea Hag. VesselTwin can't be reached right now. Readings are kept for up to 7 days.";
+      "Paired with Sea Hag. Can't reach VesselTwin right now. The plugin will keep trying. Readings are kept for up to 7 days.";
     const { h, sm } = await running({ replies: [json(502), json(502), json(502)] });
     await queueOne(h, sm);
     await firstAttempt(h);
@@ -3117,7 +3117,7 @@ describe('status line copy for sending readings', () => {
   it('adds the setup prompt only when channels are waiting, and never the count', async () => {
     const h = await started(UP, [withSummary(2)], fakeSm());
     expect(h.app.statuses.at(-1)).toBe(
-      `Paired with Sea Hag. ${WAITING} Some channels need setup in VesselTwin.`,
+      `Paired with Sea Hag. ${WAITING} Some sensors need setup in VesselTwin.`,
     );
     expect(h.app.statuses.at(-1)).not.toMatch(/\d/);
     const body = (await h.call('GET /status')).body.upload as { summary: unknown };
@@ -3169,7 +3169,7 @@ describe('status line copy for sending readings', () => {
     vi.useRealTimers();
     const offline = await started(UP, [reply(500)], fakeSm());
     expect(offline.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying. Readings are kept for up to 7 days.',
+      "Paired with Sea Hag. Can't reach VesselTwin right now. The plugin will keep trying. Readings are kept for up to 7 days.",
     );
     offline.plugin.stop();
   });
@@ -3177,15 +3177,15 @@ describe('status line copy for sending readings', () => {
   it('does not promise to keep readings when sending is off', async () => {
     const h = await started({}, [reply(500)]);
     expect(h.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. Cannot reach VesselTwin right now. The plugin will keep trying.',
+      "Paired with Sea Hag. Can't reach VesselTwin right now. The plugin will keep trying.",
     );
     h.plugin.stop();
   });
 
-  it('says so when this SignalK server cannot provide readings', async () => {
+  it('says so when this Signal K server cannot provide readings', async () => {
     const h = await started(UP); // no subscription manager
     expect(h.app.statuses.at(-1)).toBe(
-      'Paired with Sea Hag. This SignalK server cannot provide readings to the plugin.',
+      "Paired with Sea Hag. This Signal K server can't provide readings to the plugin.",
     );
     h.plugin.stop();
   });
@@ -3407,6 +3407,7 @@ describe('lifecycle consistency fixes', () => {
       await gate;
       events.push('clear-end');
     });
+    // eslint-disable-next-line @typescript-eslint/unbound-method
     const realLoad = ReadingQueue.prototype.loadChannels;
     vi.spyOn(ReadingQueue.prototype, 'loadChannels').mockImplementation(function (
       this: ReadingQueue,

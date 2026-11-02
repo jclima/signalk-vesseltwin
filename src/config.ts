@@ -23,7 +23,7 @@ export const LEGACY_SEND_WARNING = 'legacy_send_settings';
 export const DEFAULT_API_BASE_URL = 'https://api.vesseltwin.io';
 
 export const CONFIG_ERROR_API_URL =
-  'The VesselTwin API URL in the plugin settings is not valid. Fix it and restart the plugin.';
+  "The VesselTwin API URL in the plugin settings isn't valid. Clear it to use the default, or enter an https address, then save.";
 
 /** Origin (scheme + host + port) of an API base URL; null if it does not parse. */
 export function apiOrigin(url: string): string | null {
@@ -87,8 +87,8 @@ export interface UploadOptions {
   tanks: ChannelOptions & { minChangePercent: number; minChangeLiters: number };
 }
 
-const ID_RULE = 'Use letters, digits, underscore or hyphen, up to 40 characters.';
-const TANK_ID_RULE = `Use the tank type, a dot, then the tank id, for example "fuel.0". The type is one of ${TANK_TYPES.join(', ')}; the id is letters, digits, underscore or hyphen, up to 40 characters.`;
+const ID_RULE = 'Use letters, digits, underscore, or hyphen, up to 40 characters.';
+const TANK_ID_RULE = `Use the tank type, a dot, then the tank id, for example "fuel.0". The type is one of ${TANK_TYPES.join(', ')}; the id is letters, digits, underscore, or hyphen, up to 40 characters.`;
 
 function categorySchema(
   title: string,
@@ -104,7 +104,7 @@ function categorySchema(
     properties: {
       enabled: {
         type: 'boolean',
-        title: 'Enabled',
+        title: 'Send this category',
         default: false,
       },
       recordIntervalMinutes: {
@@ -171,7 +171,7 @@ export const configSchema = {
       type: 'boolean',
       title: 'Send readings to VesselTwin',
       description:
-        'Nothing is sent until this is on. Then the categories you enable below are sent to VesselTwin: the SignalK path (including the instance id), the value and the time of each reading. Never position, MMSI, names or AIS.',
+        'Nothing is sent until this is on. Then the categories you enable below are sent to VesselTwin: the Signal K path (including the instance id), the value, and the time of each reading. Never position, MMSI, names, or AIS.',
       default: false,
     },
     uploadIntervalMinutes: {
@@ -210,7 +210,7 @@ export const configSchema = {
         '0 = no minimum change.',
       ),
       minChangeLiters: threshold(
-        'Minimum volume change (litres)',
+        'Minimum volume change (liters)',
         0,
         1000,
         '0 = no minimum change.',
@@ -220,7 +220,7 @@ export const configSchema = {
       type: 'number',
       title: 'Offline queue cap (readings)',
       description:
-        'Readings wait here while VesselTwin cannot be reached. The oldest are dropped first; they are also dropped after 7 days.',
+        "Readings wait here while VesselTwin can't be reached. The oldest are dropped first; they are also dropped after 7 days.",
       default: 50000,
       minimum: 1000,
       maximum: 50000,
