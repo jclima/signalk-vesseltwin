@@ -23,7 +23,8 @@ The integration requires a paid (Pro) plan. `POST /v1/integrations/pairing/start
 - Pairing and credential responses carry `Cache-Control: no-store`.
 - Error bodies for platform errors look like `{ "code": "integration_...", "message": "..." }`. Show
   users neutral copy of your own; never display `code` or `message` verbatim.
-- Validation failures (malformed body) are `400` with `{ "message": "Validation failed", "errors": [...] }`.
+- Validation failures (malformed body) are `400` with `{ "message": "Validation failed", "errors": [{ "path", "code" }] }`. Only this shape
+  means a batch is malformed; the plugin retries any other `400` with backoff.
 
 ## Pairing flow (STABLE)
 
@@ -47,15 +48,15 @@ No authentication. Rate limited per client (`429`, which may carry `Retry-After`
 
 Request (all fields required unless noted; unknown fields are rejected):
 
-| Field             | Type     | Notes                                                                        |
-| ----------------- | -------- | ---------------------------------------------------------------------------- |
-| `provider`        | string   | `"signalk"`                                                                  |
-| `clientName`      | string   | 1-80 chars, plugin name                                                      |
-| `clientVersion`   | string   | 1-40 chars, plugin version                                                   |
-| `contractVersion` | integer  | 1-1000; must not exceed the server's latest contract                         |
-| `deviceLabel`     | string   | 1-120 chars, shown to the owner at approval                                  |
-| `requestedScopes` | string[] | at least one of `meters:write`, `vessel-info:suggest`                        |
-| `providerHints`   | object   | optional; SignalK accepts only `{ "signalkSelfUuid": string }` (1-100 chars) |
+| Field             | Type     | Notes                                                                         |
+| ----------------- | -------- | ----------------------------------------------------------------------------- |
+| `provider`        | string   | `"signalk"`                                                                   |
+| `clientName`      | string   | 1-80 chars, plugin name                                                       |
+| `clientVersion`   | string   | 1-40 chars, plugin version                                                    |
+| `contractVersion` | integer  | 1-1000; must not exceed the server's latest contract                          |
+| `deviceLabel`     | string   | 1-120 chars, shown to the owner at approval                                   |
+| `requestedScopes` | string[] | at least one of `meters:write`, `vessel-info:suggest`                         |
+| `providerHints`   | object   | optional; Signal K accepts only `{ "signalkSelfUuid": string }` (1-100 chars) |
 
 Text fields reject control and invisible formatting characters and are trimmed and NFC-normalized.
 
@@ -182,7 +183,7 @@ says the server supports a newer contract, it does not mean a newer plugin has b
 
 `pluginUpdateRecommended` is true when the plugin's contract is below `latestContract` (or missing).
 `serverTime` can be used to warn about clock skew. `summary` is provider-specific and may be `null`.
-For SignalK it is `{ "channels", "awaitingSetup", "held" }`, three non-negative integers
+For Signal K it is `{ "channels", "awaitingSetup", "held" }`, three non-negative integers
 (`contracts/signalk/v2/status-summary.schema.json`). The plugin parses it tolerantly (a malformed
 value counts as absent) and shows the counts only in the admin-only `/status` response, under
 `upload.summary` (`null` when absent). They never appear in the broadcast status line.
@@ -219,7 +220,7 @@ adds a note to check the date and time.
 `updateRecommended` hint in the admin-only `/status` response (true when `pluginUpdateRecommended` is
 true or `latestContract` exceeds the plugin's contract). The broadcast status line does not claim an
 update exists, because the plugin cannot tell a newer server contract from a released plugin (and
-must not contact npm). Plugin updates appear in the SignalK Appstore. Only when the plugin's
+must not contact npm). Plugin updates appear in the Signal K Appstore. Only when the plugin's
 contract is below `minContract`, or on a `426`, does the plugin say "Update the plugin".
 
 Any `401` stops all authenticated calls and moves to `reauth_required`; the plugin tells the user to
@@ -286,9 +287,9 @@ are transient: back off with jitter.
 
 ## Plugin router (local, not part of the VesselTwin API)
 
-The plugin registers three routes on the SignalK server, at `/plugins/signalk-vesseltwin`. They sit
+The plugin registers three routes on the Signal K server, at `/plugins/signalk-vesseltwin`. They sit
 behind the server's own admin authentication (a fresh server has security on; send an admin bearer
-token). Plugin routes are admin-only only when SignalK security is enabled; with security off, anyone who can
+token). Plugin routes are admin-only only when Signal K security is enabled; with security off, anyone who can
 reach the server can call them (the server default, verified on signalk-server 2.33; the plugin never
 calls `router.access` to relax it). A request with a browser `Origin` that differs from `Host` gets `403 { "error": ... }`, unless
 the browser also sends `Sec-Fetch-Site: same-origin` or `none` (this covers a reverse proxy that
@@ -361,12 +362,12 @@ rewrites `Host`); `Origin: null` or an unparsable `Origin` is always refused. A 
   counts down from it instead of comparing clocks), and
   `{ "reason": "expired" | "denied" | "unavailable" | "busy" | "update_required" | "rejected" | "unexpected_response" | "local_failure" }` in
   `pairing_failed`; otherwise `null`. The user code is shown here only while pairing is pending.
-  The plugin status line never contains it: SignalK broadcasts the status line to read-only and
+  The plugin status line never contains it: Signal K broadcasts the status line to read-only and
   anonymous clients, while this route is admin-only.
 - `warnings` is a list of neutral codes for the admin only (never in the broadcast status line).
   `"credential_permissions"` means the credential file is readable by other users of the server and
   the filesystem could not restrict it (for example a FAT or exFAT drive). The credential is still
-  saved and works; the pairing page suggests moving the SignalK data directory to a Linux-formatted
+  saved and works; the pairing page suggests moving the Signal K data directory to a Linux-formatted
   drive. The list is empty otherwise and clears after an unpair.
 - `upload.categories.<category>.enabled` is the configured on/off value. `active` is the effective
   value: `enabled`, and not "selected" with no valid instance ids. `upload.warnings` is neutral text for
@@ -380,7 +381,7 @@ administrator, to see the code.` `vesselLabel` comes from the server and is
 - Pairing is bound to the plugin's lifetime: stopping or unpairing cancels it and forgets the code.
 
 - `upload` is admin-only (the status line never carries it).
-  - `available` is `true` when this build uploads and the SignalK server can feed it; `false` with
+  - `available` is `true` when this build uploads and the Signal K server can feed it; `false` with
     `unavailableReason: "subscriptions_unavailable"` when the server offers plugins no subscription
     manager. `enabled` is the master switch (`uploadEnabled`); nothing is collected or sent while it
     is `false`.
@@ -427,10 +428,10 @@ keys are ignored. Nothing is collected or sent unless `uploadEnabled` is `true`.
 - The older `sendEngineHours`, `sendBatteries`, `sendTanks` settings and `samplePeriodSeconds` are
   read for a warning at most and enable or change nothing. `sendVesselInfo` is ignored.
 - Record policy: a reading is kept only when the master switch, the category and the instance are
-  on, the SignalK timestamp is newer than the last sample of that channel, at least
+  on, the Signal K timestamp is newer than the last sample of that channel, at least
   `recordIntervalMinutes` passed since the last kept reading, and the value changed by at least the
   minimum (or the minimum is 0, or 24 hours passed). At most 24 readings are kept per channel per UTC
-  day and at most 64 channels are used. Values are raw SI as SignalK reports them; the server
+  day and at most 64 channels are used. Values are raw SI as Signal K reports them; the server
   converts.
 
 ### Configuration errors
@@ -477,7 +478,7 @@ Request, with the usual `Authorization`, `User-Agent` and `X-VesselTwin-Contract
 - `path` is one of six shapes: `propulsion.<id>.runTime`, `electrical.generators.<id>.runTime`,
   `electrical.batteries.<id>.voltage`, `electrical.batteries.<id>.capacity.stateOfCharge`,
   `tanks.<type>.<id>.currentLevel` and `tanks.<type>.<id>.currentVolume`. `<id>` is the owner's
-  SignalK instance id. `value` is the raw SI number and `recordedAt` is UTC (`Z`). Nothing else is
+  Signal K instance id. `value` is the raw SI number and `recordedAt` is UTC (`Z`). Nothing else is
   sent per reading.
 - `clientReadingId` is a UUIDv7 made when the reading is recorded. It is kept through every retry and
   restart, so replaying a reading is safe: the server answers `duplicate`.
@@ -506,15 +507,16 @@ backoff. Only `rejected` reasons are counted in `rejectedReasons`.
 
 ### Errors the plugin handles
 
-| Response                                                             | Plugin behavior                                                                                                                                                                                                                                                          |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `401`                                                                | Stop. Tell the owner to pair again; with `integration_unauthorized` the credential file becomes a tombstone. Keep the queue until the owner pairs again; a new pairing starts with an empty queue.                                                                       |
-| `426`, or `400` with an `integration_contract_*` code                | Stop uploading, keep the queue, show "update the plugin". Never guess another contract number.                                                                                                                                                                           |
-| `403 integration_scope`                                              | Same as `426`.                                                                                                                                                                                                                                                           |
-| `403 integration_paused_plan`, `503 integration_feature_unavailable` | Keep the queue. Hold uploads while the status probe says paused; retry about hourly, never sooner than `Retry-After`.                                                                                                                                                    |
-| `413`                                                                | Halve the batch and send again; a single reading that is still too large stays queued and backs off.                                                                                                                                                                     |
-| `400` without a contract code                                        | Split the batch to find the reading the server refuses. A reading is dropped (and counted `invalid`) only if its sibling half passed. If both halves are refused, or a lone reading is refused, treat it as a plugin/server mismatch: stop and show "update the plugin". |
-| `429`, `5xx`, network error, timeout, unusable reply                 | Exponential backoff with full jitter (5 s to 30 min), never sooner than `Retry-After`.                                                                                                                                                                                   |
+| Response                                                                        | Plugin behavior                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `401`                                                                           | Stop. Tell the owner to pair again; with `integration_unauthorized` the credential file becomes a tombstone. Keep the queue until the owner pairs again; a new pairing starts with an empty queue.                                                                       |
+| `426`, or `400` with an `integration_contract_*` code                           | Stop uploading, keep the queue, show "update the plugin". Never guess another contract number.                                                                                                                                                                           |
+| `403 integration_scope`                                                         | Same as `426`.                                                                                                                                                                                                                                                           |
+| `403 integration_paused_plan`, `503 integration_feature_unavailable`            | Keep the queue. Hold uploads while the status probe says paused; retry about hourly, never sooner than `Retry-After`.                                                                                                                                                    |
+| `413`                                                                           | Halve the batch and send again; a single reading that is still too large stays queued and backs off.                                                                                                                                                                     |
+| `400` with `{ "message": "Validation failed", "errors": [{ "path", "code" }] }` | Split the batch to find the reading the server refuses. A reading is dropped (and counted `invalid`) only if its sibling half passed. If both halves are refused, or a lone reading is refused, treat it as a plugin/server mismatch: stop and show "update the plugin". |
+| any other `400` (no contract code, no validation body)                          | Not evidence against the readings (a proxy, an unknown server error): retry with backoff and keep the queue. See `classifyFailure` in `src/status.ts`.                                                                                                                   |
+| `429`, `5xx`, network error, timeout, unusable reply                            | Exponential backoff with full jitter (5 s to 30 min), never sooner than `Retry-After`.                                                                                                                                                                                   |
 
 `Retry-After` is honoured up to 24 hours. While uploads are stopped or paused, readings stay queued
 under the queue caps (7 days, 50,000 readings, oldest dropped first). The server accepts readings up to

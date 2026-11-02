@@ -1,8 +1,8 @@
 # Changelog
 
 All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow
-[Semantic Versioning](https://semver.org/) once released.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
+[Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
@@ -26,6 +26,8 @@ All notable changes to this project are documented here. The format follows
 
 - Refreshed the wording of status and error messages: calmer, blame-free, "Signal K" spelled with a
   space, Oxford commas, and US spelling in the settings form.
+- Reorganized the README around install, connect, and turn on readings, with a status-message table
+  and a note on using the plugin with VesselStack.
 
 ## [0.2.2] - 2026-10-26
 

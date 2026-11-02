@@ -7,7 +7,7 @@ body:
     attributes:
       {
         label: What happened,
-        description: 'Do NOT paste credentials, device codes or pairing codes.',
+        description: "Don't paste credentials, device codes, or pairing codes.",
       }
     validations: { required: true }
   - type: input
