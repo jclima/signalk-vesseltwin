@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-02
+
 ### Fixed
 
 - Pairing again after a failed credential save no longer leaves the plugin saying "Already paired"
@@ -23,18 +25,6 @@ All notable changes to this project are documented here. The format follows
   retried with backoff instead of being treated as a bad reading.
 - The pairing page no longer stalls if the plugin stops answering: a status request that gets no
   reply is given up after 15 seconds and retried.
-
-### Changed
-
-- Refreshed the wording of status and error messages: calmer, blame-free, "Signal K" spelled with a
-  space, Oxford commas, and US spelling in the settings form.
-- Reorganized the README around install, connect, and turn on readings, with a status-message table
-  and a note on using the plugin with VesselStack.
-
-## [0.2.2] - 2026-10-26
-
-### Fixed
-
 - A failed unpair no longer leaves the status stuck on "checking": the stored connection is restored
   so unpairing can be retried.
 - `/status` reports "checking" instead of "not paired" while the stored connection is still loading.
@@ -49,6 +39,13 @@ All notable changes to this project are documented here. The format follows
   catches up.
 - A failure while starting the collector is logged and no longer an unhandled rejection.
 - Acknowledging sent readings reads fewer queue files, and the list of refused channels is bounded.
+
+### Changed
+
+- Refreshed the wording of status and error messages: calmer, blame-free, "Signal K" spelled with a
+  space, Oxford commas, and US spelling in the settings form.
+- Reorganized the README around install, connect, and turn on readings, with a status-message table
+  and a note on using the plugin with VesselStack.
 
 ## [0.2.1] - 2026-10-11
 
