@@ -60,7 +60,7 @@ describe('parseOptions apiBaseUrl', () => {
   ])('treats a set but invalid %j as a config error, never the production default', (input) => {
     const o = parseOptions({ apiBaseUrl: input });
     expect(o.apiBaseUrl).toBeNull();
-    expect(o.configError).toMatch(/API URL .* not valid/);
+    expect(o.configError).toMatch(/API URL .* isn't valid/);
     expect(o.configError).not.toMatch(/api\.vesseltwin|example|evil|pw/);
   });
 });

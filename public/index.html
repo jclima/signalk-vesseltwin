@@ -21,13 +21,13 @@
         <h1>VesselTwin</h1>
       </header>
       <p class="lead">
-        Pair this boat's SignalK server with VesselTwin. You approve the pairing in the VesselTwin
+        Pair this boat's Signal K server with VesselTwin. You approve the pairing in the VesselTwin
         web app.
       </p>
 
       <section aria-labelledby="state-title" class="card">
         <div id="live" aria-live="polite" aria-atomic="true">
-          <h2 id="state-title">Loading…</h2>
+          <h2 id="state-title" tabindex="-1">Loading…</h2>
           <p id="state-message">
             Loading the status. If this stays, open this page with a trailing slash:
             /signalk-vesseltwin/
@@ -36,14 +36,14 @@
         <p id="state-hint" hidden></p>
         <p id="state-warning" class="small" hidden></p>
         <ul id="upload-info" aria-label="Sending readings" hidden></ul>
-        <div id="code-block" hidden>
+        <div id="code-block" role="group" aria-labelledby="code-label" hidden>
           <p class="label" id="code-label">Pairing code</p>
-          <p id="code" class="code" aria-labelledby="code-label"></p>
+          <p id="code" class="code"></p>
           <button id="copy" type="button" hidden>Copy code</button>
         </div>
         <p id="countdown" hidden></p>
         <p><a id="link" hidden></a></p>
-        <p id="notice" role="status" hidden></p>
+        <p id="notice" role="status"></p>
         <p id="confirm-text" hidden>Remove this connection from this server?</p>
         <div id="actions" class="actions"></div>
         <p id="api-hint" class="small" hidden></p>

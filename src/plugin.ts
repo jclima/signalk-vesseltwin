@@ -94,7 +94,7 @@ const READINGS_KEPT = 'Readings are kept for up to 7 days.';
 /** Failed upload attempts in a row (or this long) before the status line stops saying "sending". */
 const STRUGGLE_FAILURES = 3;
 const STRUGGLE_MS = 60 * 60_000;
-const NEEDS_SETUP = 'Some channels need setup in VesselTwin.';
+const NEEDS_SETUP = 'Some sensors need setup in VesselTwin.';
 
 /** Neutral copy per failed pairing outcome. Never shows raw server codes. */
 export const FAILURE_COPY: Record<PairingFailure, string> = {
@@ -105,30 +105,30 @@ export const FAILURE_COPY: Record<PairingFailure, string> = {
   busy: 'VesselTwin is busy. Try pairing again in a few minutes.',
   update_required: 'This plugin version is not supported by VesselTwin. Update the plugin.',
   rejected:
-    'VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.',
+    "VesselTwin couldn't start pairing with this plugin. Check for a plugin update, then try again.",
   unexpected_response:
     'VesselTwin sent an unexpected answer. Remove this connection in VesselTwin, check for a plugin update, and pair again.',
   local_failure:
-    'Pairing finished but the connection could not be saved. Check the plugin data folder permissions, then remove this connection in VesselTwin and pair again.',
+    "Pairing finished, but the connection couldn't be saved. Check the plugin data folder permissions, then remove this connection in VesselTwin and pair again.",
 };
 
 export const COPY = {
-  notPaired: 'Not paired. Open VesselTwin under Webapps in the SignalK admin UI to pair.',
+  notPaired: 'Not paired. Open VesselTwin under Webapps in the Signal K admin UI to pair.',
   reauth: 'Pairing with VesselTwin is no longer valid. Pair again.',
   reauthOrigin:
     'The VesselTwin API address changed since pairing. Pair again, or restore the previous address.',
   credentialUnreadable:
-    'Cannot read the stored VesselTwin connection. Check the permissions of the plugin data folder.',
-  notRunning: 'The VesselTwin plugin is not running. Enable it first.',
+    "Can't read the stored VesselTwin connection. Check the permissions of the plugin data folder.",
+  notRunning: "The VesselTwin plugin isn't running. Enable it under Server > Plugin Config.",
   starting: 'The VesselTwin plugin is starting. Try again in a moment.',
   pairingInProgress:
     'Pairing in progress. Open VesselTwin under Webapps, signed in as an administrator, to see the code.',
   nothingToCancel: 'No pairing is waiting for approval.',
   alreadyPaired: 'Already paired. Unpair first to pair again.',
-  unpairFailed: 'Could not remove the stored connection. Try again.',
-  unpaired:
-    'Unpaired on this server. Also revoke the connection in VesselTwin so it stops working there.',
-  forbidden: 'Request not allowed.',
+  unpairFailed: "Couldn't remove the stored connection. Try again.",
+  unpaired: 'Unpaired on this server. To finish, revoke this device in VesselTwin.',
+  forbidden:
+    'Open this page from the Signal K admin UI in this browser tab. Requests from other sites are refused.',
 } as const;
 
 function header(req: RequestLike, name: string): string | undefined {
@@ -727,15 +727,15 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
         ].filter(Boolean);
         let upline: string;
         if (subscriptionsMissing) {
-          upline = 'This SignalK server cannot provide readings to the plugin.';
+          upline = "This Signal K server can't provide readings to the plugin.";
         } else if (sending && uploadStruggling()) {
-          upline = `VesselTwin can't be reached right now. ${READINGS_KEPT}`;
+          upline = `Can't reach VesselTwin right now. The plugin will keep trying. ${READINGS_KEPT}`;
         } else if (sending) {
           const sn = pipe?.uploader.snapshot();
           const idle =
             !!pipe && !pipe.recorded && !!sn && sn.queued === 0 && sn.lastSentAt === null;
           upline = idle
-            ? 'Sending is on; waiting for readings from SignalK.'
+            ? 'Sending is on; waiting for readings from Signal K.'
             : 'Sending readings to VesselTwin.';
           if ((snap?.summary?.awaitingSetup ?? 0) > 0) upline += ` ${NEEDS_SETUP}`;
         } else {
@@ -748,7 +748,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           ? `${lead}. The connection is paused for your VesselTwin plan. The plugin will keep checking.${kept}`
           : `${lead}. VesselTwin integrations are not available for your account right now. The plugin will keep checking.${kept}`;
       case 'offline':
-        return `${lead}. Cannot reach VesselTwin right now. The plugin will keep trying.${kept}`;
+        return `${lead}. Can't reach VesselTwin right now. The plugin will keep trying.${kept}`;
       case 'update_required':
         return `${lead}. This plugin version is not supported by VesselTwin. Update the plugin.`;
       case 'reauth_required': {
@@ -868,6 +868,24 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
           if (persisting === saved) persisting = null;
         });
         if (keep === 'failed') {
+          if (current()) {
+            // The old file (credential or tombstone) is still the truth: re-read it so
+            // `hasCredential` matches and the owner can pair again without a restart.
+            try {
+              const c = await s.read();
+              if (current()) {
+                hasCredential = false;
+                vesselLabel = null;
+                adoptStored(c);
+              }
+            } catch (readErr) {
+              app.debug(`credential read after failed save: ${redactError(readErr)}`);
+              if (current()) {
+                hasCredential = false;
+                credentialUnreadable = true;
+              }
+            }
+          }
           if (current()) fail('local_failure');
           return;
         }
@@ -982,7 +1000,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
     id: PLUGIN_ID,
     name: 'VesselTwin',
     description:
-      'Pairs this boat with VesselTwin and, when you turn it on, sends engine hours, battery and tank readings. Never sends position or MMSI.',
+      'Pairs this boat with VesselTwin and, when you turn it on, sends engine hours, battery, and tank readings. Never sends position or MMSI.',
     schema: () => configSchema,
 
     start(settings: unknown): void {
@@ -1018,7 +1036,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
       earlier
         .then(async () => {
           // Owner decision: readings queued under an earlier setting are not kept once upload is off.
-          if (!sendingOn() && mine === epoch) await clearQueue();
+          if (!sendingOn() && mine === epoch) await clearQueueTracked();
         })
         .then(() => s.read())
         .then((c) => {
@@ -1148,6 +1166,7 @@ export function createPlugin(app: SignalKApp, deps: PluginDeps = {}) {
             permissionWarning = false;
             stopSession(); // a load that raced past the epoch check cannot leave a monitor behind
             loaded = true;
+            credentialUnreadable = false;
             hasCredential = false;
             vesselLabel = null;
             failure = null;

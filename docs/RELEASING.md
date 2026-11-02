@@ -10,17 +10,15 @@ unavailable). Exit 3 is never a pass. `pnpm lint` runs its `--ci` mode on every 
 
 ## 0. One-time setup
 
-- Maintainer access to this repository and to the npm package (or the right to create it), Node 20.3+
-  and pnpm 10 locally, and an npm account with 2FA that can publish the package.
+- Maintainer access to this repository and to the npm package (or the right to create it), Node 20.19+
+  for tooling (see [CONTRIBUTING.md](../CONTRIBUTING.md)) and pnpm 10 locally, and an npm account with 2FA that can publish the package.
 - The `npm-publish` GitHub environment exists (`.github/workflows/release.yml` uses it). Add required
   reviewers there if you want an approval before each publish.
 - `release.yml` only runs its publish job when the repository variable `NPM_TRUSTED_PUBLISHING` is
-  `true`. Leave it unset until the trusted publisher is configured.
+  `true`.
 - Owner setup: a repository ruleset should protect `v*.*.*` tags so only maintainers can create or
   move them. Confirm it is in place before relying on it.
-- Branch protection on `main` requires the `check (22)` and `check (24)` CI checks. Also add `check (20)` as a required check in the main ruleset (owner step).
-- Versions `0.1.0` and `0.1.1` are on npm; `0.1.1` was published through trusted publishing with
-  provenance. Later releases follow the routine flow below.
+- Branch protection on `main` requires `check (20)`, `check (22)`, and `check (24)`.
 
 Bootstrap record (already done for this package; keep for forks or a renamed package). The npm
 trusted-publishing documentation (<https://docs.npmjs.com/trusted-publishers>) does not state whether
@@ -39,8 +37,8 @@ published manually:
    ```
 
    Use npm >= 11.5.1 for trusted publishing (the workflow checks this; the first manual publish does
-   not use OIDC). `pnpm check:pack` asserts the tarball holds only `plugin/`, the five pairing page files in
-   `public/` (`index.html`, `style.css`, `app.js`, `view.js`, `controller.js`), `README.md`,
+   not use OIDC). `pnpm check:pack` asserts the tarball holds only `plugin/`, the six pairing page files in
+   `public/` (`index.html`, `icon.png`, `style.css`, `app.js`, `view.js`, `controller.js`), `README.md`,
    `LICENSE`, `SECURITY.md` and `package.json`. `npm publish` runs `prepack`, which rebuilds. This
    manually published first version has no provenance attestation; that is expected.
 
@@ -114,9 +112,9 @@ delete a pushed tag; if the tag is wrong, fix forward with a new version.
 pnpm check:release --verify-published X.Y.Z
 ```
 
-- The SignalK Appstore lists packages carrying the `signalk-node-server-plugin` keyword. The listing
-  can lag behind npm by a while; check the Appstore in a SignalK server after some time.
-- Install the published version in a test SignalK server and confirm the plugin loads and its status
+- The Signal K Appstore lists packages carrying the `signalk-node-server-plugin` keyword. The listing
+  can lag behind npm by a while; check the Appstore in a Signal K server after some time.
+- Install the published version in a test Signal K server and confirm the plugin loads and its status
   line is correct (see `docs/TESTING.md`).
 - Optional GitHub release notes: `pnpm check:release --print-notes X.Y.Z` prints the changelog
   section, for example `gh release create vX.Y.Z --notes "$(pnpm -s check:release --print-notes X.Y.Z)"`.

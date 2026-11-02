@@ -1,4 +1,4 @@
-# Testing the plugin in a real SignalK server
+# Testing the plugin in a real Signal K server
 
 Unit tests (`pnpm test`) never touch the network. This page is for manual runs of the built plugin in
 a stock signalk-server, against either a mock VesselTwin API (Track A) or a VesselTwin API you run
@@ -9,12 +9,12 @@ Needs Docker and Node >= 20.19 to run the repository tooling and tests (the plug
 
 ## How you drive the plugin
 
-- The plugin adds a **VesselTwin** page to the SignalK admin UI (Webapps, served at
+- The plugin adds a **VesselTwin** page to the Signal K admin UI (Webapps, served at
   `/signalk-vesseltwin/`). Open <http://localhost:3100/signalk-vesseltwin/> after signing in at
   `/admin/`. The page shows the pairing code and buttons. The same flow also works over HTTP:
   `POST /plugins/signalk-vesseltwin/pair` starts pairing (`node dev/pair.mjs` does this) and the code is
   in the admin-only `GET /plugins/signalk-vesseltwin/status` response under `pairing.userCode`. The
-  status line (SignalK admin UI, Server > Plugin Config) only says "Pairing in progress" and points to
+  status line (Signal K admin UI, Server > Plugin Config) only says "Pairing in progress" and points to
   the page, because it is broadcast to every client.
 - These routes sit behind the server's admin login. `node dev/setup-signalk.mjs` creates a throwaway
   admin, saves a bearer token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700; the script never prints
@@ -28,7 +28,7 @@ fault(){ curl -s -X POST localhost:3001/__mock/fault -H 'content-type: applicati
 mlog() { curl -s localhost:3001/__mock/log; echo; }   # method, path, status, time; never codes or credentials
 ```
 
-### Testing with SignalK security disabled
+### Testing with Signal K security disabled
 
 The stock `signalk/signalk-server` image starts the server through `startup.sh`, which always passes
 `--securityenabled`, so security cannot be switched off in the admin UI or settings of that image. To
@@ -147,18 +147,18 @@ API address changed since pairing. Pair again, or restore the previous address. 
 | `{"route":"pairing/start","status":503}`                                           | `unavailable`     | `VesselTwin is not available right now. Try again later.`                                                                                  |
 | `{"route":"pairing/start","status":429,"retryAfter":10}`                           | `busy`            | `VesselTwin is busy. Try pairing again in a few minutes.`                                                                                  |
 | `{"route":"pairing/start","status":400,"code":"integration_contract_unsupported"}` | `update_required` | `This plugin version is not supported by VesselTwin. Update the plugin.`                                                                   |
-| `{"route":"pairing/start","status":400}`                                           | `rejected`        | `VesselTwin could not start pairing with this plugin. Check for a plugin update, then try again.`                                          |
+| `{"route":"pairing/start","status":400}`                                           | `rejected`        | `VesselTwin couldn't start pairing with this plugin. Check for a plugin update, then try again.`                                           |
 | approve with `{"deny":true}`                                                       | `denied`          | `Pairing was declined in VesselTwin. Start pairing again if that was a mistake.`                                                           |
 | let the code expire (10 minutes) or fault `pairing/token` with `expired_token`     | `expired`         | `The pairing code expired. Start pairing again. If this keeps happening, VesselTwin integrations may not be enabled for your account yet.` |
 
 - **Unpair**: `curl -s -X POST -H "authorization: Bearer $T" localhost:3100/plugins/signalk-vesseltwin/unpair`
-  answers `{"paired":false,"message":"Unpaired on this server. Also revoke the connection in VesselTwin so it stops working there."}`,
+  answers `{"paired":false,"message":"Unpaired on this server. To finish, revoke this device in VesselTwin."}`,
   `credential.json` is gone and the state is `not_paired`. The mock still holds the credential: unpair
   does not revoke it.
 - **Invalid API URL**: save a config with `"apiBaseUrl":"http://example.com"` (an empty or whitespace-only value is not invalid: it means the production default).
   The state is `config_error`, `POST /pair` answers 503, and the mock log gets no new entries.
 
-Tear down (removes the SignalK volume and with it the stored credential):
+Tear down (removes the Signal K volume and with it the stored credential):
 
 ```sh
 docker compose -f dev/docker-compose.yml down -v
@@ -166,7 +166,7 @@ docker compose -f dev/docker-compose.yml down -v
 
 ## Track A: upload end to end
 
-Checks that readings really flow from SignalK through the plugin to the mock, and that the fault paths
+Checks that readings really flow from Signal K through the plugin to the mock, and that the fault paths
 behave. Local only: the plugin talks to the mock at `http://localhost:3001`, never production.
 
 **Saving the plugin settings replaces all of them**, so `node dev/setup-signalk.mjs` without
@@ -188,11 +188,11 @@ at most once an hour at the fastest setting, so feed new `--round N` values afte
 or restart the plugin to record again. `GET localhost:3001/__mock/readings` shows every batch the mock
 accepted: the contract header, and per reading the id, path, value and `recordedAt`.
 
-**Steady value (security on).** SignalK does not replay cached values to plugins when security is on,
+**Steady value (security on).** Signal K does not replay cached values to plugins when security is on,
 so the plugin reads the current values from the server at start. After the first feed has been
 recorded, wait a minute, then re-save the same plugin settings (this restarts the plugin) and confirm
 `GET localhost:3001/__mock/readings` shows each steady channel exactly once. Re-save again: still no new
-reading. Note that after a SignalK **server** restart a value appears only once a device sends it again
+reading. Note that after a Signal K **server** restart a value appears only once a device sends it again
 (the server keeps no values across restarts).
 
 Check:
@@ -312,7 +312,7 @@ After a successful pairing (either track), and before `down -v`:
       `/signalk-vesseltwin/` in a browser signed in as admin: Pair shows the code and a link, a
       countdown runs, Cancel returns to Not paired, and Pair again plus approving on the mock ends in
       Connected. Unpair asks for a second click before it acts. Signed out, the page says to sign in as
-      an administrator and links to the SignalK login. Once paired, the page lists whether
+      an administrator and links to the Signal K login. Once paired, the page lists whether
       sending is on, how many channels need setup, how many readings wait and when the last batch went
       out; there is no "upload not available" notice anywhere.
 - [ ] Cancel racing an approval: if you approve in the mock (or VesselTwin) just as you press Cancel,
@@ -320,12 +320,12 @@ After a successful pairing (either track), and before `down -v`:
       in VesselTwin (the plugin cannot revoke it).
 - [ ] Admin auth applies to the plugin routes: `GET /plugins/signalk-vesseltwin/status` without a
       token answers 401, with the admin token 200.
-- [ ] With SignalK security enabled and read-only or anonymous access allowed, confirm a non-admin
+- [ ] With Signal K security enabled and read-only or anonymous access allowed, confirm a non-admin
       gets 401/403 on `GET /plugins/signalk-vesseltwin/status` and `POST /pair`, and that no status
       line or log line (visible to non-admins) contains the pairing code while pairing is pending.
-- [ ] The SignalK self id shape on a fresh server. `getSelfPath('uuid')` reads the server's own id;
+- [ ] The Signal K self id shape on a fresh server. `getSelfPath('uuid')` reads the server's own id;
       the same value is at `GET /signalk/v1/api/vessels/self/uuid` (admin token). Expected shape:
-      `urn:mrn:signalk:uuid:<uuid>`. The plugin sends it as an optional hint only when it is a SignalK
+      `urn:mrn:signalk:uuid:<uuid>`. The plugin sends it as an optional hint only when it is a Signal K
       UUID (bare or with that prefix); a server id based on an MMSI is left out.
 - [ ] Unpair removes `credential.json`, the state is `not_paired`, and the status line says to revoke
       the connection in VesselTwin too (until the next start or pairing).

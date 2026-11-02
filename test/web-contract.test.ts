@@ -267,7 +267,7 @@ describe('upload block contract', () => {
     const m = parseStatus(await p.waitFor('connected'));
     expect(m.upload.subscriptionsUnavailable).toBe(true);
     expect(describeStatus(m, null).uploadLines).toEqual([
-      'This SignalK server cannot provide readings to the plugin.',
+      "This Signal K server can't provide readings to the plugin.",
     ]);
   });
 });

@@ -1,10 +1,35 @@
 # Changelog
 
 All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow
-[Semantic Versioning](https://semver.org/) once released.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
+[Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Fixed
+
+- Pairing again after a failed credential save no longer leaves the plugin saying "Already paired"
+  while the status says to pair again; the stored state is re-read so you can retry without a
+  restart. Unpairing also clears a stuck "can't read the stored connection" state, and a stored
+  connection with an unexpected label or date format is still read.
+- Changing the upload setting twice in quick succession no longer lets a queue clear overlap the new
+  upload pipeline.
+- A full or failing disk can no longer corrupt the next saved reading: a partly written line is cut
+  off before more readings are saved.
+- The uploader stays on hold when the status check pauses it during a send, a late write failure no
+  longer rolls back a newer reading's recording state, and a failed Signal K subscription is cleaned
+  up.
+- A "bad request" answer that is not VesselTwin's validation response (for example from a proxy) is
+  retried with backoff instead of being treated as a bad reading.
+- The pairing page no longer stalls if the plugin stops answering: a status request that gets no
+  reply is given up after 15 seconds and retried.
+
+### Changed
+
+- Refreshed the wording of status and error messages: calmer, blame-free, "Signal K" spelled with a
+  space, Oxford commas, and US spelling in the settings form.
+- Reorganized the README around install, connect, and turn on readings, with a status-message table
+  and a note on using the plugin with VesselStack.
 
 ## [0.2.2] - 2026-10-26
 

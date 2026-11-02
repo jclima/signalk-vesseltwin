@@ -20,6 +20,7 @@ import {
   safeVerificationUrl,
   formatLastSent,
   uploadLines,
+  UNREACHABLE_COPY,
 } from '../web/view.js';
 
 const BIDI = '‮';
@@ -255,11 +256,14 @@ describe('describeProblem', () => {
     expect(p401.kind).toBe('signin');
     expect(p401.link?.href).toBe('/admin/#/login');
     expect(p401.message).toContain('administrator');
-    expect(describeProblem(403, null).message).toBe('Request not allowed.');
+    expect(describeProblem(403, null).message).toBe(
+      'Open this page from the Signal K admin UI in this browser tab. Requests from other sites are refused.',
+    );
     expect(
-      describeProblem(503, { error: 'The VesselTwin plugin is not running. Enable it first.' })
-        .message,
-    ).toBe('The VesselTwin plugin is not running. Enable it first.');
+      describeProblem(503, {
+        error: "The VesselTwin plugin isn't running. Enable it under Server > Plugin Config.",
+      }).message,
+    ).toBe("The VesselTwin plugin isn't running. Enable it under Server > Plugin Config.");
     for (const body of [
       null,
       {},
@@ -273,7 +277,7 @@ describe('describeProblem', () => {
     for (const s of [404, 500, null]) {
       expect(describeProblem(s, null)).toMatchObject({
         kind: 'unreachable',
-        message: 'Cannot reach the plugin.',
+        message: UNREACHABLE_COPY,
       });
     }
   });

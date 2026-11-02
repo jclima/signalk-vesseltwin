@@ -88,8 +88,8 @@ export class CredentialStore {
       return {
         credential: v.credential,
         credentialId: v.credentialId,
-        vesselLabel: v.vesselLabel ?? null,
-        pairedAt: v.pairedAt ?? '',
+        vesselLabel: typeof v.vesselLabel === 'string' ? v.vesselLabel : null,
+        pairedAt: typeof v.pairedAt === 'string' ? v.pairedAt : '',
         apiOrigin: typeof v.apiOrigin === 'string' ? v.apiOrigin : null,
       };
     } catch {

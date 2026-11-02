@@ -77,6 +77,40 @@ describe('failed writes', () => {
   });
 });
 
+describe('failed writes with interleaved deltas', () => {
+  it('a late failure of an older reading does not roll back a newer committed reading', async () => {
+    let rejectFirst!: (e: Error) => void;
+    const kept: SampledReading[] = [];
+    let n = 0;
+    const sampler = createSampler({
+      options: parseOptions(enableAll(allHourly)).upload,
+      sink: {
+        write: (r) => {
+          n += 1;
+          if (n === 1) return new Promise<void>((_, rej) => (rejectFirst = rej));
+          kept.push(r);
+          return Promise.resolve();
+        },
+      },
+      now: () => T0 + 400 * 24 * 60 * MIN,
+    });
+    const send = (at: number, value = 3600) =>
+      sampler.handleDelta({
+        context: 'vessels.self',
+        updates: [{ timestamp: iso(at), values: [{ path: 'propulsion.a.runTime', value }] }],
+      });
+    const first = send(T0);
+    const firstFailed = expect(first).rejects.toThrow('disk full');
+    expect(await send(T0 + 61 * MIN, 7200)).toBe(1); // newer reading commits while the first is pending
+    rejectFirst(new Error('disk full'));
+    await firstFailed;
+    // The newer reading's state survives: a replay of it is still ignored.
+    expect(await send(T0 + 61 * MIN, 7200)).toBe(0);
+    expect(kept).toHaveLength(1);
+    expect(sampler.snapshot()['propulsion.a.runTime']?.lastKeptMs).toBe(T0 + 61 * MIN);
+  });
+});
+
 describe('delta adapter', () => {
   it('keeps only numeric values on permitted paths', async () => {
     const { sink, send, sampler } = setup(allHourly);

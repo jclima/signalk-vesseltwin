@@ -207,6 +207,7 @@ export function createSampler(cfg: SamplerOptions) {
     if (ch.dayCount >= MAX_READINGS_PER_CHANNEL_PER_DAY) return null;
 
     ch.dayCount += 1;
+    const dayCountAfter = ch.dayCount;
     ch.lastKeptMs = recordedAtMs;
     ch.lastKeptValue = converted;
     kept += 1;
@@ -214,7 +215,11 @@ export function createSampler(cfg: SamplerOptions) {
     return {
       reading: { path, value, recordedAt },
       undo: () => {
-        Object.assign(channel, before);
+        // Only roll back while the channel still reflects this reading: a newer reading may have
+        // been committed meanwhile (concurrent deltas), and its state must survive.
+        if (channel.lastKeptMs === recordedAtMs && channel.dayCount === dayCountAfter) {
+          Object.assign(channel, before);
+        }
         kept -= 1;
       },
     };

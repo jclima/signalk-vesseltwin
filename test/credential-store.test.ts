@@ -34,6 +34,18 @@ describe('CredentialStore', () => {
     expect(st.mode & 0o777).toBe(0o600);
   });
 
+  it('treats a wrongly typed label or date as missing, not as an unreadable credential', async () => {
+    await fsp.writeFile(
+      path.join(dir, 'credential.json'),
+      JSON.stringify({ ...cred, vesselLabel: 42, pairedAt: { x: 1 } }),
+    );
+    expect(await new CredentialStore(dir).read()).toEqual({
+      ...cred,
+      vesselLabel: null,
+      pairedAt: '',
+    });
+  });
+
   it('leaves no temp files and replaces atomically', async () => {
     const s = new CredentialStore(dir);
     await s.write(cred);

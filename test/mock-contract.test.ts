@@ -426,7 +426,7 @@ describe('mock readings route (contract 2)', () => {
     expect(bad.status).toBe(401);
   });
 
-  it('rejects a malformed envelope with a code-less 400', async () => {
+  it("rejects a malformed envelope with the platform's validation 400", async () => {
     const { send, post, auth } = await paired();
     for (const readings of [
       [],
@@ -435,9 +435,17 @@ describe('mock readings route (contract 2)', () => {
       const res = await send(readings);
       expect(res.status).toBe(400);
       expect(res.json.code).toBeUndefined();
+      expect(res.json.message).toBe('Validation failed');
+      expect(Array.isArray(res.json.errors)).toBe(true);
+      for (const e of res.json.errors as { path?: unknown; code?: unknown; message?: unknown }[]) {
+        expect(typeof e.path).toBe('string');
+        expect(typeof e.code).toBe('string');
+        expect(e.message).toBeUndefined();
+      }
     }
     const extra = await post(READINGS, { readings: [reading('a')], more: 1 }, auth);
     expect(extra.status).toBe(400);
+    expect(extra.json.message).toBe('Validation failed');
     const item = await send([{ ...reading('a'), extra: true }]);
     expect(item.status).toBe(400);
     expect(

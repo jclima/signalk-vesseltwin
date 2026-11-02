@@ -20,6 +20,7 @@ export interface FetchInitLike {
   credentials: 'same-origin';
   cache: 'no-store';
   redirect: 'error';
+  signal?: AbortSignal;
 }
 export type FetchFn = (url: string, init: FetchInitLike) => Promise<FetchResponseLike>;
 
@@ -72,16 +73,19 @@ const STARTED_STATES: ReadonlySet<string> = new Set([
   'config_error',
 ]);
 
-export const NOTICE_PAIR_FAILED = 'Could not start pairing.';
-export const NOTICE_CANCEL_FAILED = 'Could not cancel pairing.';
+export const NOTICE_PAIR_FAILED = "Couldn't start pairing. Try again in a minute.";
+export const NOTICE_CANCEL_FAILED = "Couldn't cancel pairing. Reload this page and try again.";
 export const NOTICE_ALREADY_APPROVED = 'Pairing was already approved. Use Unpair to remove it.';
-export const NOTICE_UNPAIR_FAILED = 'Could not remove the connection. Try again.';
+export const NOTICE_UNPAIR_FAILED = "Couldn't remove the connection. Try again.";
 
 /** Backoff after `failures` consecutive failed polls: 2 s, 4 s, ... capped at 30 s. */
 export function errorBackoffMs(failures: number): number {
   const n = Number.isFinite(failures) ? Math.max(1, Math.floor(failures)) : 1;
   return Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** Math.min(n - 1, 10));
 }
+
+/** Abort a `/status` request that gets no answer after this long. */
+export const POLL_TIMEOUT_MS = 15_000;
 
 const REQUEST_INIT = { credentials: 'same-origin', cache: 'no-store', redirect: 'error' } as const;
 
@@ -106,8 +110,10 @@ export class PairingController {
   };
   private timer: unknown = null;
   private running = false;
-  private inFlight = false;
+  private chain: Promise<void> | null = null;
   private rerun = false;
+  /** Bumped when a button request's POST returns; polls that began earlier are stale. */
+  private actionSeq = 0;
   private failures = 0;
   private startingSince = 0;
   /** Bumped by stop(); results from an older run are ignored. */
@@ -231,6 +237,8 @@ export class PairingController {
       return await this.d.fetch(`${PLUGIN_BASE}${path}`, { method: 'POST', ...REQUEST_INIT });
     } catch {
       return null;
+    } finally {
+      this.actionSeq += 1;
     }
   }
 
@@ -248,58 +256,91 @@ export class PairingController {
     }, ms);
   }
 
-  private async poll(): Promise<void> {
-    if (this.inFlight) {
+  /**
+   * Resolves once a poll that began after this call has finished (a call during an in-flight poll
+   * queues one rerun and waits for it), so callers read fresh state.
+   */
+  private poll(): Promise<void> {
+    if (this.chain) {
       this.rerun = true;
-      return;
+      return this.chain;
     }
-    this.inFlight = true;
-    const gen = this.generation;
+    const p: Promise<void> = this.runChain().finally(() => {
+      if (this.chain === p) this.chain = null;
+    });
+    this.chain = p;
+    return p;
+  }
+
+  private async runChain(): Promise<void> {
     let next = SLOW_POLL_MS;
-    try {
-      let status: number | null = null;
-      let body: unknown = null;
-      try {
-        const res = await this.d.fetch(`${PLUGIN_BASE}/status`, REQUEST_INIT);
-        body = await readJson(res);
-        status = res.status;
-        if (res.status === 200 && body === null) status = null; // 200 but not JSON
-      } catch {
-        status = null;
-      }
-      if (gen !== this.generation) return;
-      if (status === 200) {
-        this.failures = 0;
-        const model = parseStatus(body);
-        const patch: Partial<Snapshot> = {
-          status: model,
-          problem: null,
-          receivedAt: this.d.now(),
-        };
-        if (this.snap.starting) {
-          const timedOut = this.d.now() - this.startingSince >= STARTING_TIMEOUT_MS;
-          if (STARTED_STATES.has(model.state) || timedOut) patch.starting = false;
-        }
-        if (this.snap.confirmingUnpair && !actionsFor(model).some((a) => a.id === 'unpair')) {
-          patch.confirmingUnpair = false;
-        }
-        this.set(patch);
-        next = FAST_STATES.has(model.state) || this.snap.starting ? FAST_POLL_MS : SLOW_POLL_MS;
-      } else {
-        this.failures += 1;
-        this.set({ problem: describeProblem(status, body), confirmingUnpair: false });
-        next = status === 503 ? SLOW_POLL_MS : errorBackoffMs(this.failures);
-      }
-    } finally {
-      this.inFlight = false;
-    }
-    if (gen !== this.generation) return;
-    if (this.rerun) {
+    for (;;) {
       this.rerun = false;
-      void this.poll();
-      return;
+      const gen = this.generation;
+      const seq = this.actionSeq;
+      const r = await this.pollOnce(gen, seq);
+      next = r.next;
+      // A stopped controller ends here. A restart or a button press while the request was in
+      // flight makes its answer stale: fetch again instead of leaving polling dead or flashing it.
+      if (!this.running) return;
+      if (gen !== this.generation || r.stale || this.rerunRequested()) continue;
+      break;
     }
     this.schedule(next);
+  }
+
+  /** `rerun` is set by poll() while awaiting; a method keeps the compiler from narrowing it away. */
+  private rerunRequested(): boolean {
+    return this.rerun;
+  }
+
+  private async pollOnce(gen: number, seq: number): Promise<{ next: number; stale: boolean }> {
+    let next = SLOW_POLL_MS;
+    let status: number | null = null;
+    let body: unknown = null;
+    // A request that never answers would hold the poll chain forever; abort it and treat the
+    // timeout like any other failed fetch.
+    const ctl = new AbortController();
+    const guard = this.d.timers.setTimeout(() => {
+      ctl.abort();
+    }, POLL_TIMEOUT_MS);
+    try {
+      const res = await this.d.fetch(`${PLUGIN_BASE}/status`, {
+        ...REQUEST_INIT,
+        signal: ctl.signal,
+      });
+      body = await readJson(res);
+      status = res.status;
+      if (res.status === 200 && body === null) status = null; // 200 but not JSON
+    } catch {
+      status = null;
+    } finally {
+      this.d.timers.clearTimeout(guard);
+    }
+    if (gen !== this.generation || seq !== this.actionSeq) return { next, stale: true };
+    if (status === 200) {
+      this.failures = 0;
+      const model = parseStatus(body);
+      const patch: Partial<Snapshot> = {
+        status: model,
+        problem: null,
+        receivedAt: this.d.now(),
+      };
+      if (this.snap.starting) {
+        const timedOut = this.d.now() - this.startingSince >= STARTING_TIMEOUT_MS;
+        if (STARTED_STATES.has(model.state) || timedOut) patch.starting = false;
+      }
+      if (this.snap.confirmingUnpair && !actionsFor(model).some((a) => a.id === 'unpair')) {
+        patch.confirmingUnpair = false;
+      }
+      this.set(patch);
+      next = FAST_STATES.has(model.state) || this.snap.starting ? FAST_POLL_MS : SLOW_POLL_MS;
+    } else {
+      this.failures += 1;
+      this.set({ problem: describeProblem(status, body), confirmingUnpair: false });
+      next = status === 503 ? SLOW_POLL_MS : errorBackoffMs(this.failures);
+    }
+    return { next, stale: false };
   }
 
   private set(patch: Partial<Snapshot>): void {

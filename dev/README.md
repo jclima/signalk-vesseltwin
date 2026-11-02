@@ -20,7 +20,7 @@ docker compose -f dev/docker-compose.yml down -v
 ```
 
 - The image is pinned to `signalk/signalk-server:v2.33.0` and all published ports bind to 127.0.0.1 only.
-- SignalK admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
+- Signal K admin UI: <http://localhost:3100> (override with `SK_PORT`). Dev login: `dev-admin` /
   `dev-admin-password` (fake, override with `SK_ADMIN_USER` / `SK_ADMIN_PASSWORD`).
 - Mock API: <http://localhost:3001> (override the host port with `MOCK_HOST_PORT`).
 - `setup-signalk.mjs` replaces **all** plugin settings with `{ apiBaseUrl }` plus the optional
@@ -28,7 +28,7 @@ docker compose -f dev/docker-compose.yml down -v
   Without it sending is off, and a plugin restart with sending off deletes any waiting readings.
 - `feed-deltas.mjs` sends permitted paths (engine and generator run time, battery voltage and charge,
   tank level and volume) and, on purpose, position, MMSI, name, callsign and design paths with fake
-  values, over the SignalK WebSocket as the dev admin: `node dev/feed-deltas.mjs [--round N] [--only
+  values, over the Signal K WebSocket as the dev admin: `node dev/feed-deltas.mjs [--round N] [--only
 permitted|forbidden]`. The forbidden ones must never reach the mock. It refuses non-loopback hosts.
 - `setup-signalk.mjs` saves the admin token to `.signalk-dev/token` (gitignored, file mode 0600, directory 0700) and does
   not print it. `dev/pair.mjs` reads that file (or `SK_TOKEN`).
@@ -44,25 +44,9 @@ reach an API on your host instead, set `RELAY_TARGET=host.docker.internal:3001` 
 change `MOCK_HOST_PORT` so the ports do not clash), then recreate with `up -d`. Use `node dev/pair.mjs
 --no-approve` and approve the code in that API's web app.
 
-## Security is always on in the stock image
+## Security
 
-The stock signalk image starts the server with `--securityenabled` (its `startup.sh` passes it), so
-the rig cannot run with security off as is. To test with security disabled, add a compose override
-that runs a plain `signalk-server` (local testing only; never on a real boat):
-
-```yaml
-# dev/docker-compose.nosecurity.yml
-services:
-  signalk:
-    entrypoint: ['/home/node/signalk/node_modules/signalk-server/bin/signalk-server']
-```
-
-```sh
-docker compose -f dev/docker-compose.yml -f dev/docker-compose.nosecurity.yml up -d
-SK_NO_AUTH=1 node dev/pair.mjs      # setup-signalk.mjs needs a login, so configure the plugin in the admin UI
-```
-
-See [docs/TESTING.md](../docs/TESTING.md) for details.
+The stock image always runs with Signal K security on. To test with it off, see "Testing with Signal K security disabled" in [docs/TESTING.md](../docs/TESTING.md).
 
 ## Mock behaviour
 
@@ -78,7 +62,7 @@ Routes under `/v1/integrations`:
 
 `POST signalk/readings` needs a live bearer credential and `X-VesselTwin-Contract` >= 2 (else 426).
 The body is `{ "readings": [1..500 items] }` (512 KB limit, else 413; a malformed envelope is a 400
-without a code). Results come back in request order: `accepted`; `duplicate` for a repeated
+with the platform shape `{ "message": "Validation failed", "errors": [{ "path", "code" }] }`). Results come back in request order: `accepted`; `duplicate` for a repeated
 `clientReadingId` with the same content; `rejected` with `invalid_id` for reuse with different
 content; `rejected` with `invalid_path`, `invalid_value` (null), `invalid_time`, `future` (> 5 min
 ahead) or `too_old` (> 14 days). Nothing is stored beyond the ids seen, in memory.
@@ -93,7 +77,7 @@ records the header and whether `User-Agent` was present in its log.
 
 ## Plugin routes the scripts use
 
-All under `/plugins/signalk-vesseltwin` on the SignalK server and all need the admin token:
+All under `/plugins/signalk-vesseltwin` on the Signal K server and all need the admin token:
 
 - `POST /pair` starts pairing (202); `POST /pair/cancel` cancels a pending one (200, or 409 if none). `GET /status` returns (abridged; it also has `warnings` and the admin-only `upload` block, see [docs/api.md](../docs/api.md)):
 

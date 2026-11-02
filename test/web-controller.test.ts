@@ -14,6 +14,7 @@ import {
   type FetchResponseLike,
   type Snapshot,
 } from '../web/controller.js';
+import { UNREACHABLE_COPY } from '../web/view.js';
 
 interface Call {
   url: string;
@@ -88,11 +89,9 @@ describe('polling', () => {
     await vi.advanceTimersByTimeAsync(0);
     const first = t.calls[0];
     expect(first?.url).toBe(`${BASE}/status`);
-    expect(first?.init).toEqual({
-      credentials: 'same-origin',
-      cache: 'no-store',
-      redirect: 'error',
-    });
+    const { signal, ...rest } = first?.init as FetchInitLike;
+    expect(rest).toEqual({ credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
+    expect(signal).toBeInstanceOf(AbortSignal);
     expect(t.c.snapshot().status?.state).toBe('not_paired');
     t.c.stop();
   });
@@ -281,7 +280,7 @@ describe('actions', () => {
     expect(t.c.snapshot().notice).toBe(NOTICE_PAIR_FAILED);
     t.reply('POST /pair', 'network');
     await t.c.pair();
-    expect(t.c.snapshot().notice).toBe('Cannot reach the plugin.');
+    expect(t.c.snapshot().notice).toBe(UNREACHABLE_COPY);
     t.reply('POST /pair', { status: 401 });
     await t.c.pair();
     expect(t.c.snapshot().notice).toContain('administrator');
@@ -376,5 +375,134 @@ describe('actions', () => {
     spies.forEach((s) => {
       s.mockRestore();
     });
+  });
+});
+
+describe('poll timeout', () => {
+  it('aborts a /status request that never answers, shows unreachable and keeps polling', async () => {
+    let calls = 0;
+    const c = new PairingController({
+      fetch: (_url, init) => {
+        calls += 1;
+        if (calls > 1) {
+          return Promise.resolve({
+            status: 200,
+            json: () => Promise.resolve({ state: 'not_paired', paired: false, message: 'm' }),
+          });
+        }
+        return new Promise<FetchResponseLike>((_res, rej) => {
+          init.signal?.addEventListener('abort', () => {
+            rej(new Error('aborted'));
+          });
+        });
+      },
+      timers: {
+        setTimeout: (fn, ms) => setTimeout(fn, ms),
+        clearTimeout: (h) => {
+          clearTimeout(h as ReturnType<typeof setTimeout>);
+        },
+      },
+      isHidden: () => false,
+      now: () => Date.now(),
+      onChange: () => undefined,
+    });
+    c.start();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(c.snapshot().problem).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(c.snapshot().problem?.kind).toBe('unreachable');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(calls).toBe(2);
+    expect(c.snapshot().problem).toBeNull();
+    expect(c.snapshot().status?.state).toBe('not_paired');
+    c.stop();
+  });
+});
+
+describe('poll races', () => {
+  interface Pending {
+    key: string;
+    resolve: (r: { status: number; body?: unknown }) => void;
+  }
+  function manual() {
+    const pending: Pending[] = [];
+    const c = new PairingController({
+      fetch: (url, init) =>
+        new Promise<FetchResponseLike>((res) => {
+          pending.push({
+            key: `${init.method ?? 'GET'} ${url.slice(BASE.length)}`,
+            resolve: (r) => {
+              res({ status: r.status, json: () => Promise.resolve(r.body ?? null) });
+            },
+          });
+        }),
+      timers: {
+        setTimeout: (fn, ms) => setTimeout(fn, ms),
+        clearTimeout: (h) => {
+          clearTimeout(h as ReturnType<typeof setTimeout>);
+        },
+      },
+      isHidden: () => false,
+      now: () => Date.now(),
+      onChange: () => undefined,
+    });
+    const take = (key: string): Pending => {
+      const i = pending.findIndex((p) => p.key === key);
+      if (i < 0) throw new Error(`no pending ${key}`);
+      return pending.splice(i, 1)[0] as Pending;
+    };
+    return { c, pending, take };
+  }
+
+  it('cancel() 409 inspects a status fetched after the cancel, not one in flight before it', async () => {
+    const m = manual();
+    m.c.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const early = m.take('GET /status'); // poll started before the cancel
+    const done = m.c.cancel();
+    await vi.advanceTimersByTimeAsync(0);
+    m.take('POST /pair/cancel').resolve({ status: 409 });
+    await vi.advanceTimersByTimeAsync(0);
+    early.resolve({ status: 200, body: status('pairing') }); // pre-cancel answer
+    await vi.advanceTimersByTimeAsync(0);
+    m.take('GET /status').resolve({ status: 200, body: status('connected', { paired: true }) });
+    await done;
+    expect(m.c.snapshot().notice).toBe(NOTICE_ALREADY_APPROVED);
+    m.c.stop();
+  });
+
+  it('a poll that started before /pair returned does not flash its answer', async () => {
+    const m = manual();
+    m.c.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const early = m.take('GET /status');
+    const done = m.c.pair();
+    await vi.advanceTimersByTimeAsync(0);
+    m.take('POST /pair').resolve({ status: 202 });
+    await vi.advanceTimersByTimeAsync(0);
+    early.resolve({ status: 200, body: status('pairing_failed') });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(m.c.snapshot().status).toBeNull();
+    m.take('GET /status').resolve({ status: 200, body: status('pairing') });
+    await done;
+    expect(m.c.snapshot().status?.state).toBe('pairing');
+    m.c.stop();
+  });
+
+  it('stop() then start() while a poll is in flight keeps polling', async () => {
+    const m = manual();
+    m.c.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const old = m.take('GET /status');
+    m.c.stop();
+    m.c.start();
+    old.resolve({ status: 200, body: status('not_paired') });
+    await vi.advanceTimersByTimeAsync(0);
+    m.take('GET /status').resolve({ status: 200, body: status('not_paired') });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(m.pending).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(SLOW_POLL_MS);
+    expect(m.pending.some((p) => p.key === 'GET /status')).toBe(true);
+    m.c.stop();
   });
 });

@@ -82,29 +82,44 @@ let actionsKey = '';
 let lastLive = '';
 let lastCode: string | null = null;
 let copyTimer: number | undefined;
+let copyNotice: string | null = null;
+/** Where focus should land after the next settled render; set by the button that was pressed. */
+let restoreFocus: { id: string | null } | null = null;
+
+/** The live region stays rendered; only its words change. */
+function setNotice(text: string | null): void {
+  const t = text ?? '';
+  if (els.notice.textContent !== t) els.notice.textContent = t;
+}
 
 interface Button {
   id: string;
   label: string;
   primary: boolean;
+  /** Button id that should take focus after this one runs; null means the first one or the title. */
+  next?: string;
   run: () => void;
 }
 
 function renderButtons(buttons: Button[], disabled: boolean): void {
   const key = buttons.map((b) => `${b.id}:${b.label}`).join('|');
   if (key !== actionsKey) {
-    const hadFocus = els.actions.contains(document.activeElement);
     els.actions.replaceChildren();
     for (const b of buttons) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = b.label;
       if (b.primary) btn.className = 'primary';
-      btn.addEventListener('click', b.run);
+      btn.dataset.id = b.id;
+      if (b.id === 'confirm') btn.setAttribute('aria-describedby', 'confirm-text');
+      btn.addEventListener('click', () => {
+        // Remember the intent: the pressed button is disabled or removed before focus is restored.
+        restoreFocus = { id: b.next ?? null };
+        b.run();
+      });
       els.actions.append(btn);
     }
     actionsKey = key;
-    if (hadFocus) els.actions.querySelector('button')?.focus();
   }
   for (const btn of els.actions.querySelectorAll('button')) btn.disabled = disabled;
 }
@@ -122,6 +137,7 @@ function buttonsFor(snap: Snapshot, controller: PairingController, actions: Acti
         id: 'keep',
         label: 'Keep connection',
         primary: false,
+        next: 'unpair',
         run: () => {
           controller.dismissUnpair();
         },
@@ -135,7 +151,13 @@ function buttonsFor(snap: Snapshot, controller: PairingController, actions: Acti
       else if (a.id === 'cancel') void controller.cancel();
       else controller.requestUnpair();
     };
-    out.push({ id: a.id, label: a.label, primary: a.id === 'pair', run });
+    out.push({
+      id: a.id,
+      label: a.label,
+      primary: a.id === 'pair',
+      next: a.id === 'unpair' ? 'keep' : undefined,
+      run,
+    });
   }
   return out;
 }
@@ -169,7 +191,8 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
     countdown = s.countdown;
     apiHint = s.apiHint === null ? null : `Test API: ${s.apiHint}`;
     if (snap.starting) {
-      message = 'Starting pairing. The code will appear here in a moment.';
+      title = 'Starting pairing';
+      message = 'The code will appear here in a moment.';
     } else {
       buttons = buttonsFor(snap, controller, s.actions);
     }
@@ -191,18 +214,26 @@ function render(snap: Snapshot, controller: PairingController, now: number): voi
   els.codeBlock.hidden = code === null;
   if (code !== lastCode) {
     lastCode = code;
+    copyNotice = null;
     els.copy.textContent = 'Copy code';
   }
   els.copy.hidden = code === null || !('clipboard' in navigator);
   setText(els.countdown, countdown === null ? null : countdownText(countdown));
   setLink(link);
-  setText(els.notice, snap.notice);
+  setNotice(snap.notice ?? copyNotice);
   setText(
     els.confirmText,
     snap.confirmingUnpair ? 'Remove this connection from this server?' : null,
   );
   setText(els.apiHint, apiHint);
   renderButtons(buttons, snap.busy);
+  if (restoreFocus && !snap.busy) {
+    const wanted = restoreFocus.id;
+    restoreFocus = null;
+    const all = Array.from(els.actions.querySelectorAll('button'));
+    const target = all.find((b) => b.dataset.id === wanted) ?? all[0];
+    (target ?? els.title).focus();
+  }
 }
 
 function countdownText(c: string): string {
@@ -242,13 +273,19 @@ function start(): void {
     navigator.clipboard.writeText(text).then(
       () => {
         els.copy.textContent = 'Copied';
+        copyNotice = 'Code copied.';
+        setNotice(latest?.notice ?? copyNotice);
         window.clearTimeout(copyTimer);
         copyTimer = window.setTimeout(() => {
           els.copy.textContent = 'Copy code';
+          copyNotice = null;
+          setNotice(latest?.notice ?? null);
         }, 2000);
       },
       () => {
-        els.copy.textContent = 'Copy failed';
+        els.copy.textContent = 'Copy code';
+        copyNotice = "Couldn't copy. Select the code and copy it.";
+        setNotice(latest?.notice ?? copyNotice);
       },
     );
   });
