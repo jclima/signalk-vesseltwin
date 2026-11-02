@@ -63,7 +63,7 @@ function shortText(v, max) {
   return t;
 }
 
-/** Returns a list of {path,message} issues for the pairing start body (strict). */
+/** Returns a list of {path,code} issues for the pairing start body (strict). */
 function validateStart(b) {
   const issues = [];
   const bad = (path, code = 'invalid') => issues.push({ path, code });
@@ -78,7 +78,7 @@ function validateStart(b) {
     'requestedScopes',
     'providerHints',
   ];
-  for (const k of Object.keys(b)) if (!known.includes(k)) bad(k, 'Unrecognized key');
+  for (const k of Object.keys(b)) if (!known.includes(k)) bad(k, 'unrecognized_keys');
   if (b.provider !== PROVIDER) bad('provider');
   if (shortText(b.clientName, 80) === null) bad('clientName');
   if (shortText(b.clientVersion, 40) === null) bad('clientVersion');
@@ -100,7 +100,7 @@ function validateStart(b) {
     else {
       // docs/api.md: SignalK accepts only { signalkSelfUuid: string (1-100 chars) }
       for (const k of Object.keys(h))
-        if (k !== 'signalkSelfUuid') bad('providerHints', 'Unrecognized key');
+        if (k !== 'signalkSelfUuid') bad('providerHints', 'unrecognized_keys');
       if (
         h.signalkSelfUuid !== undefined &&
         (typeof h.signalkSelfUuid !== 'string' ||
@@ -348,7 +348,7 @@ export function createMock(o = {}) {
     const bad = (path, code = 'invalid') => errors.push({ path, code });
     const isObj = (x) => typeof x === 'object' && x !== null && !Array.isArray(x);
     if (!isObj(b)) return [{ path: '', code: 'invalid' }];
-    for (const k of Object.keys(b)) if (k !== 'readings') bad(k, 'Unrecognized key');
+    for (const k of Object.keys(b)) if (k !== 'readings') bad(k, 'unrecognized_keys');
     if (!Array.isArray(b.readings) || b.readings.length < 1 || b.readings.length > MAX_BATCH) {
       bad('readings');
       return errors;
@@ -357,7 +357,7 @@ export function createMock(o = {}) {
     b.readings.forEach((r, i) => {
       const at = (k) => `readings.${String(i)}.${k}`;
       if (!isObj(r)) return bad(`readings.${String(i)}`);
-      for (const k of Object.keys(r)) if (!keys.includes(k)) bad(at(k), 'Unrecognized key');
+      for (const k of Object.keys(r)) if (!keys.includes(k)) bad(at(k), 'unrecognized_keys');
       const str = (k, max) =>
         typeof r[k] !== 'string' || r[k].length < 1 || r[k].length > max ? bad(at(k)) : undefined;
       str('clientReadingId', 64);

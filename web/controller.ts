@@ -279,10 +279,15 @@ export class PairingController {
       // A stopped controller ends here. A restart or a button press while the request was in
       // flight makes its answer stale: fetch again instead of leaving polling dead or flashing it.
       if (!this.running) return;
-      if (gen !== this.generation || r.stale || this.rerun) continue;
+      if (gen !== this.generation || r.stale || this.rerunRequested()) continue;
       break;
     }
     this.schedule(next);
+  }
+
+  /** `rerun` is set by poll() while awaiting; a method keeps the compiler from narrowing it away. */
+  private rerunRequested(): boolean {
+    return this.rerun;
   }
 
   private async pollOnce(gen: number, seq: number): Promise<{ next: number; stale: boolean }> {

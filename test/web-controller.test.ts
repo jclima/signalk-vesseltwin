@@ -392,7 +392,9 @@ describe('poll races', () => {
         new Promise<FetchResponseLike>((res) => {
           pending.push({
             key: `${init.method ?? 'GET'} ${url.slice(BASE.length)}`,
-            resolve: (r) => res({ status: r.status, json: () => Promise.resolve(r.body ?? null) }),
+            resolve: (r) => {
+              res({ status: r.status, json: () => Promise.resolve(r.body ?? null) });
+            },
           });
         }),
       timers: {
