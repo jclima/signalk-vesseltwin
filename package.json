@@ -1,6 +1,6 @@
 {
   "name": "signalk-vesseltwin",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Sends engine hours, battery, and tank readings from your boat's Signal K server to VesselTwin. Off until you turn it on; never sends position, MMSI, or AIS data.",
   "license": "Apache-2.0",
   "author": "VesselTwin contributors",
