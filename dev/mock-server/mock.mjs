@@ -66,9 +66,9 @@ function shortText(v, max) {
 /** Returns a list of {path,message} issues for the pairing start body (strict). */
 function validateStart(b) {
   const issues = [];
-  const bad = (path, message = 'Invalid') => issues.push({ path, message });
+  const bad = (path, code = 'invalid') => issues.push({ path, code });
   if (typeof b !== 'object' || b === null || Array.isArray(b))
-    return [{ path: '', message: 'Invalid' }];
+    return [{ path: '', code: 'invalid' }];
   const known = [
     'provider',
     'clientName',
@@ -116,7 +116,7 @@ function validateStart(b) {
 
 const validationFailed = (errors) => ({
   status: 400,
-  // validation failure: { message, errors: [{ path, message }] }
+  // validation failure: { message: 'Validation failed', errors: [{ path, code }] }
   body: { message: 'Validation failed', errors },
 });
 
@@ -285,7 +285,7 @@ export function createMock(o = {}) {
     const trimmed = isObj && typeof body.deviceCode === 'string' ? body.deviceCode.trim() : '';
     // body is exactly { deviceCode: trimmed string, 16..128 chars }
     if (!isObj || Object.keys(body).length !== 1 || trimmed.length < 16 || trimmed.length > 128) {
-      return validationFailed([{ path: 'deviceCode', message: 'Invalid' }]);
+      return validationFailed([{ path: 'deviceCode', code: 'invalid' }]);
     }
     const p = pairings.get(sha256(trimmed));
     // unknown, expired and consumed all read as expired_token
@@ -345,9 +345,9 @@ export function createMock(o = {}) {
   /** Envelope check for the readings body (strict, like the vendored request schema). */
   function validateReadings(b) {
     const errors = [];
-    const bad = (path, message = 'Invalid') => errors.push({ path, message });
+    const bad = (path, code = 'invalid') => errors.push({ path, code });
     const isObj = (x) => typeof x === 'object' && x !== null && !Array.isArray(x);
-    if (!isObj(b)) return [{ path: '', message: 'Invalid' }];
+    if (!isObj(b)) return [{ path: '', code: 'invalid' }];
     for (const k of Object.keys(b)) if (k !== 'readings') bad(k, 'Unrecognized key');
     if (!Array.isArray(b.readings) || b.readings.length < 1 || b.readings.length > MAX_BATCH) {
       bad('readings');
