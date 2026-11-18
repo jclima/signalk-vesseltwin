@@ -6,6 +6,10 @@
 [Signal K](https://signalk.org) server plugin sends engine hours, battery readings, and tank levels
 from your boat's Signal K server to that record, so hour-based service comes due on real hours.
 
+Already running [VesselStack](https://github.com/jclima/VesselStack)? Keep its onboard tools alongside
+your VesselTwin record and use this plugin as the optional bridge. An existing Signal K server works
+too; VesselStack is optional. [See how the tools fit together](https://www.vesseltwin.io/connected-boat).
+
 - **Sends**: engine and generator run time, battery voltage and charge, and tank levels, only for
   the categories you turn on.
 - **Never sends**: position, tracks, MMSI, callsign, vessel or crew names, free text, or any AIS data.
@@ -21,8 +25,9 @@ from your boat's Signal K server to that record, so hour-based service comes due
 
 ## What you need
 
-- A [VesselTwin](https://vesseltwin.io) account on the Owner Pro plan. Accounts on other plans
-  can't connect a device, and the plugin can't send readings until the plan allows it.
+- A [VesselTwin](https://www.vesseltwin.io/) account with a plan that includes the Signal K
+  integration, normally Owner Pro. Account access must also be enabled. Check **Settings >
+  Integrations > Signal K** before buying a plan for this connection.
 - A Signal K server, `signalk-server` 2.x, running Node.js 20.3 or newer. Sending readings also
   needs a server that offers plugins a subscription manager (every 2.x release does). If yours
   doesn't, the status line says so.
@@ -230,6 +235,13 @@ The page's own files (HTML, CSS, scripts) are public static files and contain no
 
 ## Using with VesselStack
 
+[VesselStack](https://github.com/jclima/VesselStack) is a separate, self-hosted system for onboard
+monitoring, automation, local history, and diagnostics. It is optional: this plugin also works with
+an existing Signal K 2.x server that meets the requirements above. VesselTwin keeps the long-term
+boat record; this plugin is the optional bridge for selected readings.
+[See how the tools fit together](https://www.vesseltwin.io/connected-boat) or follow the
+[VesselStack connection guide](https://github.com/jclima/VesselStack/blob/main/docs/VESSELTWIN.md).
+
 VesselStack's managed Signal K installs can come with this plugin already installed. That copy may
 be older than the latest release, and VesselStack never overwrites it, so update VesselTwin from the
 Appstore. VesselStack doesn't enable, pair, or turn on readings for you: enable it under Server >
@@ -264,4 +276,6 @@ server. The `/status` response lists each category as configured (`enabled`) and
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE). This open-source license is separate from the VesselTwin
+account and eligible plan required for the cloud connection. Check **Settings > Integrations >
+Signal K** in VesselTwin before buying a plan for this connection; account availability may vary.

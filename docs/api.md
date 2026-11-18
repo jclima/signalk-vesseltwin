@@ -3,6 +3,10 @@
 This describes the VesselTwin integrations API as the plugin uses it: the **pairing** and
 **credential management** surface, the status probe, and the **readings** upload (covered at the end).
 Uploading is off until the owner turns it on in the plugin settings.
+The plugin connects selected onboard readings to the long-term [VesselTwin boat record](https://www.vesseltwin.io/).
+It works with an existing Signal K server; [VesselStack](https://github.com/jclima/VesselStack) is
+an optional host, not a requirement. See the [owner setup guide](../README.md#connect-your-boat)
+and [how the tools fit together](https://www.vesseltwin.io/connected-boat).
 All paths are relative to the API base URL (default `https://api.vesseltwin.io`).
 
 Stability labels used below:
